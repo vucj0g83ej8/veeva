@@ -1,0 +1,754 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LINE LIFF UI/UX Template</title>
+  <style>
+    :root {
+      --primary: #06c755;
+      --primary-deep: #147a5c;
+      --mint: #eaf8f1;
+      --mint-strong: #bdf3dc;
+      --canvas: #fbfaf7;
+      --surface: #ffffff;
+      --surface-soft: #f4f8f5;
+      --ink: #17211d;
+      --muted: #68736d;
+      --line: #dde5df;
+      --warning: #c76a12;
+      --warning-bg: #fff3dd;
+      --shadow: 0 18px 45px rgba(23, 33, 29, 0.1);
+      --radius-xl: 28px;
+      --radius-lg: 22px;
+      --radius-md: 16px;
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", "PingFang TC", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: #f0f4f1;
+      color: var(--ink);
+      font-family: var(--font);
+      letter-spacing: 0;
+    }
+
+    .page {
+      max-width: 1320px;
+      margin: 0 auto;
+      padding: 40px 32px 56px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 28px;
+      align-items: stretch;
+      margin-bottom: 28px;
+    }
+
+    .intro,
+    .tokens,
+    .section {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      box-shadow: 0 12px 30px rgba(23, 33, 29, 0.05);
+    }
+
+    .intro {
+      padding: 34px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 18px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      color: var(--primary-deep);
+      background: var(--mint);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      max-width: 760px;
+      font-size: 46px;
+      line-height: 1.08;
+      font-weight: 900;
+    }
+
+    .intro p {
+      max-width: 740px;
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.8;
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 26px;
+    }
+
+    .chip {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 9px 13px;
+      color: var(--primary-deep);
+      background: #fff;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .tokens {
+      padding: 24px;
+    }
+
+    .tokens h2,
+    .section h2 {
+      font-size: 24px;
+      line-height: 1.2;
+      font-weight: 900;
+    }
+
+    .token-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 20px;
+    }
+
+    .token {
+      min-height: 88px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      background: var(--surface-soft);
+    }
+
+    .swatch {
+      width: 100%;
+      height: 30px;
+      margin-bottom: 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(23, 33, 29, 0.08);
+    }
+
+    .token strong {
+      display: block;
+      font-size: 13px;
+    }
+
+    .token span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .section {
+      margin-top: 28px;
+      padding: 28px;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 26px;
+    }
+
+    .section-head p {
+      max-width: 720px;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    .phone-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 22px;
+    }
+
+    .phone {
+      position: relative;
+      aspect-ratio: 430 / 935;
+      min-height: 0;
+      padding: 8px;
+      border: 9px solid #101817;
+      border-radius: 42px;
+      background: var(--canvas);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .phone::before {
+      content: "";
+      position: absolute;
+      top: 12px;
+      left: 50%;
+      width: 112px;
+      height: 26px;
+      transform: translateX(-50%);
+      border-radius: 999px;
+      background: #050606;
+      z-index: 4;
+    }
+
+    .phone.with-shot {
+      background: #101817;
+    }
+
+    .phone.with-shot::before {
+      display: none;
+    }
+
+    .phone-shot {
+      display: block;
+      width: 100%;
+      height: 100%;
+      border-radius: 30px;
+      object-fit: cover;
+      object-position: top center;
+      background: var(--canvas);
+    }
+
+    .screen {
+      display: flex;
+      min-height: 680px;
+      flex-direction: column;
+      padding: 48px 12px 84px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+    }
+
+    .brand {
+      font-size: 15px;
+      font-weight: 800;
+    }
+
+    .bell,
+    .iconbox {
+      display: grid;
+      width: 42px;
+      height: 42px;
+      place-items: center;
+      border-radius: 16px;
+      color: var(--primary-deep);
+      background: var(--mint);
+      font-weight: 900;
+    }
+
+    .title {
+      margin-bottom: 18px;
+      font-size: 26px;
+      line-height: 1.2;
+      font-weight: 900;
+    }
+
+    .subtle {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .stack {
+      display: grid;
+      gap: 14px;
+    }
+
+    .activity-card {
+      padding: 18px;
+      border: 1px solid rgba(221, 229, 223, 0.8);
+      border-radius: 24px;
+      background: #fffdf7;
+      box-shadow: 0 12px 28px rgba(23, 33, 29, 0.06);
+    }
+
+    .activity-card.green {
+      background: #f3fbf7;
+    }
+
+    .card-top {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      height: 28px;
+      padding: 0 10px;
+      border-radius: 999px;
+      color: var(--primary-deep);
+      background: var(--mint);
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .badge.warning {
+      color: var(--warning);
+      background: var(--warning-bg);
+    }
+
+    .activity-card h3,
+    .coupon-card h3,
+    .member-card h3 {
+      margin-bottom: 8px;
+      font-size: 19px;
+      line-height: 1.25;
+      font-weight: 900;
+    }
+
+    .reward-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 14px;
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.8);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .button {
+      display: inline-flex;
+      min-height: 46px;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 16px;
+      padding: 0 18px;
+      border: 0;
+      border-radius: 15px;
+      color: #fff;
+      background: var(--primary-deep);
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .button.full {
+      width: 100%;
+    }
+
+    .button.line {
+      background: var(--primary);
+    }
+
+    .button.ghost {
+      color: var(--primary-deep);
+      border: 1px solid var(--line);
+      background: #fff;
+    }
+
+    .news-card,
+    .coupon-card,
+    .member-card,
+    .referral-card {
+      display: flex;
+      gap: 14px;
+      align-items: center;
+      min-height: 92px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.86);
+      box-shadow: 0 10px 22px rgba(23, 33, 29, 0.05);
+    }
+
+    .news-card h3 {
+      margin-bottom: 5px;
+      font-size: 14px;
+      line-height: 1.35;
+      font-weight: 900;
+    }
+
+    .arrow {
+      margin-left: auto;
+      color: var(--muted);
+      font-size: 24px;
+    }
+
+    .coupon-card {
+      align-items: center;
+      justify-content: space-between;
+      min-height: 112px;
+    }
+
+    .coupon-card .button {
+      min-width: 78px;
+      margin-top: 0;
+    }
+
+    .member-card {
+      display: block;
+      padding: 18px;
+    }
+
+    .profile {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+
+    .avatar {
+      display: grid;
+      width: 58px;
+      height: 58px;
+      place-items: center;
+      border-radius: 22px;
+      background: var(--mint-strong);
+      color: var(--primary-deep);
+      font-size: 22px;
+      font-weight: 900;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .stat {
+      min-height: 74px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: #fff;
+    }
+
+    .stat strong {
+      display: block;
+      margin-top: 3px;
+      font-size: 24px;
+      font-weight: 900;
+    }
+
+    .menu-list {
+      margin-top: 14px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: #fff;
+    }
+
+    .menu-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 15px;
+      border-bottom: 1px solid var(--line);
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .menu-item:last-child {
+      border-bottom: 0;
+    }
+
+    .message-pop {
+      position: absolute;
+      top: 86px;
+      right: 12px;
+      left: 70px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      background: rgba(255, 255, 255, 0.96);
+      box-shadow: 0 18px 40px rgba(23, 33, 29, 0.14);
+      z-index: 3;
+    }
+
+    .message-pop h3 {
+      margin-bottom: 10px;
+      font-size: 16px;
+      font-weight: 900;
+    }
+
+    .message-pop li {
+      margin: 0;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--line);
+      color: var(--ink);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .message-pop li:last-child {
+      border-bottom: 0;
+    }
+
+    .referral-card {
+      display: block;
+      padding: 18px;
+      background: #fffaf0;
+    }
+
+    .referral-steps {
+      display: grid;
+      gap: 10px;
+      margin: 14px 0;
+    }
+
+    .step {
+      display: flex;
+      gap: 10px;
+      align-items: start;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .dot {
+      display: grid;
+      width: 22px;
+      height: 22px;
+      flex: 0 0 auto;
+      place-items: center;
+      border-radius: 50%;
+      color: #fff;
+      background: var(--primary-deep);
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .nav {
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      padding: 8px 10px 10px;
+      border-top: 1px solid rgba(221, 229, 223, 0.8);
+      background: rgba(234, 248, 241, 0.92);
+      backdrop-filter: blur(12px);
+    }
+
+    .nav-item {
+      display: grid;
+      min-height: 50px;
+      place-items: center;
+      color: var(--ink);
+      font-size: 11px;
+      gap: 3px;
+    }
+
+    .nav-item.active span:first-child {
+      display: grid;
+      width: 50px;
+      height: 28px;
+      place-items: center;
+      border-radius: 999px;
+      background: var(--mint-strong);
+    }
+
+    .component-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .component {
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: var(--surface-soft);
+    }
+
+    .component h3 {
+      margin-bottom: 10px;
+      font-size: 17px;
+      font-weight: 900;
+    }
+
+    .component p {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    @media (max-width: 1180px) {
+      .hero,
+      .phone-row,
+      .component-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 720px) {
+      .page {
+        padding: 24px 14px 40px;
+      }
+
+      .hero,
+      .phone-row,
+      .component-grid {
+        grid-template-columns: 1fr;
+      }
+
+      h1 {
+        font-size: 34px;
+      }
+
+      .intro,
+      .tokens,
+      .section {
+        border-radius: 22px;
+        padding: 22px;
+      }
+
+      .token-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .phone {
+        max-width: 390px;
+        margin: 0 auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <div class="intro">
+        <div class="eyebrow">LINE LIFF UI/UX Template</div>
+        <h1>VeeVa 會員系統 LIFF 版視覺模板</h1>
+        <p>以 LINE 內開啟的手機體驗為核心，將會員登入、活動、問卷、兌換券、系統訊息與邀請好友整合成一致的產品語言。此模板可作為之後建立新專案時的 UI/UX 起始版本。</p>
+        <div class="chips">
+          <span class="chip">Mobile First</span>
+          <span class="chip">LINE Native Feel</span>
+          <span class="chip">Reward Journey</span>
+          <span class="chip">Medical Trust</span>
+          <span class="chip">Admin Ready</span>
+        </div>
+      </div>
+
+      <div class="tokens">
+        <h2>Design Tokens</h2>
+        <div class="token-grid">
+          <div class="token">
+            <div class="swatch" style="background:#06c755"></div>
+            <strong>Primary</strong>
+            <span>#06C755</span>
+          </div>
+          <div class="token">
+            <div class="swatch" style="background:#147a5c"></div>
+            <strong>Primary Deep</strong>
+            <span>#147A5C</span>
+          </div>
+          <div class="token">
+            <div class="swatch" style="background:#eaf8f1"></div>
+            <strong>Mint Surface</strong>
+            <span>#EAF8F1</span>
+          </div>
+          <div class="token">
+            <div class="swatch" style="background:#fbfaf7"></div>
+            <strong>Warm Canvas</strong>
+            <span>#FBFAF7</span>
+          </div>
+          <div class="token">
+            <div class="swatch" style="background:#17211d"></div>
+            <strong>Ink</strong>
+            <span>#17211D</span>
+          </div>
+          <div class="token">
+            <div class="swatch" style="background:#fff3dd"></div>
+            <strong>Warning Surface</strong>
+            <span>#FFF3DD</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <h2>顧客端核心畫面</h2>
+          <p>下方四個畫面定義 LIFF 會員系統的主要風格：首頁任務、最新資訊、兌換券、會員與邀請好友。實際開發時可以沿用這些元件和間距。</p>
+        </div>
+      </div>
+
+      <div class="phone-row">
+        <article class="phone with-shot">
+          <img class="phone-shot" src="assets/app-screens/customer-01-activity.png" alt="活動消息畫面">
+        </article>
+
+        <article class="phone with-shot">
+          <img class="phone-shot" src="assets/app-screens/customer-08-coupons.png" alt="最新資訊畫面">
+        </article>
+
+        <article class="phone with-shot">
+          <img class="phone-shot" src="assets/app-screens/customer-07-news.png" alt="兌換券畫面">
+        </article>
+
+        <article class="phone with-shot">
+          <img class="phone-shot" src="assets/app-screens/customer-06-messages.png" alt="會員中心與系統訊息畫面">
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <h2>元件規則</h2>
+          <p>每個新 LIFF 專案都可以先套用這些元件規則，再依照品牌調整色彩與內容。</p>
+        </div>
+      </div>
+      <div class="component-grid">
+        <div class="component">
+          <h3>Bottom Navigation</h3>
+          <p>最多 4 個入口，顧客端建議固定為活動、資訊、兌換、會員。選取狀態使用薄荷綠膠囊底色。</p>
+        </div>
+        <div class="component">
+          <h3>Primary CTA</h3>
+          <p>高度 46px 到 48px，實心深綠或 LINE 綠。每張卡片只保留一個主要操作。</p>
+        </div>
+        <div class="component">
+          <h3>System Messages</h3>
+          <p>使用右上通知鈴開啟小型浮層。訊息不全螢幕化，避免打斷任務流程。</p>
+        </div>
+        <div class="component">
+          <h3>Reward Card</h3>
+          <p>兌換券卡片只放商品名稱、期限與操作按鈕，降低掃描負擔。</p>
+        </div>
+        <div class="component">
+          <h3>Referral Flow</h3>
+          <p>推薦流程使用三步驟說明，主要按鈕為 LINE 分享，降低使用者理解成本。</p>
+        </div>
+        <div class="component">
+          <h3>Review Status</h3>
+          <p>審核中、已通過、已發券必須用一致的 badge 樣式呈現，避免同狀態不同顏色。</p>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

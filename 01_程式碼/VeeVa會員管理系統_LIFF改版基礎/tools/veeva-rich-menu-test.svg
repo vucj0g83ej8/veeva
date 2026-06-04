@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2500" height="843" viewBox="0 0 2500 843">
+  <rect width="2500" height="843" fill="#f7fbf8"/>
+  <rect x="80" y="80" width="2340" height="683" rx="64" fill="#06c755"/>
+  <rect x="118" y="118" width="2264" height="607" rx="48" fill="#ffffff" opacity="0.12"/>
+  <text x="1250" y="330" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="132" font-weight="700" fill="#ffffff">VeeVa Member System</text>
+  <text x="1250" y="500" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="82" font-weight="700" fill="#ffffff">Open LIFF Test</text>
+  <text x="1250" y="620" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="48" fill="#eafff2">Tap to start member login and survey flow</text>
+</svg>

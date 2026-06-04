@@ -1,0 +1,2088 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VeeVa Member System Screen Guide</title>
+  <style>
+    :root {
+      --ink: #17211d;
+      --muted: #66716b;
+      --line: #cfd9d3;
+      --soft: #f4f7f5;
+      --paper: #ffffff;
+      --green: #147a5c;
+      --green-soft: #e7f6ef;
+      --warn: #fff3dd;
+      --warn-text: #a95b12;
+      --shadow: 0 18px 42px rgba(23, 33, 29, 0.08);
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", "PingFang TC", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: #eef3f0;
+      color: var(--ink);
+      font-family: var(--font);
+      letter-spacing: 0;
+    }
+
+    .page {
+      max-width: 1320px;
+      margin: 0 auto;
+      padding: 40px 28px 56px;
+    }
+
+    .hero,
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      background: var(--paper);
+      box-shadow: var(--shadow);
+    }
+
+    .hero {
+      padding: 34px;
+      margin-bottom: 24px;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      height: 30px;
+      padding: 0 12px;
+      border-radius: 999px;
+      color: var(--green);
+      background: var(--green-soft);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      margin-top: 16px;
+      font-size: 38px;
+      line-height: 1.15;
+      font-weight: 900;
+    }
+
+    .hero p {
+      max-width: 880px;
+      margin-top: 14px;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.8;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .legend-item {
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .panel {
+      padding: 28px;
+      margin-top: 24px;
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 22px;
+    }
+
+    h2 {
+      font-size: 24px;
+      line-height: 1.2;
+      font-weight: 900;
+    }
+
+    .note {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .flow-card {
+      position: relative;
+      min-height: 168px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--soft);
+    }
+
+    .flow-card::after {
+      content: "→";
+      position: absolute;
+      top: 50%;
+      right: -16px;
+      transform: translateY(-50%);
+      color: var(--green);
+      font-size: 22px;
+      font-weight: 900;
+      z-index: 1;
+    }
+
+    .flow-card:last-child::after {
+      display: none;
+    }
+
+    .step-no {
+      display: inline-flex;
+      align-items: center;
+      height: 26px;
+      padding: 0 10px;
+      border-radius: 999px;
+      color: #fff;
+      background: var(--green);
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .flow-card h3 {
+      margin-top: 12px;
+      font-size: 17px;
+      font-weight: 900;
+    }
+
+    .flow-card p {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .channel {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      margin-top: 12px;
+      padding: 0 9px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    .channel.line-oa {
+      color: #057b38;
+      background: #e4f8ec;
+      border: 1px solid #bde9cf;
+    }
+
+    .channel.liff {
+      color: #147a5c;
+      background: #e7f6ef;
+      border: 1px solid #cce8db;
+    }
+
+    .channel.friend-chat {
+      color: #315b8f;
+      background: #e9f1ff;
+      border: 1px solid #c7d9f6;
+    }
+
+    .channel.system {
+      color: #7b4d08;
+      background: #fff3dd;
+      border: 1px solid #f0d5a7;
+    }
+
+    .screens {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 14px;
+      align-items: start;
+    }
+
+    .phone {
+      position: relative;
+      aspect-ratio: 390 / 844;
+      min-height: 0;
+      padding: 12px;
+      border: 8px solid #111817;
+      border-radius: 38px;
+      background: #fbfaf7;
+      box-shadow: 0 14px 32px rgba(23, 33, 29, 0.12);
+      overflow: hidden;
+    }
+
+    .phone::before {
+      content: "";
+      position: absolute;
+      top: 12px;
+      left: 50%;
+      width: 42%;
+      max-width: 100px;
+      height: 22px;
+      transform: translateX(-50%);
+      border-radius: 999px;
+      background: #050606;
+    }
+
+    .screen {
+      height: 100%;
+      min-height: 0;
+      overflow: hidden;
+      padding: 48px 8px 58px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 18px;
+    }
+
+    .brand-line {
+      width: 92px;
+      height: 14px;
+      border-radius: 999px;
+      background: #1d2823;
+    }
+
+    .circle {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      background: var(--green-soft);
+      border: 1px solid var(--line);
+    }
+
+    .wf-title {
+      width: 70%;
+      height: 28px;
+      margin-bottom: 10px;
+      border-radius: 999px;
+      background: #1d2823;
+    }
+
+    .wf-text {
+      width: 100%;
+      height: 12px;
+      margin-top: 8px;
+      border-radius: 999px;
+      background: #d9e2dc;
+    }
+
+    .wf-text.short {
+      width: 68%;
+    }
+
+    .wire-card {
+      margin-top: 18px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: #fff;
+    }
+
+    .wire-card.tint {
+      background: #fffaf0;
+    }
+
+    .wire-icon {
+      width: 46px;
+      height: 46px;
+      margin-bottom: 14px;
+      border-radius: 16px;
+      background: var(--green-soft);
+      border: 1px solid var(--line);
+    }
+
+    .wire-button {
+      display: grid;
+      width: 100%;
+      height: 46px;
+      place-items: center;
+      margin-top: 18px;
+      border-radius: 14px;
+      color: #fff;
+      background: var(--green);
+      font-size: 14px;
+      font-weight: 900;
+    }
+
+    .wire-button.line {
+      background: #06c755;
+    }
+
+    .wire-button.ghost {
+      color: var(--green);
+      border: 1px solid var(--line);
+      background: #fff;
+    }
+
+    .status-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .status-box {
+      min-height: 72px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #fff;
+    }
+
+    .mini-pill {
+      width: 72px;
+      height: 22px;
+      border-radius: 999px;
+      background: var(--green-soft);
+      border: 1px solid var(--line);
+    }
+
+    .bottom-nav {
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      padding: 8px 12px;
+      border-top: 1px solid var(--line);
+      background: #eaf8f1;
+    }
+
+    .nav-dot {
+      width: 38px;
+      height: 24px;
+      margin: 0 auto;
+      border-radius: 999px;
+      background: #d4efe3;
+    }
+
+    .app-brand {
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .app-icon {
+      display: grid;
+      width: 38px;
+      height: 38px;
+      place-items: center;
+      border-radius: 15px;
+      color: var(--green);
+      background: var(--green-soft);
+      border: 1px solid #cce8db;
+      font-size: 16px;
+      font-weight: 900;
+    }
+
+    .app-title {
+      margin-bottom: 8px;
+      font-size: 22px;
+      line-height: 1.2;
+      font-weight: 900;
+    }
+
+    .app-copy {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .real-card {
+      margin-top: 12px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: #fff;
+      box-shadow: 0 10px 24px rgba(23, 33, 29, 0.05);
+    }
+
+    .real-card.cream {
+      background: #fffaf0;
+    }
+
+    .real-card.mint {
+      background: #f2fbf6;
+    }
+
+    .card-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .avatar {
+      display: grid;
+      width: 46px;
+      height: 46px;
+      place-items: center;
+      border-radius: 19px;
+      color: var(--green);
+      background: #bff4dd;
+      font-size: 18px;
+      font-weight: 900;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      height: 24px;
+      padding: 0 9px;
+      border-radius: 999px;
+      color: var(--green);
+      background: var(--green-soft);
+      font-size: 11px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .status-pill.warn {
+      color: var(--warn-text);
+      background: var(--warn);
+    }
+
+    .real-card h3 {
+      margin-bottom: 7px;
+      font-size: 16px;
+      line-height: 1.3;
+      font-weight: 900;
+    }
+
+    .real-button {
+      display: grid;
+      width: 100%;
+      min-height: 42px;
+      place-items: center;
+      margin-top: 12px;
+      border-radius: 15px;
+      color: #fff;
+      background: var(--green);
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .real-button.line {
+      background: #06c755;
+    }
+
+    .real-button.ghost {
+      color: var(--green);
+      border: 1px solid var(--line);
+      background: #fff;
+    }
+
+    .mini-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .mini-item {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      min-height: 34px;
+      padding: 8px 10px;
+      border-radius: 13px;
+      background: rgba(255, 255, 255, 0.72);
+      color: var(--ink);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .mini-item span:first-child {
+      display: grid;
+      width: 22px;
+      height: 22px;
+      flex: 0 0 auto;
+      place-items: center;
+      border-radius: 50%;
+      color: #fff;
+      background: var(--green);
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    .friend-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 12px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 17px;
+      background: #fff;
+    }
+
+    .friend-row strong {
+      display: block;
+      font-size: 14px;
+    }
+
+    .friend-row small {
+      display: block;
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .progress-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .progress-item {
+      display: grid;
+      grid-template-columns: 24px 1fr auto;
+      align-items: center;
+      gap: 9px;
+      min-height: 40px;
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: 15px;
+      background: #fff;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .check {
+      display: grid;
+      width: 24px;
+      height: 24px;
+      place-items: center;
+      border-radius: 50%;
+      color: #fff;
+      background: var(--green);
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .check.pending {
+      color: var(--warn-text);
+      background: var(--warn);
+    }
+
+    .coupon {
+      position: relative;
+      margin-top: 12px;
+      padding: 14px;
+      border: 1px solid #cae9da;
+      border-radius: 20px;
+      background: linear-gradient(135deg, #f2fff8, #ffffff);
+      overflow: hidden;
+    }
+
+    .coupon::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: -18px;
+      width: 36px;
+      height: 36px;
+      transform: translateY(-50%);
+      border-radius: 50%;
+      background: #fbfaf7;
+      border: 1px solid #cae9da;
+    }
+
+    .coupon strong {
+      display: block;
+      font-size: 16px;
+      font-weight: 900;
+    }
+
+    .coupon small {
+      display: block;
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .nav-label {
+      display: grid;
+      place-items: center;
+      gap: 4px;
+      color: var(--ink);
+      font-size: 9px;
+      font-weight: 700;
+    }
+
+    .nav-label b {
+      display: grid;
+      width: 38px;
+      height: 22px;
+      place-items: center;
+      border-radius: 999px;
+      background: #d4efe3;
+      font-size: 10px;
+    }
+
+    .chat-screen {
+      display: flex;
+      height: 100%;
+      min-height: 0;
+      flex-direction: column;
+      padding: 32px 0 0;
+      background: #8ea6c5;
+    }
+
+    .chat-head {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 48px;
+      padding: 0 10px;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+      background: #fff;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+      z-index: 1;
+    }
+
+    .back-mark {
+      color: #252b2a;
+      font-size: 19px;
+      font-weight: 900;
+      line-height: 1;
+    }
+
+    .chat-avatar {
+      display: grid;
+      width: 32px;
+      height: 32px;
+      place-items: center;
+      border-radius: 50%;
+      color: var(--green);
+      background: #bff4dd;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .chat-avatar.friend {
+      color: #fff;
+      background: #5d83bd;
+    }
+
+    .chat-name {
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .chat-sub {
+      color: #7b8580;
+      font-size: 9px;
+      font-weight: 700;
+    }
+
+    .chat-actions {
+      margin-left: auto;
+      color: #323937;
+      font-size: 18px;
+      font-weight: 900;
+    }
+
+    .chat-body {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+      flex-direction: column;
+      gap: 8px;
+      padding: 10px 9px;
+      overflow: hidden;
+    }
+
+    .chat-date {
+      align-self: center;
+      padding: 4px 9px;
+      border-radius: 999px;
+      color: #fff;
+      background: rgba(45, 57, 71, 0.42);
+      font-size: 9px;
+      font-weight: 800;
+    }
+
+    .bubble {
+      max-width: 88%;
+      position: relative;
+      padding: 8px 10px;
+      border-radius: 16px;
+      background: #fff;
+      box-shadow: none;
+      font-size: 11px;
+      line-height: 1.55;
+      font-weight: 700;
+    }
+
+    .bubble.me {
+      align-self: flex-end;
+      color: #111817;
+      background: #8de85e;
+      border-top-right-radius: 5px;
+    }
+
+    .bubble:not(.me) {
+      border-top-left-radius: 5px;
+    }
+
+    .bubble-time {
+      align-self: flex-end;
+      margin-top: -5px;
+      color: rgba(255, 255, 255, 0.86);
+      font-size: 8px;
+      font-weight: 800;
+    }
+
+    .chat-card {
+      max-width: 92%;
+      overflow: hidden;
+      padding: 0;
+      border: 0;
+      border-radius: 14px;
+      background: #fff;
+      box-shadow: 0 2px 8px rgba(30, 45, 61, 0.12);
+    }
+
+    .chat-card-cover {
+      display: grid;
+      min-height: 62px;
+      place-items: center;
+      color: #fff;
+      background: linear-gradient(135deg, #06c755, #147a5c);
+      font-size: 17px;
+      font-weight: 900;
+    }
+
+    .chat-card-body {
+      padding: 10px;
+    }
+
+    .chat-card h3 {
+      margin-bottom: 6px;
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .chat-card p {
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.5;
+    }
+
+    .chat-link {
+      display: block;
+      margin-top: 8px;
+      padding: 8px 9px;
+      border-radius: 10px;
+      color: var(--green);
+      background: var(--green-soft);
+      font-size: 10px;
+      font-weight: 900;
+    }
+
+    .rich-menu {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1px;
+      padding: 1px;
+      border-top: 1px solid #d8dedb;
+      background: #d8dedb;
+    }
+
+    .rich-menu div {
+      display: grid;
+      min-height: 48px;
+      place-items: center;
+      border-radius: 0;
+      background: #fff;
+      color: var(--green);
+      font-size: 10px;
+      font-weight: 900;
+    }
+
+    .chat-input {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 44px;
+      padding: 7px 8px 9px;
+      border-top: 1px solid rgba(0, 0, 0, 0.08);
+      background: #f8faf9;
+    }
+
+    .input-icon {
+      display: grid;
+      width: 24px;
+      height: 24px;
+      place-items: center;
+      color: #5d6662;
+      font-size: 14px;
+      font-weight: 900;
+    }
+
+    .input-pill {
+      flex: 1;
+      min-height: 28px;
+      border-radius: 999px;
+      background: #fff;
+      border: 1px solid #dfe6e2;
+    }
+
+    .oa-note {
+      align-self: center;
+      max-width: 86%;
+      padding: 7px 10px;
+      border-radius: 12px;
+      color: #4e5a55;
+      background: rgba(255, 255, 255, 0.72);
+      font-size: 9px;
+      line-height: 1.45;
+      text-align: center;
+      font-weight: 800;
+    }
+
+    .line-oa-dark {
+      padding: 0;
+      background: #181818;
+      color: #fff;
+    }
+
+    .line-status {
+      display: grid;
+      grid-template-columns: 1fr 1.4fr 1fr;
+      align-items: center;
+      min-height: 48px;
+      padding: 8px 12px 4px;
+      color: #fff;
+      background: #101010;
+      font-weight: 900;
+    }
+
+    .line-time {
+      font-size: 18px;
+    }
+
+    .line-island {
+      height: 28px;
+      border-radius: 999px;
+      background: #000;
+    }
+
+    .line-signal {
+      text-align: right;
+      font-size: 13px;
+      letter-spacing: 1px;
+    }
+
+    .line-oa-head {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      min-height: 54px;
+      padding: 0 12px;
+      color: #fff;
+      background: #121212;
+      border-bottom: 1px solid #252525;
+    }
+
+    .line-back {
+      font-size: 26px;
+      font-weight: 300;
+      line-height: 1;
+    }
+
+    .line-count {
+      font-size: 20px;
+      font-weight: 900;
+    }
+
+    .line-oa-title {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .line-oa-title strong {
+      display: block;
+      overflow: hidden;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 900;
+      line-height: 1.2;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .line-oa-title span {
+      display: block;
+      margin-top: 2px;
+      overflow: hidden;
+      color: #9d9d9d;
+      font-size: 9px;
+      font-weight: 700;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .line-head-icons {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: #fff;
+      font-size: 18px;
+      font-weight: 900;
+    }
+
+    .line-chat-area {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+      flex-direction: column;
+      gap: 8px;
+      padding: 10px 12px 8px;
+      overflow: hidden;
+      background: #1b1b1b;
+    }
+
+    .line-card-message {
+      width: 86%;
+      overflow: hidden;
+      border-radius: 0 0 16px 16px;
+      background: #fff;
+      color: #202020;
+    }
+
+    .line-card-banner {
+      display: grid;
+      min-height: 42px;
+      place-items: center;
+      color: #147a5c;
+      background: linear-gradient(90deg, #f1fff5, #fff7d7, #dcf6ff);
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    .line-card-content {
+      padding: 18px 18px 16px;
+    }
+
+    .line-card-content h3 {
+      margin: 0 0 4px;
+      font-size: 19px;
+      font-weight: 900;
+    }
+
+    .line-card-content .date {
+      color: #8e8e8e;
+      font-size: 14px;
+      font-weight: 900;
+    }
+
+    .line-card-content .label {
+      margin-top: 18px;
+      color: #a3a3a3;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .line-card-content p {
+      margin: 8px 0 16px;
+      color: #4a4a4a;
+      font-size: 13px;
+      line-height: 1.6;
+      font-weight: 800;
+    }
+
+    .line-card-button {
+      display: grid;
+      min-height: 44px;
+      place-items: center;
+      border-radius: 10px;
+      color: #fff;
+      background: #06c755;
+      font-size: 15px;
+      font-weight: 900;
+    }
+
+    .line-card-secondary {
+      margin-top: 12px;
+      color: #06c755;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .line-time-label {
+      align-self: flex-end;
+      color: #858585;
+      font-size: 10px;
+      font-weight: 800;
+    }
+
+    .line-date-chip {
+      align-self: center;
+      padding: 5px 10px;
+      border-radius: 999px;
+      color: #fff;
+      background: #111;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .line-green-bubble {
+      align-self: flex-end;
+      padding: 9px 13px;
+      border-radius: 16px 3px 16px 16px;
+      color: #101010;
+      background: #75e75a;
+      font-size: 15px;
+      font-weight: 900;
+    }
+
+    .line-rich-menu {
+      display: grid;
+      height: 170px;
+      grid-template-columns: repeat(2, 1fr);
+      grid-template-rows: repeat(2, 1fr);
+      gap: 1px;
+      padding: 1px;
+      background: #d6d6d6;
+    }
+
+    .line-rich-item {
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.88), rgba(234, 248, 241, 0.88)), #d6efe3;
+      color: #1b1b1b;
+      text-align: center;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .line-rich-item span {
+      display: block;
+      margin-bottom: 3px;
+      color: var(--green);
+      font-size: 18px;
+    }
+
+    .line-menu-bar {
+      display: grid;
+      grid-template-columns: 40px 1fr 40px;
+      align-items: center;
+      min-height: 46px;
+      padding: 0 12px;
+      color: #fff;
+      background: #101010;
+      font-size: 14px;
+      font-weight: 900;
+    }
+
+    .line-menu-bar div:nth-child(2) {
+      text-align: center;
+    }
+
+    .login-card {
+      margin-top: 58px;
+      padding: 18px 14px;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: #fff;
+      text-align: center;
+      box-shadow: 0 10px 24px rgba(23, 33, 29, 0.06);
+    }
+
+    .login-card h3 {
+      margin: 14px 0 8px;
+      font-size: 21px;
+      font-weight: 900;
+    }
+
+    .login-logo {
+      display: grid;
+      width: 66px;
+      height: 66px;
+      margin: 0 auto;
+      place-items: center;
+      border-radius: 24px;
+      color: #fff;
+      background: #06c755;
+      font-size: 18px;
+      font-weight: 900;
+    }
+
+    .step-label {
+      display: inline-flex;
+      align-items: center;
+      height: 24px;
+      margin-bottom: 10px;
+      padding: 0 9px;
+      border-radius: 999px;
+      color: var(--green);
+      background: var(--green-soft);
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    .logic {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+
+    .logic-card {
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--soft);
+    }
+
+    .logic-card h3 {
+      margin-bottom: 12px;
+      font-size: 18px;
+      font-weight: 900;
+    }
+
+    .logic-card ul {
+      margin: 0;
+      padding-left: 20px;
+      color: var(--muted);
+      line-height: 1.8;
+      font-size: 14px;
+    }
+
+    .highlight {
+      color: var(--warn-text);
+      background: var(--warn);
+    }
+
+    @media (max-width: 1180px) {
+      .flow {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .flow-card::after {
+        display: none;
+      }
+
+      .screens {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 720px) {
+      .page {
+        padding: 22px 14px 40px;
+      }
+
+      .hero,
+      .panel {
+        padding: 22px;
+      }
+
+      h1 {
+        font-size: 30px;
+      }
+
+      .flow,
+      .screens,
+      .logic {
+        grid-template-columns: 1fr;
+      }
+
+      .phone {
+        max-width: 390px;
+        margin: 0 auto;
+      }
+    }
+
+    /* Guide layout, aligned with app-screens-guide.html */
+    body {
+      background:
+        radial-gradient(circle at top left, rgba(242, 220, 193, 0.9) 0, transparent 30%),
+        radial-gradient(circle at 85% 12%, rgba(255, 239, 213, 0.85) 0, transparent 24%),
+        linear-gradient(180deg, #fcf8f2 0%, #f3ece4 100%);
+      color: #1f2937;
+      font-family: "Helvetica Neue", Arial, "PingFang TC", "Microsoft JhengHei", sans-serif;
+    }
+
+    .page {
+      max-width: 1500px;
+      padding: 32px 20px 48px;
+    }
+
+    .hero,
+    .panel {
+      border-color: #dccfbe;
+      background: #fffdf9;
+      box-shadow: 0 24px 60px rgba(44, 30, 16, 0.08);
+    }
+
+    .hero {
+      padding: 28px 30px;
+      margin-bottom: 22px;
+    }
+
+    .hero h1 {
+      margin: 0 0 10px;
+      font-size: clamp(32px, 4vw, 48px);
+      line-height: 1.1;
+    }
+
+    .tag {
+      display: none;
+    }
+
+    .panel {
+      padding: 24px;
+      margin-top: 0;
+      margin-bottom: 22px;
+    }
+
+    .flow {
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+    }
+
+    .screens.guide-screens,
+    .customer-screens.guide-screens {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(280px, 1fr));
+      gap: 24px 18px;
+      margin-top: 18px;
+    }
+
+    .screen-page {
+      display: contents;
+    }
+
+    .guide-card {
+      display: grid;
+      grid-template-columns: 1fr 36px;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .guide-card.last {
+      grid-template-columns: 1fr;
+    }
+
+    .guide-arrow {
+      color: #b97835;
+      font-size: 28px;
+      text-align: center;
+    }
+
+    .phone-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .guide-label {
+      width: 100%;
+      max-width: 284px;
+      padding: 12px 14px;
+      border: 1px solid #dccfbe;
+      border-radius: 16px;
+      background: #fff;
+    }
+
+    .guide-label .step {
+      display: inline-block;
+      margin-bottom: 8px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      color: #fff;
+      background: #b45309;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .guide-label h3 {
+      margin: 0 0 6px;
+      font-size: 18px;
+    }
+
+    .guide-label p {
+      margin: 0;
+      color: #6b7280;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .phone-wrap > .phone {
+      width: 284px;
+      height: 590px;
+      aspect-ratio: auto;
+      flex: 0 0 auto;
+      margin: 0;
+      border-width: 10px;
+      border-radius: 42px;
+      box-shadow:
+        0 26px 60px rgba(15, 23, 42, 0.22),
+        0 10px 20px rgba(15, 23, 42, 0.12);
+    }
+
+    .phone.image-phone {
+      padding: 0;
+      background: #fff;
+    }
+
+    .phone.image-phone::before,
+    .phone.image-phone::after {
+      display: none;
+    }
+
+    .share-flow-shot {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: top center;
+      background: #fff;
+    }
+
+    .screen-shot {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      background: #fff;
+    }
+
+    .admin-screens {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 24px;
+      margin-top: 18px;
+    }
+
+    .desktop-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .desktop-wrap .guide-label {
+      max-width: none;
+    }
+
+    .guide-label .step.admin {
+      background: var(--green);
+    }
+
+    .guide-label .step.customer {
+      background: #b45309;
+    }
+
+    .desktop {
+      width: min(100%, 1040px);
+      overflow: hidden;
+      border: 10px solid #101418;
+      border-radius: 18px;
+      background: #101418;
+      box-shadow:
+        0 26px 60px rgba(15, 23, 42, 0.2),
+        0 10px 20px rgba(15, 23, 42, 0.12);
+    }
+
+    .desktop-shot {
+      display: block;
+      width: 100%;
+      background: #fff;
+    }
+
+    @media (max-width: 1160px) {
+      .screens.guide-screens,
+      .customer-screens.guide-screens {
+        grid-template-columns: repeat(2, minmax(280px, 1fr));
+      }
+    }
+
+    @media (max-width: 760px) {
+      .screens.guide-screens,
+      .customer-screens.guide-screens {
+        grid-template-columns: 1fr;
+      }
+
+      .guide-card {
+        grid-template-columns: 1fr;
+      }
+
+      .guide-arrow {
+        transform: rotate(90deg);
+      }
+
+      .phone-wrap > .phone {
+        width: 256px;
+        height: 552px;
+      }
+    }
+
+    @page {
+      size: A3 landscape;
+      margin: 10mm;
+    }
+
+    @media print {
+      body {
+        background: #fff;
+      }
+
+      .page {
+        max-width: none;
+        padding: 0;
+      }
+
+      .hero,
+      .panel {
+        box-shadow: none;
+      }
+
+      .screen-section {
+        break-before: page;
+        page-break-before: always;
+      }
+
+      .screen-section .panel-head {
+        break-after: avoid;
+        page-break-after: avoid;
+      }
+
+      .screens.guide-screens,
+      .customer-screens.guide-screens {
+        display: block;
+        margin-top: 10px;
+      }
+
+      .screen-page {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        align-items: center;
+        justify-items: center;
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
+
+      .screen-page + .screen-page {
+        break-before: page;
+        page-break-before: always;
+      }
+
+      .guide-card,
+      .guide-card.last {
+        grid-template-columns: 1fr;
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
+
+      .guide-arrow {
+        display: none;
+      }
+
+      .guide-label {
+        max-width: 226px;
+        padding: 9px 11px;
+      }
+
+      .guide-label h3 {
+        font-size: 15px;
+      }
+
+      .guide-label p {
+        font-size: 11px;
+        line-height: 1.5;
+      }
+
+      .phone-wrap > .phone {
+        width: 226px;
+        height: 486px;
+        border-width: 8px;
+        border-radius: 34px;
+        box-shadow: none;
+      }
+
+      .admin-section {
+        break-before: page;
+        page-break-before: always;
+      }
+
+      .desktop-wrap {
+        break-inside: avoid;
+        page-break-inside: avoid;
+        display: block;
+        margin-bottom: 18px;
+      }
+
+      .desktop-wrap + .desktop-wrap {
+        break-before: page;
+        page-break-before: always;
+      }
+
+      .desktop {
+        width: 78%;
+        margin: 0 auto;
+        border-width: 8px;
+        box-shadow: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <h1>VeeVa Member System Screen Guide</h1>
+      <p>This guide follows the original wireframe card layout and places the actual customer-side and admin-side screenshots directly into the document for proposal review, requirement confirmation, and presentation.</p>
+      <div class="legend">
+        <div class="legend-item">Customer App / Campaign Entry</div>
+        <div class="legend-item">Embedded Veeva Form</div>
+        <div class="legend-item">Coupons and Member Center</div>
+        <div class="legend-item">Admin Management Portal</div>
+      </div>
+    </section>
+
+    <section class="panel screen-section">
+      <div class="panel-head">
+        <div>
+          <h2>Member Sharing Flow Screens</h2>
+        </div>
+      </div>
+
+      <div class="screens share-flow-screens">
+        <article class="phone">
+          <div class="chat-screen line-oa-dark">
+            <div class="line-status">
+              <div class="line-time">2:03</div>
+              <div class="line-island"></div>
+              <div class="line-signal">▂▆▇ 80</div>
+            </div>
+            <div class="line-oa-head">
+              <div class="line-back">‹</div>
+              <div class="line-count">99+</div>
+              <div class="line-oa-title">
+                <strong>VeeVa 會員系統</strong>
+                <span>此官方帳號正在自動回覆訊息</span>
+              </div>
+              <div class="line-head-icons">
+                <span>⌕</span>
+                <span>▤</span>
+                <span>☰</span>
+              </div>
+            </div>
+            <div class="line-chat-area">
+              <div class="line-card-message">
+                <div class="line-card-banner">VeeVa Member Rewards</div>
+                <div class="line-card-content">
+                  <h3>會員專屬服務</h3>
+                  <div class="date">LINE LIFF 會員中心</div>
+                  <div class="label">服務內容</div>
+                  <p>完成會員登入、查看活動、兌換券與推薦好友獎勵。</p>
+                  <div class="line-card-button">開啟會員中心</div>
+                  <div class="line-card-secondary">查看我的兌換券</div>
+                </div>
+              </div>
+              <div class="line-time-label">上午 9:49</div>
+              <div class="line-date-chip">今天</div>
+              <div class="line-green-bubble">會員中心</div>
+              <div class="line-time-label">已讀 晚上 9:13</div>
+            </div>
+            <div class="line-rich-menu">
+              <div class="line-rich-item"><span>人</span>會員中心</div>
+              <div class="line-rich-item"><span>禮</span>活動消息</div>
+              <div class="line-rich-item"><span>券</span>兌換券</div>
+              <div class="line-rich-item"><span>↗</span>推薦好友</div>
+            </div>
+            <div class="line-menu-bar">
+              <div>▦</div>
+              <div>選單 ▾</div>
+              <div></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="phone">
+          <div class="screen">
+            <div class="topbar">
+              <div class="app-brand">VeeVa LIFF</div>
+              <div class="app-icon">L</div>
+            </div>
+            <div class="login-card">
+              <div class="login-logo">LINE</div>
+              <h3>會員登入</h3>
+              <p class="app-copy">登入後系統會取得 LINE userId，用於會員識別、推薦分享與優惠券發送。</p>
+              <div class="real-button line">使用 LINE 登入</div>
+            </div>
+          </div>
+        </article>
+
+        <article class="phone">
+          <div class="screen">
+            <div class="topbar">
+              <div class="app-brand">VeeVa LIFF</div>
+              <div class="app-icon">人</div>
+            </div>
+            <h2 class="app-title">會員中心</h2>
+            <p class="app-copy">登入完成後，顯示原本規劃的會員資料、兌換券與推薦功能。</p>
+            <div class="real-card">
+              <div class="card-top">
+                <div class="avatar">王</div>
+                <span class="status-pill">已登入</span>
+              </div>
+              <h3>王小明</h3>
+              <p class="app-copy">台大醫院｜心臟內科</p>
+              <div class="status-row">
+                <div class="status-box"><span class="status-pill">已得券</span><p class="app-copy" style="margin-top:8px">3 張</p></div>
+                <div class="status-box"><span class="status-pill">已邀請</span><p class="app-copy" style="margin-top:8px">5 人</p></div>
+              </div>
+            </div>
+            <div class="real-card cream">
+              <span class="status-pill warn">推薦分享</span>
+              <h3 style="margin-top:10px">邀請好友加入</h3>
+              <p class="app-copy">點擊分享後，透過 LINE 訊息傳送帶推薦碼的 LIFF 連結。</p>
+              <div class="real-button line">分享給 LINE 好友</div>
+            </div>
+          </div>
+          <div class="bottom-nav">
+            <div class="nav-label"><b>活</b>活動</div>
+            <div class="nav-label"><b>訊</b>資訊</div>
+            <div class="nav-label"><b>券</b>兌換</div>
+            <div class="nav-label"><b>人</b>會員</div>
+          </div>
+        </article>
+
+        <article class="phone">
+          <div class="chat-screen">
+            <div class="chat-head">
+              <div class="back-mark">‹</div>
+              <div class="chat-avatar friend">B</div>
+              <div>
+                <div class="chat-name">好友 B</div>
+                <div class="chat-sub">一般好友</div>
+              </div>
+              <div class="chat-actions">⋯</div>
+            </div>
+            <div class="chat-body">
+              <div class="chat-date">今天</div>
+              <div class="bubble me">我有一個 VeeVa 會員邀請連結，完成加入後可以領取優惠券。</div>
+              <div class="bubble-time">12:41</div>
+              <div class="chat-card" style="align-self:flex-end">
+                <div class="chat-card-cover">好友邀請</div>
+                <div class="chat-card-body">
+                  <span class="step-label">STEP 04</span>
+                  <h3>王小明邀請你加入</h3>
+                  <p>點擊連結進入 LIFF，完成加入 LINE@ 後系統會綁定推薦關係。</p>
+                  <span class="chat-link">liff.line.me/xxxx?ref=A123</span>
+                </div>
+              </div>
+              <div class="bubble">我點連結看看</div>
+            </div>
+            <div class="chat-input">
+              <div class="input-icon">＋</div>
+              <div class="input-pill"></div>
+              <div class="input-icon">☺</div>
+            </div>
+          </div>
+        </article>
+
+        <article class="phone">
+          <div class="screen">
+            <div class="topbar">
+              <div class="app-brand">VeeVa LIFF</div>
+              <div class="app-icon">邀</div>
+            </div>
+            <h2 class="app-title">好友邀請</h2>
+            <p class="app-copy">你從王小明分享的連結進入，系統已讀取推薦碼。</p>
+            <div class="friend-row">
+              <div class="avatar">王</div>
+              <div>
+                <strong>王小明 邀請你加入</strong>
+                <small>推薦碼 A123 已讀取</small>
+              </div>
+            </div>
+            <div class="real-card">
+              <div class="card-top">
+                <div class="app-icon">票</div>
+                <span class="status-pill warn">待加入</span>
+              </div>
+              <h3>加入 LINE@ 啟動綁定</h3>
+              <p class="app-copy">點擊後會引導到 VeeVa 官方帳號。加入後系統取得你的 LINE userId，並與分享者綁定。</p>
+              <div class="real-button line">前往 LINE@ 官方帳號</div>
+            </div>
+          </div>
+        </article>
+
+        <article class="phone">
+          <div class="chat-screen">
+            <div class="chat-head">
+              <div class="back-mark">‹</div>
+              <div class="chat-avatar">V</div>
+              <div>
+                <div class="chat-name">VeeVa 官方帳號</div>
+                <div class="chat-sub">官方帳號</div>
+              </div>
+              <div class="chat-actions">≡</div>
+            </div>
+            <div class="chat-body">
+              <div class="chat-date">今天</div>
+              <div class="oa-note">好友 B 已加入 VeeVa 官方帳號</div>
+              <div class="bubble">歡迎加入 VeeVa 官方帳號。</div>
+              <div class="chat-card">
+                <div class="chat-card-cover">綁定成功</div>
+                <div class="chat-card-body">
+                  <span class="step-label">STEP 06</span>
+                  <h3>推薦關係已建立</h3>
+                  <p>系統已將分享者王小明與你完成綁定，後續可追蹤審核與優惠券發送。</p>
+                  <span class="chat-link">查看會員任務</span>
+                </div>
+              </div>
+              <div class="bubble me">完成加入</div>
+              <div class="bubble-time">12:45</div>
+            </div>
+            <div class="rich-menu">
+              <div>會員</div>
+              <div>任務</div>
+              <div>兌換券</div>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel customer-section">
+      <div class="panel-head">
+        <div>
+          <h2>Customer App Screens</h2>
+        </div>
+      </div>
+
+      <div class="customer-screens guide-screens">
+        <div class="screen-page">
+          <div class="guide-card">
+            <div class="phone-wrap">
+              <div class="guide-label">
+                <span class="step customer">PAGE 01</span>
+                <h3>Campaigns</h3>
+                <p>Shows available member campaigns. Users can enter a survey or campaign flow from the campaign card.</p>
+              </div>
+              <article class="phone image-phone">
+                <img class="screen-shot" src="./assets/app-screens/customer-01-activity.png" alt="Customer campaign screen" />
+              </article>
+            </div>
+            <div class="guide-arrow">→</div>
+          </div>
+
+          <div class="guide-card">
+            <div class="phone-wrap">
+              <div class="guide-label">
+                <span class="step customer">PAGE 02</span>
+                <h3>Member Login</h3>
+                <p>Provides a LINE login entry point so users can quickly create or bind a member identity.</p>
+              </div>
+              <article class="phone image-phone">
+                <img class="screen-shot" src="./assets/share-flow/02.png" alt="Customer LIFF login screen" />
+              </article>
+            </div>
+            <div class="guide-arrow">→</div>
+          </div>
+
+          <div class="guide-card">
+            <div class="phone-wrap">
+              <div class="guide-label">
+                <span class="step customer">PAGE 03</span>
+                <h3>Veeva Form</h3>
+                <p>Embeds the Veeva Consent Form as a web page. Users submit the form after completion for review.</p>
+              </div>
+              <article class="phone image-phone">
+                <img class="screen-shot" src="./assets/app-screens/customer-03-survey.png" alt="Customer Veeva form screen" />
+              </article>
+            </div>
+            <div class="guide-arrow">→</div>
+          </div>
+        </div>
+
+        <div class="screen-page">
+          <div class="guide-card">
+            <div class="phone-wrap">
+              <div class="guide-label">
+                <span class="step customer">PAGE 04</span>
+                <h3>Submission Complete</h3>
+                <p>Shows a Thank You state and review notice after form submission, with a return-to-home action.</p>
+              </div>
+              <article class="phone image-phone">
+                <img class="screen-shot" src="./assets/app-screens/customer-04-thankyou.png" alt="Customer submission complete screen" />
+              </article>
+            </div>
+            <div class="guide-arrow">→</div>
+          </div>
+
+          <div class="guide-card">
+            <div class="phone-wrap">
+              <div class="guide-label">
+                <span class="step customer">PAGE 05</span>
+                <h3>Member Center</h3>
+                <p>Displays member profile, qualification status, received coupons, and commonly used member features.</p>
+              </div>
+              <article class="phone image-phone">
+                <img class="screen-shot" src="./assets/app-screens/customer-06-messages.png" alt="Customer system messages screen" />
+              </article>
+            </div>
+            <div class="guide-arrow">→</div>
+          </div>
+
+          <div class="guide-card">
+            <div class="phone-wrap">
+              <div class="guide-label">
+                <span class="step customer">PAGE 06</span>
+                <h3>System Messages</h3>
+                <p>Opens a compact message panel from the top-right notification icon for review, profile, and campaign updates.</p>
+              </div>
+              <article class="phone image-phone">
+                <img class="screen-shot" src="./assets/app-screens/customer-05-member.png" alt="Customer member center screen" />
+              </article>
+            </div>
+            <div class="guide-arrow">→</div>
+          </div>
+        </div>
+
+        <div class="screen-page">
+          <div class="guide-card">
+            <div class="phone-wrap">
+              <div class="guide-label">
+                <span class="step customer">PAGE 07</span>
+                <h3>Latest News</h3>
+                <p>Presents medical and product-related updates in compact equal-height cards for quick scanning.</p>
+              </div>
+              <article class="phone image-phone">
+                <img class="screen-shot" src="./assets/app-screens/customer-08-coupons.png" alt="Customer latest news screen" />
+              </article>
+            </div>
+            <div class="guide-arrow">→</div>
+          </div>
+
+          <div class="guide-card last">
+            <div class="phone-wrap">
+              <div class="guide-label">
+                <span class="step customer">PAGE 08</span>
+                <h3>Coupons</h3>
+                <p>Lists redeemable member rewards with product name, expiration date, and redemption button.</p>
+              </div>
+              <article class="phone image-phone">
+                <img class="screen-shot" src="./assets/app-screens/customer-07-news.png" alt="Customer coupon screen" />
+              </article>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel admin-section">
+      <div class="panel-head">
+        <div>
+          <h2>Admin App Screens</h2>
+          <p class="note">The admin portal helps manage survey performance, member review, campaign content, latest news, and coupon inventory.</p>
+        </div>
+      </div>
+
+      <div class="admin-screens">
+        <div class="desktop-wrap">
+          <div class="guide-label">
+            <span class="step admin">ADMIN 01</span>
+            <h3>Dashboard</h3>
+            <p>Quickly reviews completed surveys, pending reviews, approved members, coupon inventory, and list status distribution.</p>
+          </div>
+          <div class="desktop">
+            <img class="desktop-shot" src="./assets/app-screens/admin-01-dashboard.png" alt="Admin dashboard screen" />
+          </div>
+        </div>
+
+        <div class="desktop-wrap">
+          <div class="guide-label">
+            <span class="step admin">ADMIN 02</span>
+            <h3>Member Management</h3>
+            <p>Combines pending and approved member lists, allowing admins to switch tabs and approve members.</p>
+          </div>
+          <div class="desktop">
+            <img class="desktop-shot" src="./assets/app-screens/admin-02-members.png" alt="Admin member management screen" />
+          </div>
+        </div>
+
+        <div class="desktop-wrap">
+          <div class="guide-label">
+            <span class="step admin">ADMIN 03</span>
+            <h3>Campaign Management</h3>
+            <p>Manages member campaign content, campaign period, status, notes, new campaign creation, and future edits.</p>
+          </div>
+          <div class="desktop">
+            <img class="desktop-shot" src="./assets/app-screens/admin-03-activities.png" alt="Admin campaign management screen" />
+          </div>
+        </div>
+
+        <div class="desktop-wrap">
+          <div class="guide-label">
+            <span class="step admin">ADMIN 04</span>
+            <h3>Coupon Management</h3>
+            <p>Manages coupon categories, stock, issued count, redeemed count, expiration dates, and enable or disable status.</p>
+          </div>
+          <div class="desktop">
+            <img class="desktop-shot" src="./assets/app-screens/admin-04-rewards.png" alt="Admin coupon management screen" />
+          </div>
+        </div>
+
+        <div class="desktop-wrap">
+          <div class="guide-label">
+            <span class="step admin">ADMIN 05</span>
+            <h3>Latest News Management</h3>
+            <p>Manages medical news and article titles, status, publish dates, categories, and previews.</p>
+          </div>
+          <div class="desktop">
+            <img class="desktop-shot" src="./assets/app-screens/admin-05-news.png" alt="Admin latest news management screen" />
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+  <script>
+    const shareFlowSteps = [
+      {
+        step: "STEP 01",
+        title: "Open LIFF from LINE@",
+        body: "The user taps Member Center in the VeeVa official account to open the LIFF member page."
+      },
+      {
+        step: "STEP 02",
+        title: "Log In on the LIFF Page",
+        body: "The user completes LINE login authorization in LIFF, allowing the system to obtain the sharer's LINE userId."
+      },
+      {
+        step: "STEP 03",
+        title: "Show Member Page",
+        body: "After login, the Member Center appears. The user can enter the campaign page and copy or share a dedicated invitation link."
+      },
+      {
+        step: "STEP 04",
+        title: "Send to a LINE Friend",
+        body: "The sharer sends a LIFF link with a referralCode through a regular LINE friend chat."
+      },
+      {
+        step: "STEP 05",
+        title: "Open the Shared LIFF Link",
+        body: "The invited friend taps the link from the chat, enters LIFF, and the system reads the referral code and checks whether they have joined the VeeVa official account."
+      },
+      {
+        step: "STEP 06",
+        title: "Guide to Join LINE@",
+        body: "If the invited friend has not joined the official account, the screen guides them to join LINE@. After joining, the system binds both accounts."
+      },
+      {
+        step: "STEP 07",
+        title: "New User Shares Again",
+        body: "After joining, the new user can also view the campaign page and share the invitation link with other friends, creating the next referral layer."
+      }
+    ];
+
+    const screenSection = document.querySelector(".screen-section");
+    const customerSection = document.querySelector(".customer-section");
+    if (screenSection && customerSection) {
+      screenSection.parentNode.insertBefore(customerSection, screenSection);
+    }
+
+    const flow = document.querySelector(".flow");
+    if (flow) {
+      flow.innerHTML = shareFlowSteps.map((step, index) => {
+        const channelClass = index === 3 ? "friend-chat" : (index === 1 || index === 2 ? "liff" : "line-oa");
+        const channelText = index === 3 ? "LINE Friend Chat" : (index === 1 || index === 2 ? "LIFF Page" : "LINE@ Chat");
+        return `
+          <div class="flow-card">
+            <span class="step-no">${String(index + 1).padStart(2, "0")}</span>
+            <h3>${step.title}</h3>
+            <p>${step.body}</p>
+            <span class="channel ${channelClass}">${channelText}</span>
+          </div>
+        `;
+      }).join("");
+    }
+
+    const screens = document.querySelector(".share-flow-screens");
+    if (screens && !screens.classList.contains("guide-screens")) {
+      screens.innerHTML = shareFlowSteps.map((_, index) => `
+        <article class="phone image-phone">
+          <img class="share-flow-shot" src="./assets/share-flow/${String(index + 1).padStart(2, "0")}.png" alt="Member sharing flow ${String(index + 1).padStart(2, "0")}" />
+        </article>
+      `).join("");
+
+      const phones = Array.from(screens.querySelectorAll(":scope > article.phone"));
+      screens.classList.add("guide-screens");
+      screens.innerHTML = "";
+
+      phones.forEach((phone, index) => {
+        const step = shareFlowSteps[index];
+        const guideCard = document.createElement("div");
+        guideCard.className = `guide-card${index === phones.length - 1 ? " last" : ""}`;
+
+        const phoneWrap = document.createElement("div");
+        phoneWrap.className = "phone-wrap";
+
+        const label = document.createElement("div");
+        label.className = "guide-label";
+        label.innerHTML = `
+          <span class="step">${step.step}</span>
+          <h3>${step.title}</h3>
+          <p>${step.body}</p>
+        `;
+
+        phoneWrap.append(label);
+        phoneWrap.append(phone);
+        guideCard.append(phoneWrap);
+
+        if (index !== phones.length - 1) {
+          const arrow = document.createElement("div");
+          arrow.className = "guide-arrow";
+          arrow.textContent = "→";
+          guideCard.append(arrow);
+        }
+
+        let screenPage = screens.lastElementChild;
+        if (!screenPage || screenPage.children.length === 3) {
+          screenPage = document.createElement("div");
+          screenPage.className = "screen-page";
+          screens.append(screenPage);
+        }
+
+        screenPage.append(guideCard);
+      });
+    }
+  </script>
+</body>
+</html>

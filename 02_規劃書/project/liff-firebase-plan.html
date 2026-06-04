@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><title>VeeVa 會員系統 LINE LIFF + Firebase 規劃書</title>
+<style>
+@page { size:A4; margin:14mm; }
+body { margin:0; background:#eef4f0; color:#17201c; font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,"PingFang TC","Microsoft JhengHei",sans-serif; line-height:1.62; }
+.page { max-width:980px; margin:28px auto; padding:42px 48px; background:white; border:1px solid #d8e0d9; }
+h1 { margin:0 0 18px; color:#0f4d3f; font-size:30px; border-bottom:3px solid #19745d; padding-bottom:14px; }
+h2 { margin:28px 0 10px; color:#0f4d3f; font-size:20px; }
+h3 { margin:20px 0 8px; color:#17201c; font-size:16px; }
+p { margin:8px 0; }
+table { width:100%; border-collapse:collapse; margin:10px 0 18px; font-size:13px; }
+th,td { border:1px solid #d8e0d9; padding:8px 10px; vertical-align:top; text-align:left; }
+th { background:#f6faf7; color:#0f4d3f; }
+pre { background:#f6faf7; border:1px solid #d8e0d9; border-radius:8px; padding:12px; white-space:pre-wrap; }
+code { font-family:Menlo,Consolas,monospace; font-size:12px; }
+ul { margin:8px 0 14px; padding-left:22px; }
+li { margin:4px 0; }
+a { color:#19745d; }
+@media print { body { background:white; } .page { margin:0; padding:0; border:0; } tr, pre { break-inside:avoid; page-break-inside:avoid; } }
+</style></head><body><main class="page"><h1>VeeVa 會員系統 LINE LIFF + Firebase 規劃書</h1>
+<h2>1. 規劃目標</h2>
+<p>本規劃將原本的跨平台 App 概念調整為 <strong>LINE 官方帳號內的 LIFF 會員系統</strong>。使用者不需要下載 App，只要加入 LINE 官方帳號，透過 Rich Menu、活動訊息或推薦連結即可開啟會員系統。</p>
+<p>第一版伺服器與資料庫採用：</p>
+<table>
+<tr><th>項目</th><th>規劃</th></tr>
+<tr><td>前台部署</td><td>Firebase Hosting</td></tr>
+<tr><td>資料庫</td><td>Cloud Firestore</td></tr>
+<tr><td>後端邏輯</td><td>Firebase Cloud Functions</td></tr>
+<tr><td>使用者身分</td><td>LINE LIFF / LINE Login</td></tr>
+<tr><td>推薦分享</td><td>LIFF 分享連結 + referral code</td></tr>
+<tr><td>後台</td><td>Admin Web，同樣部署於 Firebase Hosting</td></tr>
+</table>
+<h2>2. 系統型態</h2>
+<table>
+<tr><th>模組</th><th>說明</th></tr>
+<tr><td>LINE 官方帳號</td><td>會員入口、Rich Menu、活動通知、審核通知</td></tr>
+<tr><td>LIFF 會員系統</td><td>活動消息、Veeva 問卷、會員中心、兌換券、最新資訊、推薦分享</td></tr>
+<tr><td>Firebase Hosting</td><td>部署 LIFF Web App 與 Admin Web</td></tr>
+<tr><td>Firestore</td><td>保存會員、活動、推薦關係、問卷狀態、兌換券與最新資訊</td></tr>
+<tr><td>Cloud Functions</td><td>處理登入驗證、推薦綁定、發券、防重複操作、後台管理邏輯</td></tr>
+<tr><td>Admin 後台</td><td>會員審核、活動管理、最新資訊管理、兌換券管理、推薦管理</td></tr>
+</table>
+<h2>3. 使用者流程</h2>
+<h3>3.1 一般會員流程</h3>
+<p>1. 使用者加入 LINE 官方帳號。</p>
+<p>2. 點擊 Rich Menu 的「活動消息」或收到活動訊息。</p>
+<p>3. 開啟 LIFF 會員系統。</p>
+<p>4. LIFF 取得 LINE 使用者身分。</p>
+<p>5. 使用者查看活動並填寫 Veeva 問卷。</p>
+<p>6. 送出後顯示 Thank You 頁。</p>
+<p>7. 系統建立待審核狀態。</p>
+<p>8. Admin 後台審核通過。</p>
+<p>9. 系統發送站內訊息或 LINE 訊息。</p>
+<p>10. 使用者回到會員中心查看兌換券。</p>
+<h3>3.2 推薦分享流程</h3>
+<p>1. 會員 A 進入會員中心。</p>
+<p>2. 點擊「邀請好友」。</p>
+<p>3. 系統產生推薦連結：</p>
+<pre><code>
+https://liff.line.me/{LIFF_ID}?ref=A8X2K9&amp;campaignId=main2026
+</code></pre>
+<p>4. 會員 A 使用 LIFF 分享功能將連結傳給朋友 B。</p>
+<p>5. 朋友 B 點擊連結並開啟 LIFF。</p>
+<p>6. 系統取得朋友 B 的 LINE userId。</p>
+<p>7. Cloud Functions 根據 <code>ref</code> 找到會員 A。</p>
+<p>8. 系統建立 A 與 B 的推薦關係。</p>
+<p>9. 朋友 B 完成問卷與審核後，系統發放禮券給 A 與 B。</p>
+<h2>4. LIFF 頁面規劃</h2>
+<table>
+<tr><th>頁面</th><th>功能</th></tr>
+<tr><td>活動消息</td><td>顯示活動卡片、活動狀態、立即開始</td></tr>
+<tr><td>Veeva 問卷</td><td>內嵌或外開 Veeva/OneTrust 表單</td></tr>
+<tr><td>送出成功</td><td>顯示 Thank You 與「審查結果將會寄至您的信箱」</td></tr>
+<tr><td>最新資訊</td><td>條列式醫學消息與活動資訊</td></tr>
+<tr><td>兌換券</td><td>顯示商品名稱、期限、兌換按鈕與確認視窗</td></tr>
+<tr><td>會員中心</td><td>顯示會員資料、資格狀態、活動紀錄、通知設定</td></tr>
+<tr><td>系統訊息</td><td>顯示審核通過、活動上架、資料更新等站內消息</td></tr>
+<tr><td>邀請好友</td><td>產生推薦連結，分享給 LINE 好友或群組</td></tr>
+</table>
+<h2>5. Firestore 資料結構</h2>
+<h3>5.1 members</h3>
+<pre><code>
+members/{memberId}
+- lineUserId
+- displayName
+- pictureUrl
+- email
+- hospital
+- department
+- reviewStatus: pending | approved | rejected
+- createdAt
+- updatedAt
+- lastLoginAt
+</code></pre>
+<h3>5.2 campaigns</h3>
+<pre><code>
+campaigns/{campaignId}
+- title
+- description
+- status: draft | active | closed
+- startAt
+- endAt
+- rewardRule
+- createdAt
+- updatedAt
+</code></pre>
+<h3>5.3 surveySubmissions</h3>
+<pre><code>
+surveySubmissions/{submissionId}
+- memberId
+- campaignId
+- veevaUrl
+- status: opened | submitted | pendingReview | approved
+- submittedAt
+- createdAt
+</code></pre>
+<h3>5.4 coupons</h3>
+<pre><code>
+coupons/{couponId}
+- title
+- category
+- expiresAt
+- status: active | disabled | expired
+- stock
+- issuedCount
+- redeemedCount
+- createdAt
+- updatedAt
+</code></pre>
+<h3>5.5 couponGrants</h3>
+<pre><code>
+couponGrants/{grantId}
+- memberId
+- couponId
+- source: survey | referralInviter | referralInvitee | manual
+- referralId
+- status: available | redeemed | expired
+- grantedAt
+- redeemedAt
+</code></pre>
+<h3>5.6 referrals</h3>
+<pre><code>
+referrals/{referralId}
+- referralCode
+- inviterMemberId
+- inviteeMemberId
+- campaignId
+- status: clicked | registered | completed | rewarded | invalid
+- createdAt
+- completedAt
+- rewardedAt
+</code></pre>
+<h3>5.7 news</h3>
+<pre><code>
+news/{newsId}
+- title
+- source
+- category
+- publishedAt
+- status: draft | published
+- createdAt
+- updatedAt
+</code></pre>
+<h3>5.8 systemMessages</h3>
+<pre><code>
+systemMessages/{messageId}
+- memberId
+- title
+- body
+- type: review | coupon | campaign | system
+- readAt
+- createdAt
+</code></pre>
+<h3>5.9 adminUsers</h3>
+<pre><code>
+adminUsers/{uid}
+- email
+- role: owner | admin | operator | viewer
+- status: active | disabled
+- createdAt
+</code></pre>
+<h2>6. 推薦綁定規則</h2>
+<table>
+<tr><th>規則</th><th>說明</th></tr>
+<tr><td>不可自己推薦自己</td><td>inviterMemberId 不可等於 inviteeMemberId</td></tr>
+<tr><td>同一活動不可重複綁定</td><td>同一 invitee 在同一 campaign 只能有一筆有效 referral</td></tr>
+<tr><td>未完成條件不發券</td><td>需完成問卷與審核通過後才給券</td></tr>
+<tr><td>發券需防重複</td><td>使用 Cloud Functions transaction 避免重複發券</td></tr>
+<tr><td>referral code 不使用會員流水 ID</td><td>使用隨機碼或短碼，避免被猜測</td></tr>
+</table>
+<h2>7. Admin 後台規劃</h2>
+<table>
+<tr><th>頁面</th><th>功能</th></tr>
+<tr><td>儀表板</td><td>問卷完成、待審核、審核通過、兌換券庫存、推薦成效</td></tr>
+<tr><td>會員管理</td><td>待審核/已審核分頁、會員資料、審核通過</td></tr>
+<tr><td>活動管理</td><td>活動列表、新增活動、活動期間、狀態管理</td></tr>
+<tr><td>最新資訊管理</td><td>新增、編輯、發布醫學消息</td></tr>
+<tr><td>兌換券管理</td><td>券種、庫存、發放數、兌換數、補庫存、啟用停用</td></tr>
+<tr><td>推薦管理</td><td>查看推薦人、被推薦人、完成狀態、發券狀態</td></tr>
+<tr><td>系統訊息</td><td>手動或自動發送站內通知</td></tr>
+</table>
+<h2>8. UI / UX 設計方向</h2>
+<p>此系統會在 LINE 內使用，畫面需符合手機優先、操作簡單、快速完成任務的特性。</p>
+<p>建議採用：</p>
+<table>
+<tr><th>類型</th><th>建議</th></tr>
+<tr><td>Design System</td><td>Material 3</td></tr>
+<tr><td>視覺風格</td><td>現代、圓潤、乾淨、卡片式、低噪音</td></tr>
+<tr><td>主色</td><td>LINE 綠 / 醫療信任綠</td></tr>
+<tr><td>顧客端元件</td><td>Bottom navigation、cards、chips、modal bottom sheet、toast/snackbar</td></tr>
+<tr><td>後台元件</td><td>SaaS Admin Dashboard、統計卡、表格、搜尋、篩選、分頁</td></tr>
+</table>
+<h3>8.1 顧客端 UI</h3>
+<table>
+<tr><th>頁面</th><th>UI 優化</th></tr>
+<tr><td>活動消息</td><td>大卡片 + 狀態標籤 + 明確 CTA</td></tr>
+<tr><td>最新資訊</td><td>小型一致高度卡片，列表更容易掃描</td></tr>
+<tr><td>兌換券</td><td>商品名稱、期限、兌換按鈕，降低資訊負擔</td></tr>
+<tr><td>會員中心</td><td>會員資料卡 + 常用功能列表 + 系統訊息入口</td></tr>
+<tr><td>邀請好友</td><td>顯示推薦成果、分享按鈕、已得獎勵</td></tr>
+</table>
+<h3>8.2 Admin UI</h3>
+<table>
+<tr><th>頁面</th><th>UI 優化</th></tr>
+<tr><td>儀表板</td><td>統計卡、狀態分布、最新待審核</td></tr>
+<tr><td>會員管理</td><td>分頁式名單、搜尋、審核操作</td></tr>
+<tr><td>兌換券管理</td><td>庫存狀態、補庫存、啟用停用</td></tr>
+<tr><td>推薦管理</td><td>推薦關係、完成狀態、獎勵狀態</td></tr>
+</table>
+<h2>9. 權限與安全</h2>
+<table>
+<tr><th>項目</th><th>做法</th></tr>
+<tr><td>LIFF 使用者</td><td>使用 LINE ID token 驗證</td></tr>
+<tr><td>Firestore 寫入</td><td>敏感操作由 Cloud Functions 執行</td></tr>
+<tr><td>後台登入</td><td>Firebase Authentication + adminUsers 權限表</td></tr>
+<tr><td>Firestore Rules</td><td>會員只能讀取自己的資料；Admin 需驗證 role</td></tr>
+<tr><td>發券</td><td>Cloud Functions transaction 防止重複發券</td></tr>
+<tr><td>推薦</td><td>Cloud Functions 檢查自推、重複推薦、活動狀態</td></tr>
+</table>
+<h2>10. 開發階段</h2>
+<table>
+<tr><th>階段</th><th>內容</th><th>交付</th></tr>
+<tr><td>Phase 1</td><td>LIFF + Firebase 專案初始化</td><td>Hosting、Firestore、Functions、LIFF 設定</td></tr>
+<tr><td>Phase 2</td><td>顧客端 LIFF 頁面</td><td>活動、問卷、會員中心、兌換券、最新資訊</td></tr>
+<tr><td>Phase 3</td><td>推薦分享</td><td>referral code、分享連結、推薦綁定</td></tr>
+<tr><td>Phase 4</td><td>Admin 後台</td><td>會員、活動、資訊、兌換券、推薦管理</td></tr>
+<tr><td>Phase 5</td><td>整合與測試</td><td>LINE 內測試、Firestore Rules、UAT</td></tr>
+<tr><td>Phase 6</td><td>上線交付</td><td>Firebase deploy、文件、操作說明</td></tr>
+</table>
+<h2>11. 需要申請與準備的項目</h2>
+<table>
+<tr><th>項目</th><th>用途</th></tr>
+<tr><td>LINE 官方帳號</td><td>會員入口、Rich Menu、通知</td></tr>
+<tr><td>LINE Developers Provider</td><td>管理 LINE Login / Messaging API Channel</td></tr>
+<tr><td>LINE Login Channel</td><td>建立 LIFF App 與登入身份</td></tr>
+<tr><td>Messaging API Channel</td><td>官方帳號訊息、Rich Menu、Webhook</td></tr>
+<tr><td>Firebase Project</td><td>Hosting、Firestore、Functions、Authentication</td></tr>
+<tr><td>正式網域</td><td>LIFF Endpoint、Firebase Hosting custom domain</td></tr>
+<tr><td>隱私權政策與服務條款</td><td>LINE Login / LIFF / 會員資料使用</td></tr>
+</table>
+<h2>12. 待確認問題</h2>
+<table>
+<tr><th>問題</th><th>影響</th></tr>
+<tr><td>Veeva 表單是否允許在 LIFF / iframe / WebView 中開啟</td><td>決定問卷要內嵌或外開</td></tr>
+<tr><td>LINE 官方帳號是否需推播訊息</td><td>影響 Messaging API 與費用</td></tr>
+<tr><td>推薦獎勵發放條件</td><td>決定何時建立 couponGrants</td></tr>
+<tr><td>兌換券是否需要實體 POS 或第三方券商</td><td>影響 Firestore 資料模型與 API</td></tr>
+<tr><td>Admin 是否需要多人權限</td><td>影響 Firebase Auth 與 role 設計</td></tr>
+</table>
+<h2>13. 官方文件參考</h2>
+<ul>
+<li><a href="https://developers.line.biz/en/docs/liff/">LINE LIFF Documentation</a></li>
+<li><a href="https://developers.line.biz/en/reference/liff/">LIFF API Reference</a></li>
+<li><a href="https://developers.line.biz/en/docs/messaging-api/">LINE Messaging API</a></li>
+<li><a href="https://firebase.google.com/docs/hosting">Firebase Hosting</a></li>
+<li><a href="https://firebase.google.com/docs/cli">Firebase CLI / Firestore Rules</a></li>
+</ul></main></body></html>

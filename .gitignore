@@ -1,0 +1,25 @@
+# macOS
+.DS_Store
+
+# Flutter / Dart generated files
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.pub-cache/
+**/.pub/
+**/build/
+
+# Firebase local cache
+**/.firebase/
+
+# Node generated files
+**/node_modules/
+
+# IDE
+.idea/
+*.iml
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp

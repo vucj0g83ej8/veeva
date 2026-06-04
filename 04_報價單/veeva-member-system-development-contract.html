@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>VeeVa 會員系統開發合約書</title>
+    <style>
+      :root {
+        --ink: #17201c;
+        --muted: #647067;
+        --line: #d8e0d9;
+        --soft: #f6faf7;
+        --accent: #19745d;
+        --accent-dark: #0f4d3f;
+        --paper: #ffffff;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        background: #eef4f0;
+        font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, "PingFang TC", "Microsoft JhengHei", sans-serif;
+        line-height: 1.68;
+      }
+
+      .page {
+        width: min(100%, 980px);
+        margin: 32px auto;
+        padding: 42px 48px;
+        background: var(--paper);
+        border: 1px solid var(--line);
+        box-shadow: 0 20px 48px rgba(15, 77, 63, 0.08);
+      }
+
+      .header {
+        padding-bottom: 22px;
+        border-bottom: 3px solid var(--accent);
+        text-align: center;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: 32px;
+        line-height: 1.18;
+        white-space: nowrap;
+      }
+
+      .contract-no {
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 13px;
+        text-align: right;
+      }
+
+      h2 {
+        margin: 30px 0 12px;
+        color: var(--accent-dark);
+        font-size: 20px;
+      }
+
+      h3 {
+        margin: 18px 0 8px;
+        font-size: 16px;
+      }
+
+      .muted {
+        margin-top: 10px;
+        color: var(--muted);
+      }
+
+      .meta-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        margin-top: 22px;
+      }
+
+      .meta-card,
+      .note,
+      .signature-box {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--soft);
+      }
+
+      .meta-card {
+        padding: 14px 16px;
+      }
+
+      .meta-card span {
+        display: block;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .meta-card strong {
+        display: block;
+        margin-top: 4px;
+        font-size: 17px;
+      }
+
+      table {
+        width: 100%;
+        margin-top: 12px;
+        border-collapse: collapse;
+        font-size: 14px;
+      }
+
+      th {
+        color: var(--accent-dark);
+        background: var(--soft);
+        text-align: left;
+        font-weight: 800;
+      }
+
+      th,
+      td {
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        vertical-align: top;
+      }
+
+      .num {
+        text-align: right;
+        white-space: nowrap;
+      }
+
+      .note {
+        padding: 14px 16px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      ol,
+      ul {
+        margin: 8px 0 0;
+        padding-left: 22px;
+      }
+
+      li {
+        margin: 5px 0;
+      }
+
+      .terms {
+        counter-reset: section;
+      }
+
+      .terms h2::before {
+        counter-increment: section;
+        content: counter(section, cjk-ideographic) "、";
+      }
+
+      .signature {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 28px;
+        margin-top: 18px;
+      }
+
+      .signature-box {
+        min-height: 164px;
+        padding: 16px;
+        background: #fff;
+      }
+
+      .signature-fields {
+        display: grid;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .signature-field,
+      .signature-line {
+        display: grid;
+        grid-template-columns: 96px 1fr;
+        gap: 10px;
+        align-items: center;
+        height: 34px;
+      }
+
+      .signature-label {
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1;
+        text-align: justify;
+        text-align-last: justify;
+      }
+
+      .signature-value {
+        height: 26px;
+        border-bottom: 1px solid var(--ink);
+      }
+
+      .signature-value.filled {
+        padding: 0 2px 2px;
+        color: var(--ink);
+        font-size: 13px;
+        line-height: 26px;
+      }
+
+      .signature-line {
+        margin-top: 18px;
+      }
+
+      .footer {
+        margin-top: 28px;
+        padding-top: 14px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 12px;
+        text-align: center;
+      }
+
+      @page {
+        size: A4;
+        margin: 14mm;
+      }
+
+      @media print {
+        html,
+        body {
+          width: 100%;
+          background: #fff;
+          overflow: visible;
+        }
+
+        .page {
+          width: 100%;
+          max-width: none;
+          margin: 0;
+          padding: 0 5mm 0 0;
+          border: 0;
+          box-shadow: none;
+          overflow: visible;
+        }
+
+        table {
+          width: 100%;
+          max-width: 100%;
+          table-layout: fixed;
+        }
+
+        th,
+        td {
+          overflow-wrap: anywhere;
+          word-break: break-word;
+        }
+
+        h2,
+        .signature,
+        .note {
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
+
+        tr {
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <header class="header">
+        <h1>VeeVa 會員系統開發合約書</h1>
+      </header>
+      <p class="contract-no">合約編號：VEEVA-CONTRACT-20260601-001</p>
+
+      <section>
+        <h2>合約雙方</h2>
+        <table>
+          <tbody>
+            <tr>
+              <th style="width: 150px;">委託方</th>
+              <td>醫世紀行銷公關有限公司</td>
+            </tr>
+            <tr>
+              <th>承接方</th>
+              <td>魁星國際有限公司</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="terms">
+        <h2>專案範圍</h2>
+        <p>乙方依甲方需求開發 VeeVa 會員系統，工作範圍包含下列項目：</p>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 160px;">項目</th>
+              <th>交付說明</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>顧客端 App / 頁面</td>
+              <td>活動消息、登入、Veeva 問卷、Thank You、最新資訊、兌換券、會員中心、系統訊息與底部導覽。</td>
+            </tr>
+            <tr>
+              <td>Admin 後台</td>
+              <td>儀表板、會員管理、活動管理、最新資訊管理、兌換券管理、後台版型與基礎響應式調整。</td>
+            </tr>
+            <tr>
+              <td>後端服務</td>
+              <td>會員、活動、問卷狀態、審核、資訊、兌換券、站內通知、統計資料與權限紀錄相關 API。</td>
+            </tr>
+            <tr>
+              <td>伺服器</td>
+              <td>將使用 Firebase 免費伺服器資源，額度內免費。</td>
+            </tr>
+            <tr>
+              <td>第三方整合</td>
+              <td>LINE Login、Veeva 表單嵌入與基本通知流程。</td>
+            </tr>
+            <tr>
+              <td>文件與交付</td>
+              <td>基本操作手冊、API 文件、維運說明與驗收交付。</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>開發時程</h2>
+        <ol>
+          <li>本專案預估開發時程為 30 個工作天，自甲方完成簽約啟動款支付，並提供必要資料、帳號、素材及第三方服務權限後起算。</li>
+          <li>若因甲方需求變更、資料提供延遲、第三方服務審核或不可歸責於乙方之因素造成延宕，開發時程得依實際影響順延。</li>
+          <li>乙方將依專案進度提供階段性成果供甲方檢視與回饋。</li>
+        </ol>
+
+        <h2>費用與付款方式</h2>
+        <p>本專案開發費用以新台幣計價，未稅金額為 NT$ 100,000，營業稅 5% 為 NT$ 5,000，含稅總價為 NT$ 105,000。</p>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 160px;">付款階段</th>
+              <th>付款條件</th>
+              <th class="num" style="width: 120px;">比例</th>
+              <th class="num" style="width: 140px;">含稅金額</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>簽約啟動款</td>
+              <td>雙方確認需求、合約與開發時程後支付。</td>
+              <td class="num">30%</td>
+              <td class="num">NT$ 31,500</td>
+            </tr>
+            <tr>
+              <td>中期款</td>
+              <td>顧客端 App、Admin 後台與核心 API 可進入整合測試時支付。</td>
+              <td class="num">30%</td>
+              <td class="num">NT$ 31,500</td>
+            </tr>
+            <tr>
+              <td>驗收尾款</td>
+              <td>完成 UAT 修正、交付原始碼與操作文件後支付。</td>
+              <td class="num">40%</td>
+              <td class="num">NT$ 42,000</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>驗收方式</h2>
+        <ol>
+          <li>乙方完成階段成果後，甲方應於 5 個工作天內提出驗收意見或修正項目。</li>
+          <li>驗收修正以本合約與已確認之 UI/功能範圍為準，不包含新增功能、重大流程調整或第三方服務規則變更。</li>
+          <li>甲方於乙方通知驗收後 5 個工作天內未提出書面異議者，視為該階段驗收通過。</li>
+        </ol>
+
+        <h2>需求變更與追加費用</h2>
+        <ol>
+          <li>若甲方於開發期間提出新增功能、調整既定流程、增加頁面、擴大資料欄位或提高資安/壓測規格，雙方應另行確認追加工時與費用。</li>
+          <li>若需縮短原定開發時間，乙方得視加急程度額外收取總報價 10% 至 20% 作為加班費用。</li>
+          <li>未經雙方確認之新增需求，乙方得暫不納入本次交付範圍。</li>
+        </ol>
+
+        <h2>不包含項目</h2>
+        <ul>
+          <li>App Store 平台上架費。</li>
+          <li>Google Play 平台上架費。</li>
+          <li>第三方平台正式發送費用。</li>
+          <li>第三方服務帳號費用。</li>
+          <li>非本合約明列之額外開發或維運服務。</li>
+        </ul>
+
+        <h2>甲方義務</h2>
+        <ol>
+          <li>甲方應提供專案所需之文案、圖片、Logo、第三方服務帳號權限、測試帳號及必要資料。</li>
+          <li>甲方應於約定時間內完成審閱、測試與回饋，以利專案進度推進。</li>
+          <li>甲方應確保其提供之素材、資料與內容具有合法使用權，若因此衍生第三方爭議，應由甲方自行負責。</li>
+        </ol>
+
+        <h2>乙方義務</h2>
+        <ol>
+          <li>乙方應依本合約範圍進行系統開發、測試、修正與交付。</li>
+          <li>乙方應於開發期間提供必要之進度說明，並協助甲方確認驗收項目。</li>
+          <li>乙方應妥善保管甲方提供之帳號、資料與專案文件，非經甲方同意不得移作他用。</li>
+        </ol>
+
+        <h2>智慧財產權</h2>
+        <ol>
+          <li>甲方於完成本合約全部款項支付後，取得本專案客製化程式碼、頁面設計與專案文件之使用權與修改權。</li>
+          <li>乙方既有工具、框架、通用元件、開源套件與非專案客製化之技術方法，不因本合約移轉所有權。</li>
+          <li>專案中使用之第三方套件、API、服務或素材，依其各自授權條款辦理。</li>
+        </ol>
+
+        <h2>保密條款</h2>
+        <ol>
+          <li>雙方因本專案知悉之營業秘密、技術資料、客戶資料、帳號資訊、報價與合約內容，均應負保密義務。</li>
+          <li>未經他方書面同意，任一方不得向第三方揭露前述資料，但依法令、主管機關要求或為履行本合約必要而揭露者不在此限。</li>
+        </ol>
+
+        <h2>維護與保固</h2>
+        <ol>
+          <li>本專案驗收完成後，乙方提供 18 個月保固期，處理本合約專案範圍內之程式錯誤修正。</li>
+          <li>保固範圍限於本專案交付內容本身之異常狀況，不包含新增需求、第三方平台更新或政策變更衍生之問題、甲方自行修改程式或資料造成之問題。</li>
+          <li>保固期後如需維運、功能擴充或資料調整，雙方得另行約定維護方案或追加報價。</li>
+        </ol>
+
+        <h2>合約終止</h2>
+        <ol>
+          <li>任一方違反本合約且經他方書面通知後 7 日內未改善者，他方得終止本合約。</li>
+          <li>若甲方於專案進行中單方終止，已完成或進行中之工作項目，乙方得依實際完成比例與已投入工時計收費用。</li>
+          <li>合約終止不影響終止前已發生之付款義務、保密義務與智慧財產權約定。</li>
+        </ol>
+
+        <h2>準據法與爭議處理</h2>
+        <ol>
+          <li>本合約以中華民國法律為準據法。</li>
+          <li>雙方因本合約所生爭議，應先本誠信原則協商解決；協商不成時，雙方同意以臺灣臺北地方法院為第一審管轄法院。</li>
+        </ol>
+      </section>
+
+      <section>
+        <h2>簽署欄</h2>
+        <div class="signature">
+          <div class="signature-box">
+            <strong>甲方：委託方</strong>
+            <div class="signature-fields">
+              <div class="signature-field">
+                <span class="signature-label">公司 / 姓名</span>
+                <span class="signature-value filled">醫世紀行銷公關有限公司</span>
+              </div>
+              <div class="signature-field">
+                <span class="signature-label">統一編號</span>
+                <span class="signature-value filled">80474676</span>
+              </div>
+              <div class="signature-field">
+                <span class="signature-label">聯絡地址</span>
+                <span class="signature-value"></span>
+              </div>
+              <div class="signature-field">
+                <span class="signature-label">代表人 / 簽署人</span>
+                <span class="signature-value"></span>
+              </div>
+              <div class="signature-field">
+                <span class="signature-label">聯繫電話</span>
+                <span class="signature-value"></span>
+              </div>
+            </div>
+            <div class="signature-line">
+              <span class="signature-label">簽章 / 日期</span>
+              <span class="signature-value"></span>
+            </div>
+          </div>
+          <div class="signature-box">
+            <strong>乙方：承接方</strong>
+            <div class="signature-fields">
+              <div class="signature-field">
+                <span class="signature-label">公司 / 姓名</span>
+                <span class="signature-value filled">魁星國際有限公司</span>
+              </div>
+              <div class="signature-field">
+                <span class="signature-label">統一編號</span>
+                <span class="signature-value filled">93526310</span>
+              </div>
+              <div class="signature-field">
+                <span class="signature-label">聯絡地址</span>
+                <span class="signature-value"></span>
+              </div>
+              <div class="signature-field">
+                <span class="signature-label">代表人 / 簽署人</span>
+                <span class="signature-value filled">歐陽靖</span>
+              </div>
+              <div class="signature-field">
+                <span class="signature-label">聯繫電話</span>
+                <span class="signature-value filled">0902-267-267</span>
+              </div>
+            </div>
+            <div class="signature-line">
+              <span class="signature-label">簽章 / 日期</span>
+              <span class="signature-value"></span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </body>
+</html>

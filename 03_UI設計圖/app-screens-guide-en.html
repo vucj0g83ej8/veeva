@@ -1,0 +1,632 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>VeeVa Member System App Screen Guide</title>
+    <style>
+      :root {
+        --bg: #f5efe8;
+        --card: #fffdf9;
+        --ink: #1f2937;
+        --muted: #6b7280;
+        --line: #dccfbe;
+        --accent: #b45309;
+        --accent-soft: #fff2e2;
+        --success: #166534;
+        --success-soft: #eefbf3;
+        --surface-soft: #f8f4ee;
+        --shadow-soft: 0 18px 40px rgba(44, 30, 16, 0.08);
+        --shadow-card: 0 14px 26px rgba(31, 41, 55, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Helvetica Neue", Arial, "PingFang TC", "Microsoft JhengHei", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(242, 220, 193, 0.9) 0, transparent 30%),
+          radial-gradient(circle at 85% 12%, rgba(255, 239, 213, 0.85) 0, transparent 24%),
+          linear-gradient(180deg, #fcf8f2 0%, #f3ece4 100%);
+      }
+
+      .page {
+        max-width: 1500px;
+        margin: 0 auto;
+        padding: 32px 20px 48px;
+      }
+
+      .hero,
+      .section {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        box-shadow: 0 24px 60px rgba(44, 30, 16, 0.08);
+      }
+
+      .hero {
+        padding: 28px 30px;
+        margin-bottom: 22px;
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: clamp(32px, 4vw, 48px);
+        line-height: 1.1;
+      }
+
+      h2 {
+        margin: 0 0 12px;
+        font-size: 26px;
+      }
+
+      h3 {
+        margin: 0 0 6px;
+        font-size: 18px;
+      }
+
+      p {
+        margin: 0;
+        line-height: 1.65;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      .legend-item {
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: #fff;
+        border: 1px solid var(--line);
+        font-size: 14px;
+      }
+
+      .section {
+        padding: 24px;
+        margin-bottom: 22px;
+      }
+
+      .screens {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(280px, 1fr));
+        gap: 24px 18px;
+      }
+
+      .screen-page {
+        display: contents;
+      }
+
+      .admin-screens {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 24px;
+      }
+
+      .flow-card {
+        display: grid;
+        grid-template-columns: 1fr 36px;
+        gap: 12px;
+        align-items: center;
+      }
+
+      .flow-card.last {
+        grid-template-columns: 1fr;
+      }
+
+      .arrow {
+        font-size: 28px;
+        text-align: center;
+        color: #b97835;
+      }
+
+      .phone-wrap,
+      .desktop-wrap {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .label {
+        width: 100%;
+        max-width: 280px;
+        padding: 12px 14px;
+        border-radius: 16px;
+        border: 1px solid var(--line);
+        background: #fff;
+      }
+
+      .desktop-wrap .label {
+        max-width: none;
+      }
+
+      .label .step {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: var(--accent);
+        color: white;
+        font-size: 12px;
+        font-weight: 700;
+        margin-bottom: 8px;
+      }
+
+      .label .step.admin {
+        background: var(--success);
+      }
+
+      .label p {
+        font-size: 14px;
+        color: var(--muted);
+      }
+
+      .phone {
+        width: 284px;
+        height: 590px;
+        border-radius: 42px;
+        border: 10px solid #101418;
+        background: linear-gradient(145deg, #2f3640 0%, #0f172a 100%);
+        box-shadow:
+          0 26px 60px rgba(15, 23, 42, 0.22),
+          0 10px 20px rgba(15, 23, 42, 0.12);
+        overflow: hidden;
+        position: relative;
+      }
+
+      .phone::after {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: calc(100% - 44px);
+        height: 14px;
+        border-radius: 0 0 20px 20px;
+        background: linear-gradient(180deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0) 100%);
+      }
+
+      .notch {
+        position: absolute;
+        z-index: 2;
+        top: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 118px;
+        height: 30px;
+        border-radius: 18px;
+        background: #05070a;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 1px 2px rgba(0,0,0,0.35);
+      }
+
+      .screen-shot {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+        background: #fff;
+      }
+
+      .desktop {
+        width: min(100%, 1040px);
+        border-radius: 18px;
+        border: 10px solid #101418;
+        background: #101418;
+        box-shadow:
+          0 26px 60px rgba(15, 23, 42, 0.2),
+          0 10px 20px rgba(15, 23, 42, 0.12);
+        overflow: hidden;
+      }
+
+      .desktop-shot {
+        width: 100%;
+        display: block;
+        background: #fff;
+      }
+
+      .proposal-note {
+        margin-top: 18px;
+        padding: 18px;
+        border-radius: 18px;
+        background: #fffaf3;
+        border: 1px dashed #cfb089;
+      }
+
+      .note-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 14px;
+      }
+
+      .note-card {
+        padding: 14px;
+        border-radius: 16px;
+        border: 1px solid var(--line);
+        background: #fff;
+      }
+
+      .note-card strong {
+        display: block;
+        margin-bottom: 6px;
+        color: var(--success);
+      }
+
+      @media (max-width: 1160px) {
+        .screens,
+        .note-grid {
+          grid-template-columns: repeat(2, minmax(280px, 1fr));
+        }
+      }
+
+      @media (max-width: 760px) {
+        .screens,
+        .note-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .flow-card {
+          grid-template-columns: 1fr;
+        }
+
+        .arrow {
+          transform: rotate(90deg);
+        }
+
+        .phone {
+          width: 256px;
+          height: 552px;
+        }
+      }
+
+      @page {
+        size: A3 landscape;
+        margin: 12mm;
+      }
+
+      @media print {
+        body {
+          background: #fff;
+        }
+
+        .page {
+          max-width: none;
+          padding: 0;
+        }
+
+        .hero {
+          padding: 18px 22px;
+          margin-bottom: 14px;
+        }
+
+        .hero,
+        .section {
+          box-shadow: none;
+        }
+
+        .section {
+          padding: 16px;
+          margin-bottom: 14px;
+        }
+
+        .screens {
+          display: block;
+        }
+
+        .screen-page {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 12px;
+          align-items: center;
+          justify-items: center;
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
+
+        .screen-page + .screen-page {
+          break-before: page;
+          page-break-before: always;
+          min-height: 720px;
+        }
+
+        .flow-card,
+        .flow-card.last {
+          grid-template-columns: 1fr;
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
+
+        .arrow {
+          display: none;
+        }
+
+        .admin-section {
+          break-before: page;
+          page-break-before: always;
+        }
+
+        .admin-section h2,
+        .admin-section > p {
+          break-after: avoid;
+          page-break-after: avoid;
+        }
+
+        .phone {
+          width: 226px;
+          height: 486px;
+          border-width: 8px;
+          border-radius: 34px;
+          transform: none;
+          margin-bottom: 0;
+          box-shadow: none;
+        }
+
+        .notch {
+          width: 96px;
+          height: 24px;
+          top: 10px;
+        }
+
+        .label {
+          max-width: 226px;
+          padding: 9px 11px;
+        }
+
+        .label h3 {
+          font-size: 15px;
+        }
+
+        .label p {
+          font-size: 11px;
+          line-height: 1.5;
+        }
+
+        .admin-screens {
+          gap: 16px;
+        }
+
+        .desktop-wrap {
+          break-inside: avoid;
+          page-break-inside: avoid;
+          display: block;
+          margin-bottom: 18px;
+        }
+
+        .desktop-wrap + .desktop-wrap {
+          break-before: page;
+          page-break-before: always;
+        }
+
+        .desktop-wrap .label {
+          max-width: none;
+          margin: 0 0 8px;
+        }
+
+        .desktop {
+          break-inside: avoid;
+          page-break-inside: avoid;
+          width: 78%;
+          margin: 0 auto;
+          border-width: 8px;
+          box-shadow: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <section class="hero">
+        <h1>VeeVa Member System Screen Guide</h1>
+        <p class="muted">Based on the original card-style wireframe layout, this guide places the actual customer app and admin app screenshots directly into the proposal for requirement alignment and presentation.</p>
+        <div class="legend">
+          <div class="legend-item">Customer App / Campaign Flow</div>
+          <div class="legend-item">Veeva Form Embed</div>
+          <div class="legend-item">Coupons and Member Center</div>
+          <div class="legend-item">Admin Management Portal</div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Customer App Flow</h2>
+        <p class="muted">Users enter from campaign announcements, sign in, complete the Veeva form, then continue to review status, the member center, latest information, and coupon redemption features.</p>
+        <div class="screens" style="margin-top: 18px;">
+          <div class="screen-page">
+          <div class="flow-card">
+            <div class="phone-wrap">
+              <div class="label">
+                <span class="step">STEP 01</span>
+                <h3>Campaign Announcements</h3>
+                <p>Displays available campaigns. Users tap “Start Now” to enter the login and survey flow.</p>
+              </div>
+              <div class="phone">
+                <div class="notch"></div>
+                <img class="screen-shot" src="./assets/app-screens/customer-01-activity.png" alt="Customer campaign announcements screen" />
+              </div>
+            </div>
+            <div class="arrow">→</div>
+          </div>
+
+          <div class="flow-card">
+            <div class="phone-wrap">
+              <div class="label">
+                <span class="step">STEP 02</span>
+                <h3>Member Login</h3>
+                <p>Provides LINE login so users can quickly create a member identity.</p>
+              </div>
+              <div class="phone">
+                <div class="notch"></div>
+                <img class="screen-shot" src="./assets/app-screens/customer-02-login.png" alt="Member login screen" />
+              </div>
+            </div>
+            <div class="arrow">→</div>
+          </div>
+
+          <div class="flow-card last">
+            <div class="phone-wrap">
+              <div class="label">
+                <span class="step">STEP 03</span>
+                <h3>Veeva Form Submission</h3>
+                <p>The app embeds the Veeva Consent Form. After completion, users submit it for review.</p>
+              </div>
+              <div class="phone">
+                <div class="notch"></div>
+                <img class="screen-shot" src="./assets/app-screens/customer-03-survey.png" alt="Veeva form submission screen" />
+              </div>
+            </div>
+          </div>
+          </div>
+
+          <div class="screen-page">
+          <div class="flow-card">
+            <div class="phone-wrap">
+              <div class="label">
+                <span class="step">STEP 04</span>
+                <h3>Submission Complete</h3>
+                <p>After submission, the Thank You screen and pending review status confirm that the process has been completed.</p>
+              </div>
+              <div class="phone">
+                <div class="notch"></div>
+                <img class="screen-shot" src="./assets/app-screens/customer-04-thankyou.png" alt="Submission complete screen" />
+              </div>
+            </div>
+            <div class="arrow">→</div>
+          </div>
+
+          <div class="flow-card">
+            <div class="phone-wrap">
+              <div class="label">
+                <span class="step">STEP 05</span>
+                <h3>System Messages</h3>
+                <p>The bell icon opens system messages, including form completion, coupon delivery, and new campaign notifications.</p>
+              </div>
+              <div class="phone">
+                <div class="notch"></div>
+                <img class="screen-shot" src="./assets/app-screens/customer-05-member.png" alt="Member center screen" />
+              </div>
+            </div>
+            <div class="arrow">→</div>
+          </div>
+
+          <div class="flow-card last">
+            <div class="phone-wrap">
+              <div class="label">
+                <span class="step">STEP 06</span>
+                <h3>Member Center</h3>
+                <p>Shows member profile details, qualification status, received coupons, and commonly used member functions.</p>
+              </div>
+              <div class="phone">
+                <div class="notch"></div>
+                <img class="screen-shot" src="./assets/app-screens/customer-06-messages.png" alt="System messages screen" />
+              </div>
+            </div>
+          </div>
+          </div>
+
+          <div class="screen-page">
+          <div class="flow-card">
+            <div class="phone-wrap">
+              <div class="label">
+                <span class="step">STEP 07</span>
+                <h3>Latest Information</h3>
+                <p>Presents medical and campaign-related updates as list cards, with publishing managed from the admin portal.</p>
+              </div>
+              <div class="phone">
+                <div class="notch"></div>
+                <img class="screen-shot" src="./assets/app-screens/customer-08-coupons.png" alt="Coupons screen" />
+              </div>
+            </div>
+            <div class="arrow">→</div>
+          </div>
+
+          <div class="flow-card last">
+            <div class="phone-wrap">
+              <div class="label">
+                <span class="step">STEP 08</span>
+                <h3>Coupons</h3>
+                <p>Lists available coupons, expiration dates, and redemption buttons, supporting multiple gift and reward types.</p>
+              </div>
+              <div class="phone">
+                <div class="notch"></div>
+                <img class="screen-shot" src="./assets/app-screens/customer-07-news.png" alt="Latest information screen" />
+              </div>
+            </div>
+          </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section admin-section">
+        <h2>Admin App Screens</h2>
+        <p class="muted">The admin portal is used to monitor survey performance, member review, campaign content, latest information, and coupon inventory.</p>
+        <div class="admin-screens" style="margin-top: 18px;">
+          <div class="desktop-wrap">
+            <div class="label">
+              <span class="step admin">ADMIN 01</span>
+              <h3>Dashboard</h3>
+              <p>Quickly view completed forms, pending reviews, approved members, coupon inventory, and list status distribution.</p>
+            </div>
+            <div class="desktop">
+              <img class="desktop-shot" src="./assets/app-screens/admin-01-dashboard.png" alt="Admin Dashboard" />
+            </div>
+          </div>
+
+          <div class="desktop-wrap">
+            <div class="label">
+              <span class="step admin">ADMIN 02</span>
+              <h3>Member Management</h3>
+              <p>Combines pending and approved member lists, allowing admins to switch tabs and approve members.</p>
+            </div>
+            <div class="desktop">
+              <img class="desktop-shot" src="./assets/app-screens/admin-02-members.png" alt="Admin Member Management" />
+            </div>
+          </div>
+
+          <div class="desktop-wrap">
+            <div class="label">
+              <span class="step admin">ADMIN 03</span>
+              <h3>Campaign Management</h3>
+              <p>Manages campaign names, status, campaign period, and notes, with support for adding new campaigns.</p>
+            </div>
+            <div class="desktop">
+              <img class="desktop-shot" src="./assets/app-screens/admin-03-activities.png" alt="Admin Campaign Management" />
+            </div>
+          </div>
+
+          <div class="desktop-wrap">
+            <div class="label">
+              <span class="step admin">ADMIN 04</span>
+              <h3>Coupon Management</h3>
+              <p>Manages coupon types, inventory, issued count, redeemed count, expiration dates, listing status, and stock replenishment.</p>
+            </div>
+            <div class="desktop">
+              <img class="desktop-shot" src="./assets/app-screens/admin-04-rewards.png" alt="Admin Coupon Management" />
+            </div>
+          </div>
+
+          <div class="desktop-wrap">
+            <div class="label">
+              <span class="step admin">ADMIN 05</span>
+              <h3>Latest Information Management</h3>
+              <p>Manages update titles, publishing status, dates, and categories, with support for adding new information.</p>
+            </div>
+            <div class="desktop">
+              <img class="desktop-shot" src="./assets/app-screens/admin-05-news.png" alt="Admin Latest Information Management" />
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </body>
+</html>
