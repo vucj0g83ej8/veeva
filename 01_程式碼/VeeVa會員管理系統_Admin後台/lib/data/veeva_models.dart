@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 enum VeevaMemberStatus { guest, loggedIn, pendingReview, verified }
 
+enum VeevaMemberAccountStatus { active, disabled }
+
 enum VeevaReviewStatus { pending, approved, rejected }
 
 enum VeevaRewardStatus { active, paused, expired }
@@ -79,6 +81,7 @@ class VeevaMember {
     required this.hospital,
     required this.department,
     required this.status,
+    this.accountStatus = VeevaMemberAccountStatus.active,
     required this.earnedCoupons,
     required this.invitedCount,
     required this.shareCode,
@@ -88,7 +91,11 @@ class VeevaMember {
     this.lineStatusMessage,
     this.lineIdToken,
     this.lineIdTokenUpdatedAt,
+    this.createdAt,
     this.lastLineLoginAt,
+    this.referredByMemberId,
+    this.referredByShareCode,
+    this.referredAt,
     this.isAdmin = false,
     this.adminRole,
     this.updatedAt,
@@ -105,6 +112,11 @@ class VeevaMember {
         data['status'],
         VeevaMemberStatus.loggedIn,
       ),
+      accountStatus: _readEnum(
+        VeevaMemberAccountStatus.values,
+        data['accountStatus'],
+        VeevaMemberAccountStatus.active,
+      ),
       earnedCoupons: _readInt(data['earnedCoupons']),
       invitedCount: _readInt(data['invitedCount']),
       shareCode: data['shareCode']?.toString() ?? id.substring(0, 5),
@@ -114,7 +126,11 @@ class VeevaMember {
       lineStatusMessage: data['lineStatusMessage']?.toString(),
       lineIdToken: data['lineIdToken']?.toString(),
       lineIdTokenUpdatedAt: _readDate(data['lineIdTokenUpdatedAt']),
+      createdAt: _readDate(data['createdAt']),
       lastLineLoginAt: _readDate(data['lastLineLoginAt']),
+      referredByMemberId: data['referredByMemberId']?.toString(),
+      referredByShareCode: data['referredByShareCode']?.toString(),
+      referredAt: _readDate(data['referredAt']),
       isAdmin: data['isAdmin'] == true,
       adminRole: data['adminRole']?.toString(),
       updatedAt: _readDate(data['updatedAt']),
@@ -126,6 +142,7 @@ class VeevaMember {
   final String hospital;
   final String department;
   final VeevaMemberStatus status;
+  final VeevaMemberAccountStatus accountStatus;
   final int earnedCoupons;
   final int invitedCount;
   final String shareCode;
@@ -135,7 +152,11 @@ class VeevaMember {
   final String? lineStatusMessage;
   final String? lineIdToken;
   final DateTime? lineIdTokenUpdatedAt;
+  final DateTime? createdAt;
   final DateTime? lastLineLoginAt;
+  final String? referredByMemberId;
+  final String? referredByShareCode;
+  final DateTime? referredAt;
   final bool isAdmin;
   final String? adminRole;
   final DateTime? updatedAt;
@@ -146,6 +167,7 @@ class VeevaMember {
       'hospital': hospital,
       'department': department,
       'status': status.name,
+      'accountStatus': accountStatus.name,
       'earnedCoupons': earnedCoupons,
       'invitedCount': invitedCount,
       'shareCode': shareCode,
@@ -157,8 +179,12 @@ class VeevaMember {
       'lineIdTokenUpdatedAt': lineIdTokenUpdatedAt == null
           ? null
           : Timestamp.fromDate(lineIdTokenUpdatedAt!),
+      if (createdAt != null) 'createdAt': Timestamp.fromDate(createdAt!),
       'lastLineLoginAt':
           lastLineLoginAt == null ? null : Timestamp.fromDate(lastLineLoginAt!),
+      'referredByMemberId': referredByMemberId,
+      'referredByShareCode': referredByShareCode,
+      'referredAt': referredAt == null ? null : Timestamp.fromDate(referredAt!),
       'isAdmin': isAdmin,
       'adminRole': adminRole,
       'updatedAt': FieldValue.serverTimestamp(),

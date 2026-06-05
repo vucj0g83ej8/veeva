@@ -3,6 +3,8 @@ abstract class LiffService {
 
   Future<LiffSession> login({String? postLoginPage});
 
+  Future<LiffShareResult> shareInvite(LiffInviteMessage invite);
+
   Future<LiffSession> logout();
 }
 
@@ -40,6 +42,7 @@ class LiffSession {
     this.lineVersion,
     this.liffVersion,
     this.postLoginPage,
+    this.referralCode,
     this.errorMessage,
   });
 
@@ -91,6 +94,7 @@ class LiffSession {
   final String? lineVersion;
   final String? liffVersion;
   final String? postLoginPage;
+  final String? referralCode;
   final String? errorMessage;
 
   bool get hasError => errorMessage != null && errorMessage!.isNotEmpty;
@@ -106,6 +110,7 @@ class LiffSession {
     String? lineVersion,
     String? liffVersion,
     String? postLoginPage,
+    String? referralCode,
     String? errorMessage,
   }) {
     return LiffSession(
@@ -119,6 +124,7 @@ class LiffSession {
       lineVersion: lineVersion ?? this.lineVersion,
       liffVersion: liffVersion ?? this.liffVersion,
       postLoginPage: postLoginPage ?? this.postLoginPage,
+      referralCode: referralCode ?? this.referralCode,
       errorMessage: errorMessage ?? this.errorMessage,
     );
   }
@@ -138,4 +144,37 @@ class LiffProfile {
   final String? pictureUrl;
   final String? statusMessage;
   final String? email;
+}
+
+class LiffInviteMessage {
+  const LiffInviteMessage({
+    required this.inviterName,
+    required this.shareCode,
+    required this.inviteUrl,
+  });
+
+  final String inviterName;
+  final String shareCode;
+  final String inviteUrl;
+}
+
+class LiffShareResult {
+  const LiffShareResult({
+    required this.success,
+    required this.message,
+  });
+
+  factory LiffShareResult.sent() {
+    return const LiffShareResult(
+      success: true,
+      message: '已開啟 LINE 分享視窗',
+    );
+  }
+
+  factory LiffShareResult.unavailable(String message) {
+    return LiffShareResult(success: false, message: message);
+  }
+
+  final bool success;
+  final String message;
 }

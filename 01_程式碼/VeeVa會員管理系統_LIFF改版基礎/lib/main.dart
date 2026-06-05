@@ -6,9 +6,19 @@ import 'data/firebase_bootstrap.dart';
 import 'data/veeva_models.dart' as backend;
 import 'data/veeva_repository.dart';
 import 'services/liff_service.dart';
+import 'short_link_redirect_stub.dart'
+    if (dart.library.html) 'short_link_redirect_web.dart';
 import 'survey_embed_stub.dart' if (dart.library.html) 'survey_embed_web.dart';
 
+const _defaultLiffId = '2010298394-7PwRtpTY';
+const _configuredLiffId = String.fromEnvironment(
+  'LIFF_ID',
+  defaultValue: _defaultLiffId,
+);
 Future<void> main() async {
+  if (redirectShortReferralLinkIfNeeded(liffId: _configuredLiffId)) {
+    return;
+  }
   WidgetsFlutterBinding.ensureInitialized();
   final repository = await createVeevaRepository();
   runApp(VeevaMemberApp(repository: repository));
@@ -39,6 +49,7 @@ class _VeevaMemberAppState extends State<VeevaMemberApp> {
       liffService: widget.liffService ??
           createLiffService(config: LiffConfig.fromEnvironment()),
     );
+    state.isLiffBusy = true;
     _initializeApp();
   }
 
@@ -46,32 +57,62 @@ class _VeevaMemberAppState extends State<VeevaMemberApp> {
     await state.loadBackendData();
     await state.initializeLiff();
     if (mounted) {
-      setState(() {});
+      state.notifyStateChanged();
     }
+  }
+
+  @override
+  void dispose() {
+    state.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return AppScope(
       state: state,
-      notify: () => setState(() {}),
+      notify: state.notifyStateChanged,
       child: MaterialApp(
         title: 'VeeVa 會員管理系統',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light(),
+        builder: (context, child) {
+          return ScrollConfiguration(
+            behavior: const _VeevaScrollBehavior(),
+            child: child ?? const SizedBox.shrink(),
+          );
+        },
         home: const AppShell(),
       ),
     );
   }
 }
 
-class AppScope extends InheritedWidget {
+class _VeevaScrollBehavior extends MaterialScrollBehavior {
+  const _VeevaScrollBehavior();
+
+  @override
+  Widget buildOverscrollIndicator(
+    BuildContext context,
+    Widget child,
+    ScrollableDetails details,
+  ) {
+    return child;
+  }
+
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) {
+    return const ClampingScrollPhysics();
+  }
+}
+
+class AppScope extends InheritedNotifier<AppState> {
   const AppScope({
     required this.state,
     required this.notify,
     required super.child,
     super.key,
-  });
+  }) : super(notifier: state);
 
   final AppState state;
   final VoidCallback notify;
@@ -81,12 +122,9 @@ class AppScope extends InheritedWidget {
     assert(scope != null, 'AppScope not found');
     return scope!;
   }
-
-  @override
-  bool updateShouldNotify(AppScope oldWidget) => true;
 }
 
-class AppState {
+class AppState extends ChangeNotifier {
   AppState({
     required this.repository,
     required this.liffService,
@@ -98,8 +136,11 @@ class AppState {
     required this.medicalNews,
     required this.currentPage,
     this.isLiffBusy = false,
+    this.isInviteShareBusy = false,
     this.authError,
     this.dataError,
+    this.inviteShareMessage,
+    this.inviteShareIsError = false,
   });
 
   factory AppState.demo({
@@ -111,7 +152,7 @@ class AppState {
       liffService: liffService,
       liffSession: LiffSession.initial(),
       member: MemberProfile.guest(),
-      currentPage: AppPage.landing,
+      currentPage: _requestedAppPageFromLaunchUri() ?? AppPage.landing,
       coupons: defaultCoupons,
       reviewItems: defaultReviews.map(ReviewItem.fromBackend).toList(),
       activities: defaultActivities.map(ActivityNews.fromBackend).toList(),
@@ -129,8 +170,15 @@ class AppState {
   final LiffService liffService;
   LiffSession liffSession;
   bool isLiffBusy;
+  bool isInviteShareBusy;
   String? authError;
   String? dataError;
+  String? inviteShareMessage;
+  bool inviteShareIsError;
+
+  void notifyStateChanged() {
+    notifyListeners();
+  }
 
   String? get loginNoticeText {
     if (authError != null) {
@@ -174,7 +222,7 @@ class AppState {
         reviewItems = bootstrap.reviews.map(ReviewItem.fromBackend).toList();
       }
       dataError = null;
-    } catch (error) {
+    } catch (_) {
       dataError = 'Firebase 資料讀取失敗，已暫時使用本機示範資料。';
     }
   }
@@ -184,12 +232,16 @@ class AppState {
     authError = null;
     try {
       liffSession = await liffService.initialize();
+      final requestedPage = _requestedPageFromLaunchUri();
       if (liffSession.isLoggedIn) {
         await _syncLineProfileToMember();
-        final nextPage = _pageFromName(liffSession.postLoginPage);
+        final nextPage =
+            _pageFromName(liffSession.postLoginPage) ?? requestedPage;
         if (nextPage != null) {
           currentPage = nextPage;
         }
+      } else if (requestedPage != null) {
+        currentPage = requestedPage;
       }
     } catch (error) {
       authError = 'LIFF 初始化失敗：$error';
@@ -216,6 +268,28 @@ class AppState {
       authError = 'LINE 登入失敗：$error';
     } finally {
       isLiffBusy = false;
+    }
+  }
+
+  Future<void> shareMemberInvite() async {
+    isInviteShareBusy = true;
+    inviteShareMessage = null;
+    inviteShareIsError = false;
+    try {
+      final result = await liffService.shareInvite(
+        LiffInviteMessage(
+          inviterName: member.name,
+          shareCode: member.shareCode,
+          inviteUrl: _memberLiffInviteLink(member),
+        ),
+      );
+      inviteShareMessage = result.message;
+      inviteShareIsError = !result.success;
+    } catch (error) {
+      inviteShareMessage = '分享邀請失敗，請稍後再試。';
+      inviteShareIsError = true;
+    } finally {
+      isInviteShareBusy = false;
     }
   }
 
@@ -295,6 +369,7 @@ class AppState {
         email: profile.email,
         statusMessage: profile.statusMessage,
         lineIdToken: liffSession.idToken,
+        referralCode: _pendingReferralCode(),
       );
       member = MemberProfile.fromBackend(remoteMember);
     } catch (_) {
@@ -309,6 +384,17 @@ class AppState {
     }
   }
 
+  String? _pendingReferralCode() {
+    final code = liffSession.referralCode ??
+        _referralCodeFromUri(Uri.base) ??
+        _referralCodeFromLiffState(Uri.base);
+    final text = code?.trim();
+    if (text == null || text.isEmpty) {
+      return null;
+    }
+    return text;
+  }
+
   AppPage? _pageFromName(String? name) {
     if (name == null || name.isEmpty) {
       return null;
@@ -320,6 +406,94 @@ class AppState {
     }
     return null;
   }
+
+  AppPage? _requestedPageFromLaunchUri() {
+    return _requestedAppPageFromLaunchUri();
+  }
+}
+
+String? _referralCodeFromUri(Uri uri) {
+  return uri.queryParameters['ref'] ??
+      uri.queryParameters['shareCode'] ??
+      uri.queryParameters['invite'];
+}
+
+String? _referralCodeFromShortPath(Uri uri) {
+  if (uri.pathSegments.length != 2 || uri.pathSegments.first != 'r') {
+    return null;
+  }
+  final code = uri.pathSegments.last
+      .trim()
+      .replaceAll(RegExp('[^a-zA-Z0-9]'), '')
+      .toUpperCase();
+  return code.isEmpty ? null : code;
+}
+
+String? _queryValueFromUri(Uri uri, List<String> keys) {
+  for (final key in keys) {
+    final value = uri.queryParameters[key];
+    if (value != null && value.trim().isNotEmpty) {
+      return value;
+    }
+  }
+  return null;
+}
+
+String? _queryValueFromLiffState(Uri uri, List<String> keys) {
+  final state = uri.queryParameters['liff.state'];
+  if (state == null || state.isEmpty) {
+    return null;
+  }
+  final stateUri = Uri.tryParse(state);
+  if (stateUri != null) {
+    final value = _queryValueFromUri(stateUri, keys);
+    if (value != null && value.trim().isNotEmpty) {
+      return value;
+    }
+  }
+  final query = state.startsWith('?') ? state.substring(1) : state;
+  final values = Uri.splitQueryString(query);
+  for (final key in keys) {
+    final value = values[key];
+    if (value != null && value.trim().isNotEmpty) {
+      return value;
+    }
+  }
+  return null;
+}
+
+AppPage? _requestedAppPageFromLaunchUri() {
+  final target = _queryValueFromUri(Uri.base, const ['open', 'page']) ??
+      _queryValueFromLiffState(Uri.base, const ['open', 'page']);
+  final normalized = target?.trim().toLowerCase();
+  if (_referralCodeFromShortPath(Uri.base) != null) {
+    return AppPage.memberCenter;
+  }
+  return switch (normalized) {
+    'invite' || 'member' || 'membercenter' => AppPage.memberCenter,
+    'coupon' || 'coupons' => AppPage.coupon,
+    'news' => AppPage.news,
+    'survey' => AppPage.survey,
+    _ => null,
+  };
+}
+
+String? _referralCodeFromLiffState(Uri uri) {
+  final state = uri.queryParameters['liff.state'];
+  if (state == null || state.isEmpty) {
+    return null;
+  }
+  final stateUri = Uri.tryParse(state);
+  if (stateUri != null) {
+    final code = _referralCodeFromUri(stateUri);
+    if (code != null && code.trim().isNotEmpty) {
+      return code;
+    }
+  }
+  final query = state.startsWith('?') ? state.substring(1) : state;
+  return Uri.splitQueryString(query)['ref'] ??
+      Uri.splitQueryString(query)['shareCode'] ??
+      Uri.splitQueryString(query)['invite'];
 }
 
 enum AppPage {
@@ -334,12 +508,22 @@ enum AppPage {
 
 enum MemberStatus { guest, loggedIn, pendingReview, verified }
 
+enum MemberAccountStatus { active, disabled }
+
 enum CouponStatus { available, used, expired }
 
 enum ReviewStatus { pending, approved, rejected }
 
 String _formatDate(DateTime date) {
   return '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}';
+}
+
+String _formatDateTime(DateTime date) {
+  final value = date.toLocal();
+  final dateText = _formatDate(value);
+  final hour = value.hour.toString().padLeft(2, '0');
+  final minute = value.minute.toString().padLeft(2, '0');
+  return '$dateText $hour:$minute';
 }
 
 const veevaSurveyUrl =
@@ -351,11 +535,15 @@ class MemberProfile {
     required this.hospital,
     required this.department,
     required this.status,
+    this.accountStatus = MemberAccountStatus.active,
     required this.earnedCoupons,
     required this.invitedCount,
     required this.shareCode,
     this.lineUserId,
     this.avatarUrl,
+    this.referredByMemberId,
+    this.referredByShareCode,
+    this.referredAt,
   });
 
   factory MemberProfile.guest() {
@@ -364,6 +552,7 @@ class MemberProfile {
       hospital: '',
       department: '',
       status: MemberStatus.guest,
+      accountStatus: MemberAccountStatus.active,
       earnedCoupons: 0,
       invitedCount: 0,
       shareCode: 'A8D2K',
@@ -376,11 +565,15 @@ class MemberProfile {
       hospital: member.hospital,
       department: member.department,
       status: _memberStatusFromBackend(member.status),
+      accountStatus: _memberAccountStatusFromBackend(member.accountStatus),
       earnedCoupons: member.earnedCoupons,
       invitedCount: member.invitedCount,
       shareCode: member.shareCode,
       lineUserId: member.lineUserId ?? member.id,
       avatarUrl: member.avatarUrl,
+      referredByMemberId: member.referredByMemberId,
+      referredByShareCode: member.referredByShareCode,
+      referredAt: member.referredAt,
     );
   }
 
@@ -388,33 +581,45 @@ class MemberProfile {
   final String hospital;
   final String department;
   final MemberStatus status;
+  final MemberAccountStatus accountStatus;
   final int earnedCoupons;
   final int invitedCount;
   final String shareCode;
   final String? lineUserId;
   final String? avatarUrl;
+  final String? referredByMemberId;
+  final String? referredByShareCode;
+  final DateTime? referredAt;
 
   MemberProfile copyWith({
     String? name,
     String? hospital,
     String? department,
     MemberStatus? status,
+    MemberAccountStatus? accountStatus,
     int? earnedCoupons,
     int? invitedCount,
     String? shareCode,
     String? lineUserId,
     String? avatarUrl,
+    String? referredByMemberId,
+    String? referredByShareCode,
+    DateTime? referredAt,
   }) {
     return MemberProfile(
       name: name ?? this.name,
       hospital: hospital ?? this.hospital,
       department: department ?? this.department,
       status: status ?? this.status,
+      accountStatus: accountStatus ?? this.accountStatus,
       earnedCoupons: earnedCoupons ?? this.earnedCoupons,
       invitedCount: invitedCount ?? this.invitedCount,
       shareCode: shareCode ?? this.shareCode,
       lineUserId: lineUserId ?? this.lineUserId,
       avatarUrl: avatarUrl ?? this.avatarUrl,
+      referredByMemberId: referredByMemberId ?? this.referredByMemberId,
+      referredByShareCode: referredByShareCode ?? this.referredByShareCode,
+      referredAt: referredAt ?? this.referredAt,
     );
   }
 
@@ -425,11 +630,15 @@ class MemberProfile {
       hospital: hospital,
       department: department,
       status: _memberStatusToBackend(status),
+      accountStatus: _memberAccountStatusToBackend(accountStatus),
       earnedCoupons: earnedCoupons,
       invitedCount: invitedCount,
       shareCode: shareCode,
       lineUserId: lineUserId,
       avatarUrl: avatarUrl,
+      referredByMemberId: referredByMemberId,
+      referredByShareCode: referredByShareCode,
+      referredAt: referredAt,
     );
   }
 }
@@ -449,6 +658,24 @@ backend.VeevaMemberStatus _memberStatusToBackend(MemberStatus status) {
     MemberStatus.loggedIn => backend.VeevaMemberStatus.loggedIn,
     MemberStatus.pendingReview => backend.VeevaMemberStatus.pendingReview,
     MemberStatus.verified => backend.VeevaMemberStatus.verified,
+  };
+}
+
+MemberAccountStatus _memberAccountStatusFromBackend(
+  backend.VeevaMemberAccountStatus status,
+) {
+  return switch (status) {
+    backend.VeevaMemberAccountStatus.active => MemberAccountStatus.active,
+    backend.VeevaMemberAccountStatus.disabled => MemberAccountStatus.disabled,
+  };
+}
+
+backend.VeevaMemberAccountStatus _memberAccountStatusToBackend(
+  MemberAccountStatus status,
+) {
+  return switch (status) {
+    MemberAccountStatus.active => backend.VeevaMemberAccountStatus.active,
+    MemberAccountStatus.disabled => backend.VeevaMemberAccountStatus.disabled,
   };
 }
 
@@ -555,10 +782,26 @@ class AppTheme {
         surface: surface,
       ),
       scaffoldBackgroundColor: surface,
+      splashFactory: NoSplash.splashFactory,
+      highlightColor: Colors.transparent,
+      hoverColor: Colors.transparent,
+      focusColor: Colors.transparent,
       appBarTheme: const AppBarTheme(
         centerTitle: false,
         backgroundColor: surface,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        shadowColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
+      ),
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: _NoPageTransitionsBuilder(),
+          TargetPlatform.iOS: _NoPageTransitionsBuilder(),
+          TargetPlatform.macOS: _NoPageTransitionsBuilder(),
+          TargetPlatform.windows: _NoPageTransitionsBuilder(),
+          TargetPlatform.linux: _NoPageTransitionsBuilder(),
+        },
       ),
       cardTheme: CardTheme(
         color: Colors.white,
@@ -581,6 +824,21 @@ class AppTheme {
         ),
       ),
     );
+  }
+}
+
+class _NoPageTransitionsBuilder extends PageTransitionsBuilder {
+  const _NoPageTransitionsBuilder();
+
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    return child;
   }
 }
 
@@ -609,8 +867,7 @@ class AppShell extends StatelessWidget {
           const SizedBox(width: 8),
         ],
       ),
-      body: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 220),
+      body: RepaintBoundary(
         child: switch (scope.state.currentPage) {
           AppPage.landing => const LandingPage(),
           AppPage.news => const MedicalNewsPage(),
@@ -623,7 +880,7 @@ class AppShell extends StatelessWidget {
       ),
       bottomNavigationBar: isLogin
           ? null
-          : NavigationBar(
+          : _CustomerBottomNav(
               selectedIndex: _selectedCustomerIndex(scope.state.currentPage),
               onDestinationSelected: (index) {
                 scope.state.currentPage = switch (index) {
@@ -635,28 +892,6 @@ class AppShell extends StatelessWidget {
                 };
                 scope.notify();
               },
-              destinations: const [
-                NavigationDestination(
-                  icon: Icon(Icons.campaign_outlined),
-                  selectedIcon: Icon(Icons.campaign),
-                  label: '活動',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.newspaper_outlined),
-                  selectedIcon: Icon(Icons.newspaper),
-                  label: '最新資訊',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.confirmation_number_outlined),
-                  selectedIcon: Icon(Icons.confirmation_number),
-                  label: '兌換券',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.account_circle_outlined),
-                  selectedIcon: Icon(Icons.account_circle),
-                  label: '會員',
-                ),
-              ],
             ),
     );
   }
@@ -668,6 +903,130 @@ class AppShell extends StatelessWidget {
       AppPage.memberCenter => 3,
       _ => 0,
     };
+  }
+}
+
+class _CustomerBottomNav extends StatelessWidget {
+  const _CustomerBottomNav({
+    required this.selectedIndex,
+    required this.onDestinationSelected,
+  });
+
+  final int selectedIndex;
+  final ValueChanged<int> onDestinationSelected;
+
+  static const _items = [
+    _CustomerBottomNavItem(
+      label: '活動',
+      icon: Icons.campaign_outlined,
+      selectedIcon: Icons.campaign,
+    ),
+    _CustomerBottomNavItem(
+      label: '最新資訊',
+      icon: Icons.newspaper_outlined,
+      selectedIcon: Icons.newspaper,
+    ),
+    _CustomerBottomNavItem(
+      label: '兌換券',
+      icon: Icons.confirmation_number_outlined,
+      selectedIcon: Icons.confirmation_number,
+    ),
+    _CustomerBottomNavItem(
+      label: '會員',
+      icon: Icons.account_circle_outlined,
+      selectedIcon: Icons.account_circle,
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: DecoratedBox(
+        key: const Key('customer-bottom-nav'),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          border: Border(top: BorderSide(color: Color(0xFFDDE7E1))),
+        ),
+        child: SafeArea(
+          top: false,
+          child: SizedBox(
+            height: 62,
+            child: Row(
+              children: [
+                for (var index = 0; index < _items.length; index++)
+                  Expanded(
+                    child: _CustomerBottomNavButton(
+                      item: _items[index],
+                      selected: selectedIndex == index,
+                      onTap: () => onDestinationSelected(index),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CustomerBottomNavItem {
+  const _CustomerBottomNavItem({
+    required this.label,
+    required this.icon,
+    required this.selectedIcon,
+  });
+
+  final String label;
+  final IconData icon;
+  final IconData selectedIcon;
+}
+
+class _CustomerBottomNavButton extends StatelessWidget {
+  const _CustomerBottomNavButton({
+    required this.item,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final _CustomerBottomNavItem item;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? const Color(0xFF216B57) : const Color(0xFF5F6F68);
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: item.label,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              selected ? item.selectedIcon : item.icon,
+              color: color,
+              size: 24,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              item.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: color,
+                fontSize: 12,
+                fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                letterSpacing: 0,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -757,15 +1116,8 @@ class _SystemMessagesPanel extends StatelessWidget {
           color: Colors.white,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(color: const Color(0xFFE2E5DC)),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x22000000),
-              blurRadius: 24,
-              offset: Offset(0, 12),
-            ),
-          ],
         ),
-        clipBehavior: Clip.antiAlias,
+        clipBehavior: Clip.hardEdge,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -824,6 +1176,7 @@ class LandingPage extends StatelessWidget {
     final isWide = width >= 900;
     return SingleChildScrollView(
       key: const ValueKey('landing'),
+      physics: const ClampingScrollPhysics(),
       padding: EdgeInsets.symmetric(
         horizontal: isWide ? 56 : 20,
         vertical: isWide ? 40 : 24,
@@ -945,113 +1298,96 @@ class _ActivityNewsCard extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: cardColor,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white, width: 1.5),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x14000000),
-            blurRadius: 24,
-            offset: Offset(0, 12),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE2E5DC)),
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 52,
-                    height: 52,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(18),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color(0x10000000),
-                          blurRadius: 12,
-                          offset: Offset(0, 6),
-                        ),
-                      ],
-                    ),
-                    child: Icon(news.icon, color: accentColor),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFE2E5DC)),
                   ),
-                  const Spacer(),
-                  _SoftTag(label: news.label, color: accentColor),
+                  child: Icon(news.icon, color: accentColor),
+                ),
+                const Spacer(),
+                _SoftTag(label: news.label, color: accentColor),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Text(
+              news.title,
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF243A33),
+                    letterSpacing: 0,
+                  ),
+            ),
+            const SizedBox(height: 10),
+            Expanded(
+              child: Text(
+                news.description,
+                style: const TextStyle(height: 1.45, color: Color(0xFF4C5A55)),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFE2E5DC)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.card_giftcard_outlined,
+                      size: 18, color: accentColor),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      news.reward,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ),
                 ],
               ),
-              const SizedBox(height: 20),
-              Text(
-                news.title,
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      color: const Color(0xFF243A33),
-                      letterSpacing: 0,
-                    ),
-              ),
-              const SizedBox(height: 10),
-              Expanded(
-                child: Text(
-                  news.description,
-                  style:
-                      const TextStyle(height: 1.45, color: Color(0xFF4C5A55)),
-                ),
-              ),
-              const SizedBox(height: 14),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(.72),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.card_giftcard_outlined,
-                        size: 18, color: accentColor),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        news.reward,
-                        style: const TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Spacer(),
-              Align(
-                alignment: Alignment.bottomRight,
-                child: FilledButton.icon(
-                  key: news.active ? const Key('start-login-button') : null,
-                  onPressed: news.active
-                      ? () {
-                          scope.state.currentPage = AppPage.login;
-                          scope.notify();
-                        }
-                      : null,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: news.active
-                        ? const Color(0xFF216B57)
-                        : const Color(0xFFDDE7E1),
-                    foregroundColor:
-                        news.active ? Colors.white : const Color(0xFF67746E),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(999),
-                    ),
+            ),
+            const Spacer(),
+            Align(
+              alignment: Alignment.bottomRight,
+              child: FilledButton.icon(
+                key: news.active ? const Key('start-login-button') : null,
+                onPressed: news.active
+                    ? () {
+                        scope.state.currentPage = AppPage.login;
+                        scope.notify();
+                      }
+                    : null,
+                style: FilledButton.styleFrom(
+                  backgroundColor: news.active
+                      ? const Color(0xFF216B57)
+                      : const Color(0xFFDDE7E1),
+                  foregroundColor:
+                      news.active ? Colors.white : const Color(0xFF67746E),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                  icon: Icon(
-                      news.active ? Icons.arrow_forward : Icons.lock_clock),
-                  label: Text(news.active ? '立即開始' : '尚未開放'),
                 ),
+                icon:
+                    Icon(news.active ? Icons.arrow_forward : Icons.lock_clock),
+                label: Text(news.active ? '立即開始' : '尚未開放'),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -1158,6 +1494,7 @@ class LoginPage extends StatelessWidget {
     return Center(
       key: const ValueKey('login'),
       child: SingleChildScrollView(
+        physics: const ClampingScrollPhysics(),
         padding: const EdgeInsets.all(24),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 360),
@@ -1193,22 +1530,6 @@ class LoginPage extends StatelessWidget {
                 onPressed: state.isLiffBusy
                     ? null
                     : () => _startLineLogin(context, AppPage.survey),
-              ),
-              const SizedBox(height: 12),
-              _SocialLoginButton(
-                key: const Key('google-login-button'),
-                backgroundColor: Colors.white,
-                foregroundColor: const Color(0xFF1F1F1F),
-                borderColor: const Color(0xFF747775),
-                icon: const _BrandIcon(
-                  asset: 'assets/brand/google-g-logo.png',
-                  size: 20,
-                ),
-                label: '使用 Google 登入',
-                onPressed: () {
-                  scope.state.loginWithDemoProvider(nextPage: AppPage.survey);
-                  scope.notify();
-                },
               ),
             ],
           ),
@@ -1252,6 +1573,7 @@ class ThankYouPage extends StatelessWidget {
       key: const ValueKey('thankYou'),
       builder: (context, constraints) {
         return SingleChildScrollView(
+          physics: const ClampingScrollPhysics(),
           child: ConstrainedBox(
             constraints: BoxConstraints(minHeight: constraints.maxHeight),
             child: Center(
@@ -1313,15 +1635,20 @@ class MemberCenterPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scope = AppScope.of(context);
-    final member = scope.state.member;
+    final state = scope.state;
+    final member = state.member;
     final isLoggedIn = member.status != MemberStatus.guest;
     final verified = member.status == MemberStatus.verified;
     if (!isLoggedIn) {
-      return const _PageFrame(
-        key: ValueKey('memberLogin'),
+      final isSyncingLineMember =
+          state.isLiffBusy || state.liffSession.isLoggedIn;
+      return _PageFrame(
+        key: const ValueKey('memberLogin'),
         title: '會員中心',
         subtitle: '',
-        child: _MemberLoginPrompt(),
+        child: isSyncingLineMember
+            ? const _MemberSyncingNotice()
+            : const _MemberLoginPrompt(),
       );
     }
     return _PageFrame(
@@ -1338,14 +1665,9 @@ class MemberCenterPage extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      CircleAvatar(
-                        radius: 28,
-                        backgroundImage: member.avatarUrl == null
-                            ? null
-                            : NetworkImage(member.avatarUrl!),
-                        child: member.avatarUrl == null
-                            ? const Icon(Icons.person_outline)
-                            : null,
+                      _MemberAvatar(
+                        name: member.name,
+                        avatarUrl: member.avatarUrl,
                       ),
                       const SizedBox(width: 14),
                       Expanded(
@@ -1397,32 +1719,477 @@ class MemberCenterPage extends StatelessWidget {
           const SizedBox(height: 16),
           const _MemberFeatureList(),
           const SizedBox(height: 16),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Row(
-                children: [
-                  const Icon(Icons.link_outlined),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'event.com/invite/${member.shareCode}',
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                  IconButton.filledTonal(
-                    tooltip: '分享',
-                    onPressed: verified ? () {} : null,
-                    icon: const Icon(Icons.ios_share_outlined),
-                  ),
-                ],
-              ),
-            ),
-          ),
+          const _MemberInviteShareCard(),
         ],
       ),
     );
   }
+}
+
+String _memberLiffInviteLink(MemberProfile member) {
+  return Uri.https(
+    'liff.line.me',
+    '/$_configuredLiffId/',
+    {
+      'open': 'invite',
+      'ref': member.shareCode,
+    },
+  ).toString();
+}
+
+Future<void> _shareMemberInvite(BuildContext context) async {
+  final scope = AppScope.of(context);
+  scope.state.inviteShareMessage = null;
+  scope.notify();
+  await scope.state.shareMemberInvite();
+  if (!context.mounted) return;
+  scope.notify();
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(content: Text(scope.state.inviteShareMessage ?? '已開啟 LINE 分享視窗')),
+  );
+}
+
+class _MemberInviteShareCard extends StatelessWidget {
+  const _MemberInviteShareCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context).state;
+    return Card(
+      key: const Key('member-invite-share-card'),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEAF3EA),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.ios_share_outlined,
+                    color: Color(0xFF216B57),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    '邀請好友',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 132,
+                  height: 48,
+                  child: FilledButton(
+                    key: const Key('share-member-invite-button'),
+                    onPressed: state.isInviteShareBusy
+                        ? null
+                        : () => _shareMemberInvite(context),
+                    style: FilledButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      alignment: Alignment.center,
+                    ),
+                    child: Center(
+                      child: state.isInviteShareBusy
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.4,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Text(
+                              '分享給好友',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0,
+                              ),
+                            ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (state.inviteShareMessage != null) ...[
+              const SizedBox(height: 14),
+              _LiffStatusNotice(
+                text: state.inviteShareMessage!,
+                isError: state.inviteShareIsError,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MemberAvatar extends StatelessWidget {
+  const _MemberAvatar({
+    required this.name,
+    required this.avatarUrl,
+  });
+
+  static const double size = 56;
+
+  final String name;
+  final String? avatarUrl;
+
+  @override
+  Widget build(BuildContext context) {
+    final url = avatarUrl;
+    if (url == null || url.isEmpty) {
+      return _MemberAvatarFallback(name: name);
+    }
+    return RepaintBoundary(
+      child: ClipOval(
+        child: Image.network(
+          url,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          cacheWidth: 112,
+          cacheHeight: 112,
+          filterQuality: FilterQuality.low,
+          gaplessPlayback: true,
+          loadingBuilder: (context, child, loadingProgress) {
+            if (loadingProgress == null) {
+              return child;
+            }
+            return _MemberAvatarFallback(name: name);
+          },
+          errorBuilder: (context, error, stackTrace) {
+            return _MemberAvatarFallback(name: name);
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _MemberAvatarFallback extends StatelessWidget {
+  const _MemberAvatarFallback({required this.name});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        shape: BoxShape.circle,
+        color: Color(0xFFEAF3EA),
+      ),
+      child: SizedBox(
+        width: _MemberAvatar.size,
+        height: _MemberAvatar.size,
+        child: Center(
+          child: Text(
+            _avatarInitial(name),
+            style: const TextStyle(
+              color: Color(0xFF216B57),
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+void _showReferralRecordsDialog(BuildContext context) {
+  final scope = AppScope.of(context);
+  final member = scope.state.member;
+  showDialog<void>(
+    context: context,
+    builder: (dialogContext) {
+      return _ReferralRecordsDialog(
+        memberId: member.lineUserId ?? member.name,
+        repository: scope.state.repository,
+      );
+    },
+  );
+}
+
+class _ReferralRecordsDialog extends StatefulWidget {
+  const _ReferralRecordsDialog({
+    required this.memberId,
+    required this.repository,
+  });
+
+  final String memberId;
+  final VeevaRepository repository;
+
+  @override
+  State<_ReferralRecordsDialog> createState() => _ReferralRecordsDialogState();
+}
+
+class _ReferralRecordsDialogState extends State<_ReferralRecordsDialog> {
+  late Future<List<backend.VeevaReferral>> _recordsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _recordsFuture = _loadRecords();
+  }
+
+  Future<List<backend.VeevaReferral>> _loadRecords() {
+    return widget.repository.loadReferralRecords(widget.memberId);
+  }
+
+  void _refreshRecords() {
+    setState(() {
+      _recordsFuture = _loadRecords();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      key: const Key('referral-records-dialog'),
+      scrollable: true,
+      insetPadding: const EdgeInsets.all(20),
+      titlePadding: const EdgeInsets.fromLTRB(24, 22, 16, 8),
+      contentPadding: const EdgeInsets.fromLTRB(24, 8, 24, 10),
+      actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      title: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEAF3EA),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(
+              Icons.group_add_outlined,
+              color: Color(0xFF216B57),
+            ),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Text(
+              '邀請紀錄',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+            ),
+          ),
+          IconButton(
+            tooltip: '關閉',
+            onPressed: () => Navigator.of(context).pop(),
+            icon: const Icon(Icons.close),
+          ),
+        ],
+      ),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: FutureBuilder<List<backend.VeevaReferral>>(
+          future: _recordsFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const _ReferralRecordsStatus(
+                label: '正在讀取邀請紀錄',
+                progress: true,
+              );
+            }
+            if (snapshot.hasError) {
+              return _ReferralRecordsStatus(
+                label: '邀請紀錄讀取失敗',
+                icon: Icons.info_outline,
+                action: TextButton.icon(
+                  onPressed: _refreshRecords,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('重試'),
+                ),
+              );
+            }
+            final records = snapshot.data ?? const <backend.VeevaReferral>[];
+            if (records.isEmpty) {
+              return const _ReferralRecordsStatus(
+                label: '目前尚無邀請成功紀錄',
+                icon: Icons.person_add_disabled_outlined,
+              );
+            }
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          '好友透過分享連結完成 LINE 登入',
+                          style: TextStyle(
+                            color: Color(0xFF5F6F68),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      _Tag(label: '${records.length} 位'),
+                    ],
+                  ),
+                ),
+                for (var index = 0; index < records.length; index++) ...[
+                  _ReferralRecordTile(record: records[index]),
+                  if (index != records.length - 1) const Divider(height: 1),
+                ],
+              ],
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton.icon(
+          key: const Key('refresh-referral-records-button'),
+          onPressed: _refreshRecords,
+          icon: const Icon(Icons.refresh),
+          label: const Text('重新整理'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('關閉'),
+        ),
+      ],
+    );
+  }
+}
+
+class _ReferralRecordsStatus extends StatelessWidget {
+  const _ReferralRecordsStatus({
+    required this.label,
+    this.icon,
+    this.progress = false,
+    this.action,
+  });
+
+  final String label;
+  final IconData? icon;
+  final bool progress;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F8F4),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE2E5DC)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+        child: Row(
+          children: [
+            if (progress)
+              const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2.4),
+              )
+            else
+              Icon(icon ?? Icons.info_outline, color: const Color(0xFF6B7671)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  color: Color(0xFF5F6F68),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            if (action != null) ...[
+              const SizedBox(width: 8),
+              action!,
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ReferralRecordTile extends StatelessWidget {
+  const _ReferralRecordTile({required this.record});
+
+  final backend.VeevaReferral record;
+
+  @override
+  Widget build(BuildContext context) {
+    final createdAt = record.createdAt;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 20,
+            backgroundColor: const Color(0xFFEAF3EA),
+            child: Text(
+              _avatarInitial(record.inviteeName),
+              style: const TextStyle(
+                color: Color(0xFF216B57),
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  record.inviteeName.isEmpty ? 'LINE 會員' : record.inviteeName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  createdAt == null
+                      ? '登入時間同步中'
+                      : '登入時間 ${_formatDateTime(createdAt)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF6B7671),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          const _Tag(label: '已登入'),
+        ],
+      ),
+    );
+  }
+}
+
+String _avatarInitial(String name) {
+  final text = name.trim();
+  if (text.isEmpty) {
+    return 'L';
+  }
+  return text.characters.first.toUpperCase();
 }
 
 class _MemberLoginPrompt extends StatelessWidget {
@@ -1469,23 +2236,45 @@ class _MemberLoginPrompt extends StatelessWidget {
                       ? null
                       : () => _startLineLogin(context, AppPage.memberCenter),
                 ),
-                const SizedBox(height: 12),
-                _SocialLoginButton(
-                  key: const Key('member-google-login-button'),
-                  backgroundColor: Colors.white,
-                  foregroundColor: const Color(0xFF1F1F1F),
-                  borderColor: const Color(0xFF747775),
-                  icon: const _BrandIcon(
-                    asset: 'assets/brand/google-g-logo.png',
-                    size: 20,
-                  ),
-                  label: '使用 Google 登入',
-                  onPressed: () {
-                    scope.state.loginWithDemoProvider(
-                      nextPage: AppPage.memberCenter,
-                    );
-                    scope.notify();
-                  },
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MemberSyncingNotice extends StatelessWidget {
+  const _MemberSyncingNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 360),
+        child: const Card(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 32,
+                  height: 32,
+                  child: CircularProgressIndicator(strokeWidth: 3),
+                ),
+                SizedBox(height: 18),
+                Text(
+                  '正在同步 LINE 會員資料',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                ),
+                SizedBox(height: 8),
+                Text(
+                  '請稍候，系統正在確認您的登入狀態。',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Color(0xFF5F6F68), height: 1.45),
                 ),
               ],
             ),
@@ -1519,6 +2308,7 @@ class _MemberFeatureList extends StatelessWidget {
       icon: Icons.group_add_outlined,
       title: '邀請紀錄',
       subtitle: '追蹤好友邀請與推薦成果',
+      action: _MemberFeatureAction.referralRecords,
     ),
     _MemberFeatureItem(
       icon: Icons.support_agent_outlined,
@@ -1541,7 +2331,16 @@ class _MemberFeatureList extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             for (var index = 0; index < items.length; index++) ...[
-              _MemberFeatureTile(item: items[index]),
+              _MemberFeatureTile(
+                key: items[index].action == _MemberFeatureAction.referralRecords
+                    ? const Key('member-feature-referral-records-button')
+                    : null,
+                item: items[index],
+                onTap:
+                    items[index].action == _MemberFeatureAction.referralRecords
+                        ? () => _showReferralRecordsDialog(context)
+                        : () {},
+              ),
               if (index != items.length - 1) const Divider(height: 1),
             ],
           ],
@@ -1556,17 +2355,26 @@ class _MemberFeatureItem {
     required this.icon,
     required this.title,
     required this.subtitle,
+    this.action,
   });
 
   final IconData icon;
   final String title;
   final String subtitle;
+  final _MemberFeatureAction? action;
 }
 
+enum _MemberFeatureAction { referralRecords }
+
 class _MemberFeatureTile extends StatelessWidget {
-  const _MemberFeatureTile({required this.item});
+  const _MemberFeatureTile({
+    required this.item,
+    required this.onTap,
+    super.key,
+  });
 
   final _MemberFeatureItem item;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1579,7 +2387,7 @@ class _MemberFeatureTile extends StatelessWidget {
       ),
       subtitle: Text(item.subtitle),
       trailing: const Icon(Icons.chevron_right),
-      onTap: () {},
+      onTap: onTap,
     );
   }
 }
@@ -1665,75 +2473,66 @@ class _MedicalNewsCard extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: const Color(0xFFF7FBF8),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white, width: 1.5),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x12000000),
-            blurRadius: 14,
-            offset: Offset(0, 7),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE2E5DC)),
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(18),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: const Icon(
-                  Icons.medical_information_outlined,
-                  size: 20,
-                  color: Color(0xFF216B57),
-                ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFE2E5DC)),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF243A33),
-                        height: 1.2,
-                      ),
+              child: const Icon(
+                Icons.medical_information_outlined,
+                size: 20,
+                color: Color(0xFF216B57),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF243A33),
+                      height: 1.2,
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '${item.date} · ${item.source}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF6B7671),
-                      ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    '${item.date} · ${item.source}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF6B7671),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
-              const Icon(
-                Icons.chevron_right,
-                color: Color(0xFF98A29D),
-              ),
-            ],
-          ),
+            ),
+            const SizedBox(width: 8),
+            const Icon(
+              Icons.chevron_right,
+              color: Color(0xFF98A29D),
+            ),
+          ],
         ),
       ),
     );
@@ -1870,6 +2669,7 @@ class _PageFrame extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
+      physics: const ClampingScrollPhysics(),
       padding: padding,
       child: Center(
         child: ConstrainedBox(
@@ -1929,49 +2729,48 @@ class _SocialLoginButton extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onPressed,
-    this.borderColor,
     super.key,
   });
 
   final Color backgroundColor;
   final Color foregroundColor;
-  final Color? borderColor;
   final Widget icon;
   final String label;
   final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedOpacity(
-      duration: const Duration(milliseconds: 160),
-      opacity: onPressed == null ? .56 : 1,
-      child: SizedBox(
-        height: 48,
-        child: Material(
-          color: backgroundColor,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-            side: BorderSide(color: borderColor ?? backgroundColor),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: onPressed,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Positioned(left: 14, child: icon),
-                Text(
-                  label,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: foregroundColor,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0,
-                  ),
+    final enabled = onPressed != null;
+    final effectiveBackground =
+        enabled ? backgroundColor : backgroundColor.withOpacity(.56);
+    final effectiveForeground =
+        enabled ? foregroundColor : foregroundColor.withOpacity(.72);
+    return SizedBox(
+      height: 48,
+      child: Material(
+        color: effectiveBackground,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(color: effectiveBackground),
+        ),
+        clipBehavior: Clip.hardEdge,
+        child: InkWell(
+          onTap: onPressed,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Positioned(left: 14, child: icon),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: effectiveForeground,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0,
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),

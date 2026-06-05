@@ -25,6 +25,7 @@ class StubLiffService implements LiffService {
       isInClient: false,
       isRedirecting: false,
       postLoginPage: postLoginPage,
+      referralCode: Uri.base.queryParameters['ref'],
       profile: const LiffProfile(
         userId: 'demo-line-user',
         displayName: '王小明',
@@ -32,6 +33,11 @@ class StubLiffService implements LiffService {
       idToken: 'demo-id-token',
     );
     return _session;
+  }
+
+  @override
+  Future<LiffShareResult> shareInvite(LiffInviteMessage invite) async {
+    return LiffShareResult.sent();
   }
 
   @override

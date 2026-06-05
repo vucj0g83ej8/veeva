@@ -31,6 +31,11 @@ abstract class VeevaRepository {
 
   Future<void> saveAdminUser(VeevaAdminUser adminUser);
 
+  Future<void> saveMemberSettings({
+    required VeevaMember member,
+    VeevaAdminUser? adminUser,
+  });
+
   Future<String> uploadImage({
     required String path,
     required Uint8List bytes,
@@ -127,6 +132,7 @@ class FirestoreVeevaRepository implements VeevaRepository {
       hospital: existing?.hospital ?? '',
       department: existing?.department ?? '',
       status: existing?.status ?? VeevaMemberStatus.loggedIn,
+      accountStatus: existing?.accountStatus ?? VeevaMemberAccountStatus.active,
       earnedCoupons: existing?.earnedCoupons ?? 0,
       invitedCount: existing?.invitedCount ?? 0,
       shareCode: existing?.shareCode ?? _shareCodeFromId(lineUserId),
@@ -139,6 +145,7 @@ class FirestoreVeevaRepository implements VeevaRepository {
       lineIdTokenUpdatedAt: token == null || token.isEmpty
           ? existing?.lineIdTokenUpdatedAt
           : DateTime.now(),
+      createdAt: existing?.createdAt ?? DateTime.now(),
       lastLineLoginAt: DateTime.now(),
     );
     final payload = member.toMap()
@@ -227,6 +234,44 @@ class FirestoreVeevaRepository implements VeevaRepository {
   }
 
   @override
+  Future<void> saveMemberSettings({
+    required VeevaMember member,
+    VeevaAdminUser? adminUser,
+  }) async {
+    final isActiveAdmin = adminUser?.status == VeevaAdminStatus.active;
+    final memberPayload = <String, Object?>{
+      'accountStatus': member.accountStatus.name,
+      'isAdmin': isActiveAdmin,
+      'adminRole': isActiveAdmin ? adminUser!.role.name : null,
+      'adminPermissions': isActiveAdmin ? adminUser!.permissions : <String>[],
+      'updatedAt': FieldValue.serverTimestamp(),
+      'disabledAt': member.accountStatus == VeevaMemberAccountStatus.disabled
+          ? FieldValue.serverTimestamp()
+          : null,
+    };
+    final writes = <Future<void>>[
+      _members.doc(member.id).set(memberPayload, SetOptions(merge: true)),
+    ];
+    if (isActiveAdmin) {
+      writes.add(
+        _admins
+            .doc(adminUser!.id)
+            .set(adminUser.toMap(), SetOptions(merge: true)),
+      );
+    } else {
+      final deleteIds = {
+        member.id,
+        if (member.lineUserId != null) member.lineUserId!,
+        if (adminUser != null) adminUser.id,
+      };
+      for (final id in deleteIds) {
+        writes.add(_admins.doc(id).delete());
+      }
+    }
+    await Future.wait(writes);
+  }
+
+  @override
   Future<String> uploadImage({
     required String path,
     required Uint8List bytes,
@@ -278,6 +323,7 @@ class DemoVeevaRepository implements VeevaRepository {
       lineStatusMessage: statusMessage,
       lineIdToken: lineIdToken,
       lineIdTokenUpdatedAt: lineIdToken == null ? null : DateTime.now(),
+      createdAt: DateTime.now(),
       lastLineLoginAt: DateTime.now(),
     );
   }
@@ -299,6 +345,12 @@ class DemoVeevaRepository implements VeevaRepository {
 
   @override
   Future<void> saveAdminUser(VeevaAdminUser adminUser) async {}
+
+  @override
+  Future<void> saveMemberSettings({
+    required VeevaMember member,
+    VeevaAdminUser? adminUser,
+  }) async {}
 
   @override
   Future<String> uploadImage({

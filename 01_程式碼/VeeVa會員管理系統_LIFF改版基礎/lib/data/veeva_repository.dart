@@ -17,7 +17,10 @@ abstract class VeevaRepository {
     String? email,
     String? statusMessage,
     String? lineIdToken,
+    String? referralCode,
   });
+
+  Future<List<VeevaReferral>> loadReferralRecords(String inviterMemberId);
 
   Future<void> submitReview(VeevaMember member);
 
@@ -56,6 +59,8 @@ class FirestoreVeevaRepository implements VeevaRepository {
       firestore.collection('news');
   CollectionReference<Map<String, dynamic>> get _rewards =>
       firestore.collection('rewards');
+  CollectionReference<Map<String, dynamic>> get _referrals =>
+      firestore.collection('referrals');
 
   @override
   Future<VeevaBootstrap> loadBootstrap() async {
@@ -97,6 +102,26 @@ class FirestoreVeevaRepository implements VeevaRepository {
   }
 
   @override
+  Future<List<VeevaReferral>> loadReferralRecords(
+      String inviterMemberId) async {
+    final memberId = inviterMemberId.trim();
+    if (memberId.isEmpty) {
+      return const [];
+    }
+    final snapshot =
+        await _referrals.where('inviterMemberId', isEqualTo: memberId).get();
+    final records = snapshot.docs
+        .map((doc) => VeevaReferral.fromMap(doc.id, doc.data()))
+        .toList()
+      ..sort((a, b) {
+        final left = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final right = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return right.compareTo(left);
+      });
+    return records;
+  }
+
+  @override
   Future<VeevaMember> upsertLineMember({
     required String lineUserId,
     required String displayName,
@@ -104,6 +129,7 @@ class FirestoreVeevaRepository implements VeevaRepository {
     String? email,
     String? statusMessage,
     String? lineIdToken,
+    String? referralCode,
   }) async {
     final existing = await loadMember(lineUserId);
     final token = lineIdToken?.trim();
@@ -113,6 +139,7 @@ class FirestoreVeevaRepository implements VeevaRepository {
       hospital: existing?.hospital ?? '',
       department: existing?.department ?? '',
       status: existing?.status ?? VeevaMemberStatus.loggedIn,
+      accountStatus: existing?.accountStatus ?? VeevaMemberAccountStatus.active,
       earnedCoupons: existing?.earnedCoupons ?? 0,
       invitedCount: existing?.invitedCount ?? 0,
       shareCode: existing?.shareCode ?? _shareCodeFromId(lineUserId),
@@ -125,7 +152,11 @@ class FirestoreVeevaRepository implements VeevaRepository {
       lineIdTokenUpdatedAt: token == null || token.isEmpty
           ? existing?.lineIdTokenUpdatedAt
           : DateTime.now(),
+      createdAt: existing?.createdAt ?? DateTime.now(),
       lastLineLoginAt: DateTime.now(),
+      referredByMemberId: existing?.referredByMemberId,
+      referredByShareCode: existing?.referredByShareCode,
+      referredAt: existing?.referredAt,
     );
     final payload = member.toMap()
       ..['lastLineLoginAt'] = FieldValue.serverTimestamp()
@@ -143,7 +174,111 @@ class FirestoreVeevaRepository implements VeevaRepository {
       payload['lineIdTokenUpdatedAt'] = FieldValue.serverTimestamp();
     }
     await _members.doc(lineUserId).set(payload, SetOptions(merge: true));
-    return member;
+    final referral = await _bindReferralIfNeeded(
+      member: member,
+      referralCode: referralCode,
+    );
+    if (referral == null) {
+      return member;
+    }
+    return VeevaMember(
+      id: member.id,
+      name: member.name,
+      hospital: member.hospital,
+      department: member.department,
+      status: member.status,
+      accountStatus: member.accountStatus,
+      earnedCoupons: member.earnedCoupons,
+      invitedCount: member.invitedCount,
+      shareCode: member.shareCode,
+      lineUserId: member.lineUserId,
+      avatarUrl: member.avatarUrl,
+      email: member.email,
+      lineStatusMessage: member.lineStatusMessage,
+      lineIdToken: member.lineIdToken,
+      lineIdTokenUpdatedAt: member.lineIdTokenUpdatedAt,
+      createdAt: member.createdAt,
+      lastLineLoginAt: member.lastLineLoginAt,
+      referredByMemberId: referral.inviterMemberId,
+      referredByShareCode: referral.shareCode,
+      referredAt: DateTime.now(),
+      updatedAt: member.updatedAt,
+    );
+  }
+
+  Future<_ReferralBinding?> _bindReferralIfNeeded({
+    required VeevaMember member,
+    String? referralCode,
+  }) async {
+    final shareCode = _normalizeShareCode(referralCode);
+    if (shareCode == null || member.referredByMemberId != null) {
+      return null;
+    }
+    final inviterQuery =
+        await _members.where('shareCode', isEqualTo: shareCode).limit(1).get();
+    if (inviterQuery.docs.isEmpty) {
+      return null;
+    }
+    final inviter = inviterQuery.docs.first;
+    if (inviter.id == member.id) {
+      return null;
+    }
+
+    final inviteeRef = _members.doc(member.id);
+    final inviterRef = _members.doc(inviter.id);
+    final referralRef = _referrals.doc('${inviter.id}_${member.id}');
+    var bound = false;
+
+    await firestore.runTransaction((transaction) async {
+      final inviteeSnapshot = await transaction.get(inviteeRef);
+      final referralSnapshot = await transaction.get(referralRef);
+      final inviteeData = inviteeSnapshot.data();
+      final existingInviter = inviteeData?['referredByMemberId']?.toString();
+      if (existingInviter != null && existingInviter.isNotEmpty) {
+        return;
+      }
+      if (referralSnapshot.exists) {
+        return;
+      }
+
+      transaction.set(
+        inviteeRef,
+        {
+          'referredByMemberId': inviter.id,
+          'referredByShareCode': shareCode,
+          'referredAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+      transaction.set(referralRef, {
+        'inviterMemberId': inviter.id,
+        'inviterShareCode': shareCode,
+        'inviteeMemberId': member.id,
+        'inviteeLineUserId': member.lineUserId ?? member.id,
+        'inviteeName': member.name,
+        'status': 'linked',
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      transaction.set(
+        inviterRef,
+        {
+          'invitedCount': FieldValue.increment(1),
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+      bound = true;
+    });
+
+    if (!bound) {
+      return null;
+    }
+    return _ReferralBinding(
+      inviterMemberId: inviter.id,
+      shareCode: shareCode,
+    );
   }
 
   @override
@@ -225,6 +360,12 @@ class DemoVeevaRepository implements VeevaRepository {
   Future<VeevaMember?> loadMember(String memberId) async => null;
 
   @override
+  Future<List<VeevaReferral>> loadReferralRecords(
+      String inviterMemberId) async {
+    return const [];
+  }
+
+  @override
   Future<VeevaMember> upsertLineMember({
     required String lineUserId,
     required String displayName,
@@ -232,6 +373,7 @@ class DemoVeevaRepository implements VeevaRepository {
     String? email,
     String? statusMessage,
     String? lineIdToken,
+    String? referralCode,
   }) async {
     return VeevaMember(
       id: lineUserId,
@@ -248,7 +390,9 @@ class DemoVeevaRepository implements VeevaRepository {
       lineStatusMessage: statusMessage,
       lineIdToken: lineIdToken,
       lineIdTokenUpdatedAt: lineIdToken == null ? null : DateTime.now(),
+      createdAt: DateTime.now(),
       lastLineLoginAt: DateTime.now(),
+      referredByShareCode: _normalizeShareCode(referralCode),
     );
   }
 
@@ -287,6 +431,24 @@ String _shareCodeFromId(String id) {
     return compact.substring(compact.length - 5);
   }
   return compact.padRight(5, 'X');
+}
+
+String? _normalizeShareCode(String? value) {
+  final code = value?.trim();
+  if (code == null || code.isEmpty) {
+    return null;
+  }
+  return code.replaceAll(RegExp('[^a-zA-Z0-9]'), '').toUpperCase();
+}
+
+class _ReferralBinding {
+  const _ReferralBinding({
+    required this.inviterMemberId,
+    required this.shareCode,
+  });
+
+  final String inviterMemberId;
+  final String shareCode;
 }
 
 final defaultActivities = <VeevaActivity>[

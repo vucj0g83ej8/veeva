@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:veeva_member_app/data/veeva_models.dart' as backend;
 import 'package:veeva_member_app/data/veeva_repository.dart';
 import 'package:veeva_member_app/main.dart';
+import 'package:veeva_member_app/services/liff_service.dart';
 
 void main() {
   testWidgets('user can complete the reward flow', (tester) async {
@@ -16,7 +19,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('會員登入'), findsOneWidget);
     expect(find.text('使用 LINE 登入'), findsOneWidget);
-    expect(find.text('使用 Google 登入'), findsOneWidget);
+    expect(find.text('使用 Google 登入'), findsNothing);
     expect(find.text('返回活動首頁'), findsNothing);
 
     await tester.ensureVisible(find.byKey(const Key('line-login-button')));
@@ -36,6 +39,10 @@ void main() {
     expect(find.text('會員功能'), findsOneWidget);
     expect(find.text('編輯會員資料'), findsOneWidget);
     expect(find.text('通知設定'), findsOneWidget);
+    expect(find.byKey(const Key('share-member-invite-button')), findsOneWidget);
+    expect(find.text('分享給好友'), findsOneWidget);
+    expect(find.text('用 LINE 卡片分享你的會員邀請'), findsNothing);
+    expect(find.text('https://veeva-8d30c.web.app/r/EUSER'), findsNothing);
     expect(find.text('可使用兌換券'), findsNothing);
 
     await tester.tap(find.text('兌換券'));
@@ -60,15 +67,13 @@ void main() {
   ) async {
     await tester.pumpWidget(const VeevaMemberApp());
 
-    expect(find.byType(NavigationBar), findsOneWidget);
-    expect(find.byType(NavigationDestination), findsNWidgets(4));
+    expect(find.byType(NavigationBar), findsNothing);
+    expect(find.byKey(const Key('customer-bottom-nav')), findsOneWidget);
     expect(find.text('兌換券'), findsOneWidget);
-    final destinations = tester.widgetList<NavigationDestination>(
-      find.byType(NavigationDestination),
-    );
     expect(
-      destinations.map((item) => item.label),
-      ['活動', '最新資訊', '兌換券', '會員'],
+      ['活動', '最新資訊', '兌換券', '會員']
+          .every((label) => find.text(label).evaluate().isNotEmpty),
+      isTrue,
     );
     expect(find.byTooltip('Admin 後台'), findsNothing);
 
@@ -87,7 +92,8 @@ void main() {
 
     expect(find.text('登入會員'), findsOneWidget);
     expect(find.byKey(const Key('member-line-login-button')), findsOneWidget);
-    expect(find.byKey(const Key('member-google-login-button')), findsOneWidget);
+    expect(find.byKey(const Key('member-google-login-button')), findsNothing);
+    expect(find.text('使用 Google 登入'), findsNothing);
     expect(find.text('會員功能'), findsNothing);
 
     await tester.tap(find.byKey(const Key('member-line-login-button')));
@@ -95,6 +101,42 @@ void main() {
 
     expect(find.text('會員功能'), findsOneWidget);
     expect(find.text('編輯會員資料'), findsOneWidget);
+  });
+
+  testWidgets('member page shows syncing state while LINE session loads', (
+    tester,
+  ) async {
+    final sessionCompleter = Completer<LiffSession>();
+
+    await tester.pumpWidget(
+      VeevaMemberApp(
+        liffService: _PendingLiffService(sessionCompleter.future),
+      ),
+    );
+
+    await tester.tap(find.text('會員'));
+    await tester.pump();
+
+    expect(find.text('正在同步 LINE 會員資料'), findsOneWidget);
+    expect(find.byKey(const Key('member-line-login-button')), findsNothing);
+
+    sessionCompleter.complete(
+      const LiffSession(
+        isInitialized: true,
+        isLoggedIn: true,
+        isInClient: false,
+        isRedirecting: false,
+        profile: LiffProfile(
+          userId: 'pending-line-user',
+          displayName: '同步會員',
+        ),
+        idToken: 'pending-id-token',
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('會員功能'), findsOneWidget);
+    expect(find.text('同步會員'), findsOneWidget);
   });
 
   testWidgets('line login writes member with LINE id token', (tester) async {
@@ -114,6 +156,84 @@ void main() {
     expect(repository.lineUserId, 'demo-line-user');
     expect(repository.displayName, '王小明');
     expect(repository.lineIdToken, 'demo-id-token');
+  });
+
+  testWidgets('line login forwards referral code to repository', (
+    tester,
+  ) async {
+    final repository = _RecordingVeevaRepository();
+
+    await tester.pumpWidget(
+      VeevaMemberApp(
+        repository: repository,
+        liffService: const _LoggedInReferralLiffService(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(repository.upsertCount, 1);
+    expect(repository.referralCode, 'A8D2K');
+  });
+
+  testWidgets('member page shows successful referral records', (tester) async {
+    final repository = _ReferralRecordsRepository();
+
+    await tester.pumpWidget(
+      VeevaMemberApp(
+        repository: repository,
+        liffService: const _LoggedInMemberLiffService(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('會員'));
+    await tester.pumpAndSettle();
+
+    expect(repository.referralLookupMemberId, isNull);
+    expect(find.byKey(const Key('member-feature-referral-records-button')),
+        findsOneWidget);
+    expect(find.text('陳小華'), findsNothing);
+
+    await tester.ensureVisible(
+      find.byKey(const Key('member-feature-referral-records-button')),
+    );
+    await tester.tap(
+      find.byKey(const Key('member-feature-referral-records-button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(repository.referralLookupMemberId, 'inviter-line-user');
+    expect(find.byKey(const Key('referral-records-dialog')), findsOneWidget);
+    expect(find.text('邀請紀錄'), findsWidgets);
+    expect(find.text('陳小華'), findsOneWidget);
+    expect(find.text('登入時間 2026/06/05 14:20'), findsOneWidget);
+    expect(find.text('已登入'), findsOneWidget);
+  });
+
+  testWidgets('member page shares invite through LINE target picker', (
+    tester,
+  ) async {
+    final liffService = _RecordingShareLiffService();
+
+    await tester.pumpWidget(VeevaMemberApp(liffService: liffService));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('會員'));
+    await tester.pumpAndSettle();
+
+    await tester
+        .ensureVisible(find.byKey(const Key('share-member-invite-button')));
+    await tester.tap(find.byKey(const Key('share-member-invite-button')));
+    await tester.pumpAndSettle();
+
+    expect(liffService.shareCount, 1);
+    expect(liffService.lastInvite?.inviterName, '分享測試會員');
+    expect(liffService.lastInvite?.shareCode, 'EUSER');
+    expect(
+      liffService.lastInvite?.inviteUrl,
+      'https://liff.line.me/2010298394-7PwRtpTY/?open=invite&ref=EUSER',
+    );
+    expect(find.text('已開啟 LINE 分享視窗'), findsWidgets);
   });
 
   testWidgets('landing page shows activity news cards', (tester) async {
@@ -141,11 +261,150 @@ void main() {
   });
 }
 
-class _RecordingVeevaRepository extends DemoVeevaRepository {
-  int upsertCount = 0;
-  String? lineUserId;
-  String? displayName;
-  String? lineIdToken;
+class _LoggedInReferralLiffService implements LiffService {
+  const _LoggedInReferralLiffService();
+
+  @override
+  Future<LiffSession> initialize() async {
+    return const LiffSession(
+      isInitialized: true,
+      isLoggedIn: true,
+      isInClient: false,
+      isRedirecting: false,
+      referralCode: 'A8D2K',
+      profile: LiffProfile(
+        userId: 'demo-referral-user',
+        displayName: '推薦會員',
+      ),
+      idToken: 'demo-referral-id-token',
+    );
+  }
+
+  @override
+  Future<LiffSession> login({String? postLoginPage}) => initialize();
+
+  @override
+  Future<LiffShareResult> shareInvite(LiffInviteMessage invite) async {
+    return LiffShareResult.sent();
+  }
+
+  @override
+  Future<LiffSession> logout() async {
+    return const LiffSession(
+      isInitialized: true,
+      isLoggedIn: false,
+      isInClient: false,
+      isRedirecting: false,
+    );
+  }
+}
+
+class _PendingLiffService implements LiffService {
+  const _PendingLiffService(this.session);
+
+  final Future<LiffSession> session;
+
+  @override
+  Future<LiffSession> initialize() => session;
+
+  @override
+  Future<LiffSession> login({String? postLoginPage}) => session;
+
+  @override
+  Future<LiffShareResult> shareInvite(LiffInviteMessage invite) async {
+    return LiffShareResult.sent();
+  }
+
+  @override
+  Future<LiffSession> logout() async {
+    return const LiffSession(
+      isInitialized: true,
+      isLoggedIn: false,
+      isInClient: false,
+      isRedirecting: false,
+    );
+  }
+}
+
+class _LoggedInMemberLiffService implements LiffService {
+  const _LoggedInMemberLiffService();
+
+  @override
+  Future<LiffSession> initialize() async {
+    return const LiffSession(
+      isInitialized: true,
+      isLoggedIn: true,
+      isInClient: false,
+      isRedirecting: false,
+      profile: LiffProfile(
+        userId: 'inviter-line-user',
+        displayName: '分享者',
+      ),
+      idToken: 'inviter-id-token',
+    );
+  }
+
+  @override
+  Future<LiffSession> login({String? postLoginPage}) => initialize();
+
+  @override
+  Future<LiffShareResult> shareInvite(LiffInviteMessage invite) async {
+    return LiffShareResult.sent();
+  }
+
+  @override
+  Future<LiffSession> logout() async {
+    return const LiffSession(
+      isInitialized: true,
+      isLoggedIn: false,
+      isInClient: false,
+      isRedirecting: false,
+    );
+  }
+}
+
+class _RecordingShareLiffService implements LiffService {
+  int shareCount = 0;
+  LiffInviteMessage? lastInvite;
+
+  @override
+  Future<LiffSession> initialize() async {
+    return const LiffSession(
+      isInitialized: true,
+      isLoggedIn: true,
+      isInClient: true,
+      isRedirecting: false,
+      profile: LiffProfile(
+        userId: 'share-line-user',
+        displayName: '分享測試會員',
+      ),
+      idToken: 'share-id-token',
+    );
+  }
+
+  @override
+  Future<LiffSession> login({String? postLoginPage}) => initialize();
+
+  @override
+  Future<LiffShareResult> shareInvite(LiffInviteMessage invite) async {
+    shareCount += 1;
+    lastInvite = invite;
+    return LiffShareResult.sent();
+  }
+
+  @override
+  Future<LiffSession> logout() async {
+    return const LiffSession(
+      isInitialized: true,
+      isLoggedIn: false,
+      isInClient: false,
+      isRedirecting: false,
+    );
+  }
+}
+
+class _ReferralRecordsRepository extends DemoVeevaRepository {
+  String? referralLookupMemberId;
 
   @override
   Future<backend.VeevaMember> upsertLineMember({
@@ -155,11 +414,71 @@ class _RecordingVeevaRepository extends DemoVeevaRepository {
     String? email,
     String? statusMessage,
     String? lineIdToken,
+    String? referralCode,
+  }) async {
+    return backend.VeevaMember(
+      id: lineUserId,
+      name: displayName,
+      hospital: '',
+      department: '',
+      status: backend.VeevaMemberStatus.loggedIn,
+      earnedCoupons: 0,
+      invitedCount: 1,
+      shareCode: 'INVTR',
+      lineUserId: lineUserId,
+      avatarUrl: avatarUrl,
+      email: email,
+      lineStatusMessage: statusMessage,
+      lineIdToken: lineIdToken,
+      lineIdTokenUpdatedAt: DateTime(2026, 6, 5, 13),
+      createdAt: DateTime(2026, 6, 5, 13),
+      lastLineLoginAt: DateTime(2026, 6, 5, 13),
+    );
+  }
+
+  @override
+  Future<List<backend.VeevaReferral>> loadReferralRecords(
+    String inviterMemberId,
+  ) async {
+    referralLookupMemberId = inviterMemberId;
+    return [
+      backend.VeevaReferral(
+        id: '${inviterMemberId}_friend-line-user',
+        inviterMemberId: inviterMemberId,
+        inviterShareCode: 'INVTR',
+        inviteeMemberId: 'friend-line-user',
+        inviteeLineUserId: 'friend-line-user',
+        inviteeName: '陳小華',
+        status: 'linked',
+        createdAt: DateTime(2026, 6, 5, 14, 20),
+        updatedAt: DateTime(2026, 6, 5, 14, 20),
+      ),
+    ];
+  }
+}
+
+class _RecordingVeevaRepository extends DemoVeevaRepository {
+  int upsertCount = 0;
+  String? lineUserId;
+  String? displayName;
+  String? lineIdToken;
+  String? referralCode;
+
+  @override
+  Future<backend.VeevaMember> upsertLineMember({
+    required String lineUserId,
+    required String displayName,
+    String? avatarUrl,
+    String? email,
+    String? statusMessage,
+    String? lineIdToken,
+    String? referralCode,
   }) {
     upsertCount += 1;
     this.lineUserId = lineUserId;
     this.displayName = displayName;
     this.lineIdToken = lineIdToken;
+    this.referralCode = referralCode;
     return super.upsertLineMember(
       lineUserId: lineUserId,
       displayName: displayName,
@@ -167,6 +486,7 @@ class _RecordingVeevaRepository extends DemoVeevaRepository {
       email: email,
       statusMessage: statusMessage,
       lineIdToken: lineIdToken,
+      referralCode: referralCode,
     );
   }
 }

@@ -27,6 +27,11 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /referrals/{referralId} {
+      allow read, create, update: if true;
+      allow delete: if false;
+    }
+
     match /adminUsers/{adminUserId} {
       allow read, create, update: if true;
       allow delete: if false;

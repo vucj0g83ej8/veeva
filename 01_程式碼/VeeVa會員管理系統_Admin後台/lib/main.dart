@@ -198,6 +198,14 @@ String _formatAdminDateTime(DateTime date) {
   return '${_formatAdminDate(date)} $hour:$minute';
 }
 
+String _memberDateTimeLabel(DateTime? date) {
+  return date == null ? '-' : _formatAdminDateTime(date);
+}
+
+DateTime? _memberFirstLoginAt(backend.VeevaMember member) {
+  return member.createdAt ?? member.lastLineLoginAt;
+}
+
 DateTime _parseAdminDate(String value) {
   final normalized = value.replaceAll('/', '-');
   return DateTime.tryParse(normalized) ?? DateTime(2026, 12, 31);
@@ -325,7 +333,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
     ),
   ];
   final members = <backend.VeevaMember>[
-    const backend.VeevaMember(
+    backend.VeevaMember(
       id: 'line-demo-wang',
       name: '王小明',
       hospital: '台大醫院',
@@ -336,10 +344,12 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       shareCode: 'A8D2K',
       lineUserId: 'line-demo-wang',
       email: 'wang@example.com',
+      createdAt: DateTime(2026, 5, 7, 9, 30),
+      lastLineLoginAt: DateTime(2026, 6, 4, 14, 12),
       isAdmin: true,
       adminRole: 'owner',
     ),
-    const backend.VeevaMember(
+    backend.VeevaMember(
       id: 'line-demo-chen',
       name: '陳怡君',
       hospital: '榮總',
@@ -350,6 +360,8 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       shareCode: 'C7K91',
       lineUserId: 'line-demo-chen',
       email: 'chen@example.com',
+      createdAt: DateTime(2026, 5, 9, 11, 8),
+      lastLineLoginAt: DateTime(2026, 6, 4, 16, 45),
     ),
   ];
   final adminUsers = <backend.VeevaAdminUser>[
@@ -425,7 +437,12 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
     final titleIcon = _titleIconFor(tab);
     final content = Column(
       children: [
-        if (!isCompact) _AdminTopBar(title: title, icon: titleIcon),
+        if (!isCompact)
+          _AdminTopBar(
+            title: title,
+            icon: titleIcon,
+            showSearch: tab != AdminTab.members,
+          ),
         Expanded(
           child: SingleChildScrollView(
             padding: EdgeInsets.all(isCompact ? 16 : 24),
@@ -499,7 +516,9 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       AdminTab.members => _MemberManagement(
           members: members,
           reviews: reviews,
+          adminUsers: adminUsers,
           onApprove: _approveReview,
+          onSaveMemberSettings: _saveMemberSettings,
         ),
       AdminTab.activities => _ActivityManagement(activities: activities),
       AdminTab.news => _NewsManagement(news: news),
@@ -581,6 +600,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
   Future<void> _saveAdminUser(backend.VeevaAdminUser adminUser) async {
     final index = adminUsers.indexWhere((item) => item.id == adminUser.id);
     final previous = index == -1 ? null : adminUsers[index];
+    final isActive = adminUser.status == backend.VeevaAdminStatus.active;
     setState(() {
       if (index == -1) {
         adminUsers.add(adminUser);
@@ -597,14 +617,23 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
           hospital: member.hospital,
           department: member.department,
           status: member.status,
+          accountStatus: member.accountStatus,
           earnedCoupons: member.earnedCoupons,
           invitedCount: member.invitedCount,
           shareCode: member.shareCode,
           lineUserId: member.lineUserId,
           avatarUrl: member.avatarUrl,
           email: member.email,
-          isAdmin: adminUser.status == backend.VeevaAdminStatus.active,
-          adminRole: adminUser.role.name,
+          lineStatusMessage: member.lineStatusMessage,
+          lineIdToken: member.lineIdToken,
+          lineIdTokenUpdatedAt: member.lineIdTokenUpdatedAt,
+          createdAt: member.createdAt,
+          lastLineLoginAt: member.lastLineLoginAt,
+          referredByMemberId: member.referredByMemberId,
+          referredByShareCode: member.referredByShareCode,
+          referredAt: member.referredAt,
+          isAdmin: isActive,
+          adminRole: isActive ? adminUser.role.name : null,
           updatedAt: member.updatedAt,
         );
       }
@@ -620,6 +649,53 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
           adminUsers[index] = previous;
         }
         backendError = '管理權限更新失敗：請確認 Firestore rules 已部署。';
+      });
+    }
+  }
+
+  Future<void> _saveMemberSettings({
+    required backend.VeevaMember member,
+    backend.VeevaAdminUser? adminUser,
+  }) async {
+    final previousMembers = [...members];
+    final previousAdminUsers = [...adminUsers];
+    final isActiveAdmin = adminUser?.status == backend.VeevaAdminStatus.active;
+
+    setState(() {
+      final memberIndex = members.indexWhere((item) => item.id == member.id);
+      if (memberIndex == -1) {
+        members.add(member);
+      } else {
+        members[memberIndex] = member;
+      }
+
+      adminUsers.removeWhere(
+        (item) =>
+            item.memberId == member.id ||
+            item.lineUserId == member.lineUserId ||
+            item.id == member.id ||
+            item.id == member.lineUserId,
+      );
+      if (isActiveAdmin && adminUser != null) {
+        adminUsers.add(adminUser);
+      }
+      backendError = null;
+    });
+
+    try {
+      await repository.saveMemberSettings(
+        member: member,
+        adminUser: adminUser,
+      );
+    } catch (_) {
+      setState(() {
+        members
+          ..clear()
+          ..addAll(previousMembers);
+        adminUsers
+          ..clear()
+          ..addAll(previousAdminUsers);
+        backendError = '會員設定更新失敗：請確認 Firestore rules 已部署。';
       });
     }
   }
@@ -926,10 +1002,15 @@ class _AdminPageTitle extends StatelessWidget {
 }
 
 class _AdminTopBar extends StatelessWidget {
-  const _AdminTopBar({required this.title, this.icon});
+  const _AdminTopBar({
+    required this.title,
+    this.icon,
+    this.showSearch = true,
+  });
 
   final String title;
   final IconData? icon;
+  final bool showSearch;
 
   @override
   Widget build(BuildContext context) {
@@ -944,23 +1025,25 @@ class _AdminTopBar extends StatelessWidget {
         children: [
           _AdminPageTitle(title: title, icon: icon),
           const Spacer(),
-          SizedBox(
-            width: 280,
-            child: TextField(
-              decoration: InputDecoration(
-                hintText: '搜尋會員、院所、科別',
-                prefixIcon: const Icon(Icons.search),
-                isDense: true,
-                filled: true,
-                fillColor: const Color(0xFFF5F7F8),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide.none,
+          if (showSearch) ...[
+            SizedBox(
+              width: 280,
+              child: TextField(
+                decoration: InputDecoration(
+                  hintText: '搜尋會員、院所、科別',
+                  prefixIcon: const Icon(Icons.search),
+                  isDense: true,
+                  filled: true,
+                  fillColor: const Color(0xFFF5F7F8),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide.none,
+                  ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(width: 16),
+            const SizedBox(width: 16),
+          ],
           const CircleAvatar(child: Icon(Icons.person_outline)),
         ],
       ),
@@ -1149,16 +1232,22 @@ class _ReviewListBody extends StatelessWidget {
   const _ReviewListBody({
     required this.rows,
     required this.compact,
+    this.emptyMessage = '目前沒有符合條件的資料。',
     this.onApprove,
   });
 
   final List<AdminReviewItem> rows;
   final ValueChanged<AdminReviewItem>? onApprove;
   final bool compact;
+  final String emptyMessage;
 
   @override
   Widget build(BuildContext context) {
     final isCompact = MediaQuery.sizeOf(context).width < 700;
+
+    if (rows.isEmpty) {
+      return _EmptyListMessage(message: emptyMessage);
+    }
 
     if (isCompact) {
       return Column(
@@ -1272,7 +1361,7 @@ class _StatusChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final approved = status == ReviewStatus.approved;
     return Chip(
-      label: Text(approved ? '已通過' : '待審核'),
+      label: Text(approved ? '已審核' : '待審核'),
       backgroundColor:
           approved ? const Color(0xFFEAF3EA) : const Color(0xFFFFF4D9),
       side: BorderSide.none,
@@ -1336,23 +1425,44 @@ class _MemberManagement extends StatefulWidget {
   const _MemberManagement({
     required this.members,
     required this.reviews,
+    required this.adminUsers,
     required this.onApprove,
+    required this.onSaveMemberSettings,
   });
 
   final List<backend.VeevaMember> members;
   final List<AdminReviewItem> reviews;
+  final List<backend.VeevaAdminUser> adminUsers;
   final ValueChanged<AdminReviewItem> onApprove;
+  final Future<void> Function({
+    required backend.VeevaMember member,
+    backend.VeevaAdminUser? adminUser,
+  }) onSaveMemberSettings;
 
   @override
   State<_MemberManagement> createState() => _MemberManagementState();
 }
 
 class _MemberManagementState extends State<_MemberManagement> {
+  static const int _pageSize = 8;
+
+  final searchController = TextEditingController();
   MemberManagementTab selectedTab = MemberManagementTab.loggedIn;
+  String searchQuery = '';
+  int loggedInPage = 0;
+  int pendingReviewPage = 0;
+  int approvedReviewPage = 0;
+
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final isCompact = MediaQuery.sizeOf(context).width < 760;
+    final normalizedQuery = _normalizeMemberSearch(searchQuery);
     final loggedInMembers = [...widget.members]..sort((a, b) {
         final aTime = a.lastLineLoginAt;
         final bTime = b.lastLineLoginAt;
@@ -1363,6 +1473,9 @@ class _MemberManagementState extends State<_MemberManagement> {
         if (bTime != null) return 1;
         return a.name.compareTo(b.name);
       });
+    final filteredLoggedInMembers = loggedInMembers
+        .where((member) => _memberMatchesSearch(member, normalizedQuery))
+        .toList();
     final pending = widget.reviews
         .where((item) => item.status == ReviewStatus.pending)
         .length;
@@ -1376,14 +1489,28 @@ class _MemberManagementState extends State<_MemberManagement> {
     final reviewRows = widget.reviews
         .where((item) => item.status == selectedReviewStatus)
         .toList();
+    final filteredReviewRows = reviewRows
+        .where((item) => _reviewMatchesSearch(item, normalizedQuery))
+        .toList();
     final title = switch (selectedTab) {
       MemberManagementTab.loggedIn => '已登入會員名單',
       MemberManagementTab.pendingReview => '待審核名單',
       MemberManagementTab.approvedReview => '已審核名單',
     };
     final visibleCount = selectedTab == MemberManagementTab.loggedIn
+        ? filteredLoggedInMembers.length
+        : filteredReviewRows.length;
+    final unfilteredCount = selectedTab == MemberManagementTab.loggedIn
         ? loggedInMembers.length
         : reviewRows.length;
+    final pageIndex = _clampedPage(_pageFor(selectedTab), visibleCount);
+    final pagedLoggedInMembers =
+        _pageItems(filteredLoggedInMembers, pageIndex, _pageSize);
+    final pagedReviewRows =
+        _pageItems(filteredReviewRows, pageIndex, _pageSize);
+    final countText = normalizedQuery.isEmpty
+        ? '共 $visibleCount 筆'
+        : '符合 $visibleCount / $unfilteredCount 筆';
     final metrics = [
       _MetricCard(
         label: '已登入會員',
@@ -1443,33 +1570,72 @@ class _MemberManagementState extends State<_MemberManagement> {
                       ),
                     ),
                     Text(
-                      '共 $visibleCount 筆',
+                      countText,
                       style: const TextStyle(color: Color(0xFF6B7671)),
                     ),
                   ],
                 ),
                 const SizedBox(height: 14),
+                _MemberSearchField(
+                  controller: searchController,
+                  onChanged: (value) => setState(() {
+                    searchQuery = value;
+                    _resetPages();
+                  }),
+                  onClear: searchQuery.trim().isEmpty
+                      ? null
+                      : () => setState(() {
+                            searchController.clear();
+                            searchQuery = '';
+                            _resetPages();
+                          }),
+                ),
+                const SizedBox(height: 16),
                 _MemberStatusTabs(
                   selectedTab: selectedTab,
                   loggedInCount: loggedInMembers.length,
                   pendingCount: pending,
                   approvedCount: approved,
-                  onChanged: (tab) => setState(() => selectedTab = tab),
+                  onChanged: (tab) => setState(() {
+                    selectedTab = tab;
+                    _setPageFor(tab, 0);
+                  }),
                 ),
                 const SizedBox(height: 16),
                 if (selectedTab == MemberManagementTab.loggedIn)
                   _LoggedInMemberListBody(
-                    members: loggedInMembers,
+                    members: pagedLoggedInMembers,
+                    adminUsers: widget.adminUsers,
                     compact: isCompact,
+                    emptyMessage: normalizedQuery.isEmpty
+                        ? '尚無已登入會員。會員從 LIFF 完成 LINE 登入後會出現在這裡。'
+                        : '查無符合條件的已登入會員。',
+                    onSettingChanged: _changeMemberSetting,
                   )
                 else
                   _ReviewListBody(
-                    rows: reviewRows,
+                    rows: pagedReviewRows,
                     compact: isCompact,
+                    emptyMessage: normalizedQuery.isEmpty
+                        ? selectedTab == MemberManagementTab.pendingReview
+                            ? '目前沒有待審核會員。'
+                            : '目前沒有已審核會員。'
+                        : '查無符合條件的會員。',
                     onApprove: selectedTab == MemberManagementTab.pendingReview
                         ? widget.onApprove
                         : null,
                   ),
+                if (visibleCount > 0) ...[
+                  const SizedBox(height: 14),
+                  _MemberPaginationBar(
+                    currentPage: pageIndex,
+                    pageSize: _pageSize,
+                    totalItems: visibleCount,
+                    onPageChanged: (page) => setState(
+                      () => _setPageFor(selectedTab, page),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -1477,74 +1643,244 @@ class _MemberManagementState extends State<_MemberManagement> {
       ],
     );
   }
+
+  int _pageFor(MemberManagementTab tab) {
+    return switch (tab) {
+      MemberManagementTab.loggedIn => loggedInPage,
+      MemberManagementTab.pendingReview => pendingReviewPage,
+      MemberManagementTab.approvedReview => approvedReviewPage,
+    };
+  }
+
+  void _setPageFor(MemberManagementTab tab, int page) {
+    switch (tab) {
+      case MemberManagementTab.loggedIn:
+        loggedInPage = page;
+        break;
+      case MemberManagementTab.pendingReview:
+        pendingReviewPage = page;
+        break;
+      case MemberManagementTab.approvedReview:
+        approvedReviewPage = page;
+        break;
+    }
+  }
+
+  void _resetPages() {
+    loggedInPage = 0;
+    pendingReviewPage = 0;
+    approvedReviewPage = 0;
+  }
+
+  Future<void> _changeMemberSetting(
+    backend.VeevaMember member,
+    _MemberSettingSelection selection,
+  ) async {
+    final existing = _adminFor(member);
+    final selectedRole = _roleForMemberSettingSelection(selection);
+    final isAdmin = selectedRole != null;
+    final accountStatus = selection == _MemberSettingSelection.disabledAccount
+        ? backend.VeevaMemberAccountStatus.disabled
+        : backend.VeevaMemberAccountStatus.active;
+    final updatedMember = _memberWithSettings(
+      member,
+      accountStatus: accountStatus,
+      isAdmin: isAdmin,
+      adminRole: selectedRole?.name,
+    );
+    if (!isAdmin) {
+      final adminUserToRemove = existing == null
+          ? null
+          : backend.VeevaAdminUser(
+              id: existing.id,
+              memberId: existing.memberId,
+              lineUserId: existing.lineUserId,
+              name: existing.name,
+              email: existing.email,
+              avatarUrl: existing.avatarUrl,
+              role: existing.role,
+              status: backend.VeevaAdminStatus.disabled,
+              permissions: const [],
+              grantedAt: existing.grantedAt,
+              updatedAt: existing.updatedAt,
+            );
+      await widget.onSaveMemberSettings(
+        member: updatedMember,
+        adminUser: adminUserToRemove,
+      );
+      return;
+    }
+    final role = selectedRole;
+    final adminUser = backend.VeevaAdminUser(
+      id: existing?.id ?? member.id,
+      memberId: member.id,
+      lineUserId: member.lineUserId ?? member.id,
+      name: member.name,
+      email: member.email,
+      avatarUrl: member.avatarUrl,
+      role: role,
+      status: backend.VeevaAdminStatus.active,
+      permissions: _permissionsForRole(role),
+      grantedAt: existing?.grantedAt ?? DateTime.now(),
+    );
+    await widget.onSaveMemberSettings(
+      member: updatedMember,
+      adminUser: adminUser,
+    );
+  }
+
+  backend.VeevaAdminUser? _adminFor(backend.VeevaMember member) {
+    for (final admin in widget.adminUsers) {
+      if (admin.memberId == member.id ||
+          admin.lineUserId == member.lineUserId) {
+        return admin;
+      }
+    }
+    return null;
+  }
 }
 
 class _LoggedInMemberListBody extends StatelessWidget {
   const _LoggedInMemberListBody({
     required this.members,
+    required this.adminUsers,
     required this.compact,
+    required this.emptyMessage,
+    required this.onSettingChanged,
   });
 
   final List<backend.VeevaMember> members;
+  final List<backend.VeevaAdminUser> adminUsers;
   final bool compact;
+  final String emptyMessage;
+  final Future<void> Function(
+    backend.VeevaMember member,
+    _MemberSettingSelection selection,
+  ) onSettingChanged;
 
   @override
   Widget build(BuildContext context) {
     if (members.isEmpty) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF8FAFA),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: const Color(0xFFE4E8EA)),
-        ),
-        child: const Text('尚無已登入會員。會員從 LIFF 完成 LINE 登入後會出現在這裡。'),
-      );
+      return _EmptyListMessage(message: emptyMessage);
     }
 
     if (compact) {
       return Column(
         children: [
-          for (final member in members) _LoggedInMemberCard(member: member),
+          for (final member in members)
+            _LoggedInMemberCard(
+              member: member,
+              adminUser: _adminFor(member),
+              onSettingChanged: (selection) =>
+                  onSettingChanged(member, selection),
+            ),
         ],
       );
     }
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: DataTable(
-        headingRowColor: WidgetStateProperty.all(const Color(0xFFF1F4F3)),
-        dataRowMinHeight: 72,
-        dataRowMaxHeight: 88,
-        columns: const [
-          DataColumn(label: Text('會員')),
-          DataColumn(label: Text('LINE Token')),
-          DataColumn(label: Text('院所 / 科別')),
-          DataColumn(label: Text('會員狀態')),
-          DataColumn(label: Text('最近登入')),
-        ],
-        rows: [
-          for (final member in members)
-            DataRow(
-              cells: [
-                DataCell(_MemberIdentity(member: member)),
-                DataCell(_LineIdTokenStatus(member: member)),
-                DataCell(Text(_memberClinicText(member))),
-                DataCell(Text(_memberStatusLabel(member.status))),
-                DataCell(Text(_memberLastLoginText(member))),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availableWidth =
+            constraints.maxWidth.isFinite ? constraints.maxWidth : 920.0;
+        final tableWidth = availableWidth < 772 ? 772.0 : availableWidth;
+        final contentWidth = tableWidth - 32 - 60;
+        final nameWidth = contentWidth * .30;
+        final firstLoginWidth = contentWidth * .22;
+        final lastLoginWidth = contentWidth * .22;
+        final settingWidth =
+            contentWidth - nameWidth - firstLoginWidth - lastLoginWidth;
+
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(
+            width: tableWidth,
+            child: DataTable(
+              horizontalMargin: 16,
+              columnSpacing: 20,
+              headingRowColor: WidgetStateProperty.all(const Color(0xFFF1F4F3)),
+              dataRowMinHeight: 72,
+              dataRowMaxHeight: 88,
+              columns: [
+                DataColumn(label: _TableHeaderLabel('會員名稱', width: nameWidth)),
+                DataColumn(
+                  label: _TableHeaderLabel('第一次登入時間', width: firstLoginWidth),
+                ),
+                DataColumn(
+                  label: _TableHeaderLabel('最後一次登入時間', width: lastLoginWidth),
+                ),
+                DataColumn(
+                  label: _TableHeaderLabel('會員設定', width: settingWidth),
+                ),
+              ],
+              rows: [
+                for (final member in members)
+                  DataRow(
+                    cells: [
+                      DataCell(
+                        SizedBox(
+                          width: nameWidth,
+                          child: _MemberNameOnly(member: member),
+                        ),
+                      ),
+                      DataCell(
+                        SizedBox(
+                          width: firstLoginWidth,
+                          child: Text(
+                            _memberDateTimeLabel(_memberFirstLoginAt(member)),
+                          ),
+                        ),
+                      ),
+                      DataCell(
+                        SizedBox(
+                          width: lastLoginWidth,
+                          child: Text(
+                            _memberDateTimeLabel(member.lastLineLoginAt),
+                          ),
+                        ),
+                      ),
+                      DataCell(
+                        SizedBox(
+                          width: settingWidth,
+                          child: _MemberSettingDropdown(
+                            width: settingWidth,
+                            member: member,
+                            adminUser: _adminFor(member),
+                            onChanged: (selection) =>
+                                onSettingChanged(member, selection),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
               ],
             ),
-        ],
-      ),
+          ),
+        );
+      },
     );
+  }
+
+  backend.VeevaAdminUser? _adminFor(backend.VeevaMember member) {
+    for (final admin in adminUsers) {
+      if (admin.memberId == member.id ||
+          admin.lineUserId == member.lineUserId) {
+        return admin;
+      }
+    }
+    return null;
   }
 }
 
 class _LoggedInMemberCard extends StatelessWidget {
-  const _LoggedInMemberCard({required this.member});
+  const _LoggedInMemberCard({
+    required this.member,
+    required this.adminUser,
+    required this.onSettingChanged,
+  });
 
   final backend.VeevaMember member;
+  final backend.VeevaAdminUser? adminUser;
+  final ValueChanged<_MemberSettingSelection> onSettingChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -1560,14 +1896,308 @@ class _LoggedInMemberCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _MemberIdentity(member: member),
+          _MemberNameOnly(member: member),
           const SizedBox(height: 10),
-          Text('LINE Token：${_lineIdTokenStatusLabel(member)}'),
-          Text('院所 / 科別：${_memberClinicText(member)}'),
-          Text('會員狀態：${_memberStatusLabel(member.status)}'),
-          Text('最近登入：${_memberLastLoginText(member)}'),
+          _MemberTimeLine(
+            label: '第一次登入',
+            value: _memberDateTimeLabel(_memberFirstLoginAt(member)),
+          ),
+          const SizedBox(height: 6),
+          _MemberTimeLine(
+            label: '最後一次登入',
+            value: _memberDateTimeLabel(member.lastLineLoginAt),
+          ),
+          const SizedBox(height: 12),
+          _MemberSettingDropdown(
+            width: double.infinity,
+            member: member,
+            adminUser: adminUser,
+            onChanged: onSettingChanged,
+          ),
         ],
       ),
+    );
+  }
+}
+
+class _TableHeaderLabel extends StatelessWidget {
+  const _TableHeaderLabel(this.text, {required this.width});
+
+  final String text;
+  final double width;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: width,
+      child: Text(
+        text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+    );
+  }
+}
+
+class _MemberTimeLine extends StatelessWidget {
+  const _MemberTimeLine({
+    required this.label,
+    required this.value,
+  });
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 92,
+          child: Text(
+            label,
+            style: const TextStyle(color: Color(0xFF6B7671)),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+enum _MemberSettingSelection {
+  regular,
+  owner,
+  manager,
+  editor,
+  viewer,
+  disabledAccount,
+}
+
+class _MemberNameOnly extends StatelessWidget {
+  const _MemberNameOnly({required this.member});
+
+  final backend.VeevaMember member;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.max,
+      children: [
+        CircleAvatar(
+          radius: 18,
+          backgroundImage:
+              member.avatarUrl == null ? null : NetworkImage(member.avatarUrl!),
+          child: member.avatarUrl == null
+              ? Text(member.name.characters.first)
+              : null,
+        ),
+        const SizedBox(width: 10),
+        Flexible(
+          child: Text(
+            member.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w900),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MemberSettingDropdown extends StatelessWidget {
+  const _MemberSettingDropdown({
+    required this.member,
+    required this.adminUser,
+    required this.onChanged,
+    this.width = 176,
+  });
+
+  final backend.VeevaMember member;
+  final backend.VeevaAdminUser? adminUser;
+  final ValueChanged<_MemberSettingSelection> onChanged;
+  final double width;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: width,
+      child: DropdownButtonFormField<_MemberSettingSelection>(
+        value: _selectionForMemberSetting(member, adminUser),
+        isExpanded: true,
+        decoration: const InputDecoration(
+          isDense: true,
+          border: OutlineInputBorder(),
+          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        ),
+        items: [
+          for (final selection in _memberSettingSelections)
+            DropdownMenuItem(
+              value: selection,
+              child: Text(_memberSettingSelectionLabel(selection)),
+            ),
+        ],
+        onChanged: (selection) {
+          if (selection == null) return;
+          onChanged(selection);
+        },
+      ),
+    );
+  }
+}
+
+class _MemberSearchField extends StatelessWidget {
+  const _MemberSearchField({
+    required this.controller,
+    required this.onChanged,
+    this.onClear,
+  });
+
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+  final VoidCallback? onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      onChanged: onChanged,
+      textInputAction: TextInputAction.search,
+      decoration: InputDecoration(
+        hintText: '搜尋姓名、LINE ID、Email、院所、科別',
+        prefixIcon: const Icon(Icons.search),
+        suffixIcon: onClear == null
+            ? null
+            : IconButton(
+                tooltip: '清除搜尋',
+                onPressed: onClear,
+                icon: const Icon(Icons.close),
+              ),
+        filled: true,
+        fillColor: const Color(0xFFF8FAFA),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Color(0xFFE4E8EA)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Color(0xFFE4E8EA)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Color(0xFF216B57), width: 1.4),
+        ),
+      ),
+    );
+  }
+}
+
+class _MemberPaginationBar extends StatelessWidget {
+  const _MemberPaginationBar({
+    required this.currentPage,
+    required this.pageSize,
+    required this.totalItems,
+    required this.onPageChanged,
+  });
+
+  final int currentPage;
+  final int pageSize;
+  final int totalItems;
+  final ValueChanged<int> onPageChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final totalPages = ((totalItems - 1) ~/ pageSize) + 1;
+    final start = currentPage * pageSize + 1;
+    final rawEnd = (currentPage + 1) * pageSize;
+    final end = rawEnd > totalItems ? totalItems : rawEnd;
+    final canGoBack = currentPage > 0;
+    final canGoForward = currentPage < totalPages - 1;
+    final isCompact = MediaQuery.sizeOf(context).width < 620;
+    final pageText = '第 ${currentPage + 1} / $totalPages 頁';
+    final rangeText = '$start-$end 筆';
+    final controls = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          tooltip: '上一頁',
+          onPressed: canGoBack ? () => onPageChanged(currentPage - 1) : null,
+          icon: const Icon(Icons.chevron_left),
+        ),
+        Container(
+          constraints: const BoxConstraints(minWidth: 96),
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF8FAFA),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFFE4E8EA)),
+          ),
+          child: Text(
+            pageText,
+            style: const TextStyle(fontWeight: FontWeight.w800),
+          ),
+        ),
+        IconButton(
+          tooltip: '下一頁',
+          onPressed: canGoForward ? () => onPageChanged(currentPage + 1) : null,
+          icon: const Icon(Icons.chevron_right),
+        ),
+      ],
+    );
+
+    final summary = Text(
+      '每頁 $pageSize 筆 · $rangeText',
+      style: const TextStyle(color: Color(0xFF6B7671)),
+    );
+
+    if (isCompact) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          summary,
+          const SizedBox(height: 8),
+          controls,
+        ],
+      );
+    }
+
+    return Row(
+      children: [
+        summary,
+        const Spacer(),
+        controls,
+      ],
+    );
+  }
+}
+
+class _EmptyListMessage extends StatelessWidget {
+  const _EmptyListMessage({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFA),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE4E8EA)),
+      ),
+      child: Text(message),
     );
   }
 }
@@ -1593,8 +2223,11 @@ class _PermissionsManagementState extends State<_PermissionsManagement> {
     final activeAdmins = widget.adminUsers
         .where((item) => item.status == backend.VeevaAdminStatus.active)
         .length;
-    final disabledAdmins = widget.adminUsers
-        .where((item) => item.status == backend.VeevaAdminStatus.disabled)
+    final disabledMembers = widget.members
+        .where(
+          (item) =>
+              item.accountStatus == backend.VeevaMemberAccountStatus.disabled,
+        )
         .length;
 
     return Column(
@@ -1604,8 +2237,8 @@ class _PermissionsManagementState extends State<_PermissionsManagement> {
           children: [
             Expanded(
               child: _MetricCard(
-                label: 'LINE 會員',
-                value: '${widget.members.length}',
+                label: '管理者總數',
+                value: '$activeAdmins',
                 icon: Icons.groups_outlined,
               ),
             ),
@@ -1620,8 +2253,8 @@ class _PermissionsManagementState extends State<_PermissionsManagement> {
             const SizedBox(width: 16),
             Expanded(
               child: _MetricCard(
-                label: '停用管理者',
-                value: '$disabledAdmins',
+                label: '停用帳號',
+                value: '$disabledMembers',
                 icon: Icons.block_outlined,
               ),
             ),
@@ -1678,9 +2311,10 @@ class _PermissionsManagementState extends State<_PermissionsManagement> {
                           if (value == null) return;
                           setDialogState(() {
                             role = value;
-                            selected
-                              ..clear()
-                              ..addAll(_permissionsForRole(value));
+                            selected.clear();
+                            if (status == backend.VeevaAdminStatus.active) {
+                              selected.addAll(_permissionsForRole(value));
+                            }
                           });
                         },
                       ),
@@ -1688,7 +2322,7 @@ class _PermissionsManagementState extends State<_PermissionsManagement> {
                       DropdownButtonFormField<backend.VeevaAdminStatus>(
                         value: status,
                         decoration: const InputDecoration(
-                          labelText: '帳號狀態',
+                          labelText: '管理權限狀態',
                           prefixIcon: Icon(Icons.toggle_on_outlined),
                         ),
                         items: [
@@ -1700,7 +2334,14 @@ class _PermissionsManagementState extends State<_PermissionsManagement> {
                         ],
                         onChanged: (value) {
                           if (value == null) return;
-                          setDialogState(() => status = value);
+                          setDialogState(() {
+                            status = value;
+                            if (value == backend.VeevaAdminStatus.disabled) {
+                              selected.clear();
+                            } else if (selected.isEmpty) {
+                              selected.addAll(_permissionsForRole(role));
+                            }
+                          });
                         },
                       ),
                       const SizedBox(height: 18),
@@ -1736,7 +2377,8 @@ class _PermissionsManagementState extends State<_PermissionsManagement> {
                   child: const Text('取消'),
                 ),
                 FilledButton.icon(
-                  onPressed: selected.isEmpty
+                  onPressed: status == backend.VeevaAdminStatus.active &&
+                          selected.isEmpty
                       ? null
                       : () async {
                           final adminUser = backend.VeevaAdminUser(
@@ -1748,7 +2390,10 @@ class _PermissionsManagementState extends State<_PermissionsManagement> {
                             avatarUrl: member.avatarUrl,
                             role: role,
                             status: status,
-                            permissions: selected.toList()..sort(),
+                            permissions:
+                                status == backend.VeevaAdminStatus.disabled
+                                    ? const []
+                                    : (selected.toList()..sort()),
                             grantedAt: existing?.grantedAt ?? DateTime.now(),
                           );
                           await widget.onSaveAdminUser(adminUser);
@@ -1792,11 +2437,15 @@ class _LineMemberAdminPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isCompact = MediaQuery.sizeOf(context).width < 760;
-    final sortedMembers = [...members]..sort((a, b) {
-        final adminA = _adminFor(a)?.status == backend.VeevaAdminStatus.active;
-        final adminB = _adminFor(b)?.status == backend.VeevaAdminStatus.active;
+    final adminRows = [
+      for (final admin in adminUsers)
+        if (admin.status == backend.VeevaAdminStatus.active)
+          (_memberForAdmin(admin), admin),
+    ]..sort((a, b) {
+        final adminA = a.$2.status == backend.VeevaAdminStatus.active;
+        final adminB = b.$2.status == backend.VeevaAdminStatus.active;
         if (adminA != adminB) return adminA ? -1 : 1;
-        return a.name.compareTo(b.name);
+        return a.$1.name.compareTo(b.$1.name);
       });
 
     return Card(
@@ -1814,18 +2463,18 @@ class _LineMemberAdminPanel extends StatelessWidget {
                 const SizedBox(width: 10),
                 const Expanded(
                   child: Text(
-                    'LINE 會員後台權限',
+                    '後台管理者權限',
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
                   ),
                 ),
                 Text(
-                  '共 ${sortedMembers.length} 位會員',
+                  '共 ${adminRows.length} 位啟用管理者',
                   style: const TextStyle(color: Color(0xFF6B7671)),
                 ),
               ],
             ),
             const SizedBox(height: 14),
-            if (sortedMembers.isEmpty)
+            if (adminRows.isEmpty)
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(18),
@@ -1834,16 +2483,16 @@ class _LineMemberAdminPanel extends StatelessWidget {
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: const Color(0xFFE4E8EA)),
                 ),
-                child: const Text('尚無 LINE 登入會員。會員從 LIFF 登入後會自動出現在這裡。'),
+                child: const Text('目前沒有啟用中的管理者。請到會員管理的已登入會員清單設定管理職位。'),
               )
             else if (isCompact)
               Column(
                 children: [
-                  for (final member in sortedMembers)
+                  for (final row in adminRows)
                     _LineMemberAdminCard(
-                      member: member,
-                      adminUser: _adminFor(member),
-                      onEditPermission: () => onEditPermission(member),
+                      member: row.$1,
+                      adminUser: row.$2,
+                      onEditPermission: () => onEditPermission(row.$1),
                     ),
                 ],
               )
@@ -1856,17 +2505,15 @@ class _LineMemberAdminPanel extends StatelessWidget {
                   dataRowMinHeight: 72,
                   dataRowMaxHeight: 88,
                   columns: const [
-                    DataColumn(label: Text('會員')),
-                    DataColumn(label: Text('LINE Token')),
-                    DataColumn(label: Text('院所 / 科別')),
-                    DataColumn(label: Text('會員狀態')),
+                    DataColumn(label: Text('管理者')),
                     DataColumn(label: Text('後台角色')),
+                    DataColumn(label: Text('狀態')),
                     DataColumn(label: Text('權限')),
                     DataColumn(label: Text('操作')),
                   ],
                   rows: [
-                    for (final member in sortedMembers)
-                      _memberAdminDataRow(member, _adminFor(member)),
+                    for (final row in adminRows)
+                      _memberAdminDataRow(row.$1, row.$2),
                   ],
                 ),
               ),
@@ -1878,20 +2525,18 @@ class _LineMemberAdminPanel extends StatelessWidget {
 
   DataRow _memberAdminDataRow(
     backend.VeevaMember member,
-    backend.VeevaAdminUser? adminUser,
+    backend.VeevaAdminUser adminUser,
   ) {
     return DataRow(
       cells: [
         DataCell(_MemberIdentity(member: member)),
-        DataCell(_LineIdTokenStatus(member: member)),
-        DataCell(Text(_memberClinicText(member))),
-        DataCell(Text(_memberStatusLabel(member.status))),
         DataCell(_AdminRoleChip(adminUser: adminUser)),
+        DataCell(Text(_adminStatusLabel(adminUser.status))),
         DataCell(
           SizedBox(
             width: 240,
             child: Text(
-              adminUser == null || adminUser.permissions.isEmpty
+              adminUser.permissions.isEmpty
                   ? '尚未授權'
                   : adminUser.permissions.map(_permissionLabel).join('、'),
               overflow: TextOverflow.ellipsis,
@@ -1902,21 +2547,37 @@ class _LineMemberAdminPanel extends StatelessWidget {
           TextButton.icon(
             onPressed: () => onEditPermission(member),
             icon: const Icon(Icons.manage_accounts_outlined),
-            label: Text(adminUser == null ? '授權' : '編輯'),
+            label: const Text('編輯'),
           ),
         ),
       ],
     );
   }
 
-  backend.VeevaAdminUser? _adminFor(backend.VeevaMember member) {
-    for (final admin in adminUsers) {
-      if (admin.memberId == member.id ||
-          admin.lineUserId == member.lineUserId) {
-        return admin;
+  backend.VeevaMember _memberForAdmin(backend.VeevaAdminUser adminUser) {
+    for (final member in members) {
+      if (member.id == adminUser.memberId ||
+          member.lineUserId == adminUser.lineUserId) {
+        return member;
       }
     }
-    return null;
+    return backend.VeevaMember(
+      id: adminUser.memberId,
+      name: adminUser.name,
+      hospital: '',
+      department: '',
+      status: backend.VeevaMemberStatus.loggedIn,
+      earnedCoupons: 0,
+      invitedCount: 0,
+      shareCode: adminUser.memberId.length >= 5
+          ? adminUser.memberId.substring(0, 5)
+          : adminUser.memberId,
+      lineUserId: adminUser.lineUserId,
+      email: adminUser.email,
+      avatarUrl: adminUser.avatarUrl,
+      isAdmin: adminUser.status == backend.VeevaAdminStatus.active,
+      adminRole: adminUser.role.name,
+    );
   }
 }
 
@@ -1928,7 +2589,7 @@ class _LineMemberAdminCard extends StatelessWidget {
   });
 
   final backend.VeevaMember member;
-  final backend.VeevaAdminUser? adminUser;
+  final backend.VeevaAdminUser adminUser;
   final VoidCallback onEditPermission;
 
   @override
@@ -1952,16 +2613,12 @@ class _LineMemberAdminCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          Text(_memberClinicText(member)),
-          Text('會員狀態：${_memberStatusLabel(member.status)}'),
-          Text('LINE Token：${_lineIdTokenStatusLabel(member)}'),
-          if (member.lastLineLoginAt != null)
-            Text('最近登入：${_formatAdminDateTime(member.lastLineLoginAt!)}'),
+          Text('狀態：${_adminStatusLabel(adminUser.status)}'),
           const SizedBox(height: 8),
           Text(
-            adminUser == null || adminUser!.permissions.isEmpty
+            adminUser.permissions.isEmpty
                 ? '權限：尚未授權'
-                : '權限：${adminUser!.permissions.map(_permissionLabel).join('、')}',
+                : '權限：${adminUser.permissions.map(_permissionLabel).join('、')}',
           ),
           const SizedBox(height: 12),
           Align(
@@ -1969,7 +2626,7 @@ class _LineMemberAdminCard extends StatelessWidget {
             child: FilledButton.tonalIcon(
               onPressed: onEditPermission,
               icon: const Icon(Icons.manage_accounts_outlined),
-              label: Text(adminUser == null ? '授權管理者' : '編輯權限'),
+              label: const Text('編輯權限'),
             ),
           ),
         ],
@@ -2030,35 +2687,6 @@ class _MemberIdentity extends StatelessWidget {
             ],
           ),
         ),
-      ],
-    );
-  }
-}
-
-class _LineIdTokenStatus extends StatelessWidget {
-  const _LineIdTokenStatus({required this.member});
-
-  final backend.VeevaMember member;
-
-  @override
-  Widget build(BuildContext context) {
-    final hasToken = member.lineIdToken?.isNotEmpty == true;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          _lineIdTokenStatusLabel(member),
-          style: TextStyle(
-            fontWeight: FontWeight.w800,
-            color: hasToken ? const Color(0xFF216B57) : const Color(0xFF9A6A00),
-          ),
-        ),
-        if (member.lastLineLoginAt != null)
-          Text(
-            _formatAdminDateTime(member.lastLineLoginAt!),
-            style: const TextStyle(fontSize: 12, color: Color(0xFF6B7671)),
-          ),
       ],
     );
   }
@@ -2171,6 +2799,59 @@ List<String> _permissionsForRole(backend.VeevaAdminRole role) {
   };
 }
 
+const _memberSettingSelections = [
+  _MemberSettingSelection.regular,
+  _MemberSettingSelection.owner,
+  _MemberSettingSelection.manager,
+  _MemberSettingSelection.editor,
+  _MemberSettingSelection.viewer,
+  _MemberSettingSelection.disabledAccount,
+];
+
+_MemberSettingSelection _selectionForMemberSetting(
+  backend.VeevaMember member,
+  backend.VeevaAdminUser? adminUser,
+) {
+  if (member.accountStatus == backend.VeevaMemberAccountStatus.disabled) {
+    return _MemberSettingSelection.disabledAccount;
+  }
+  if (adminUser == null ||
+      adminUser.status != backend.VeevaAdminStatus.active) {
+    return _MemberSettingSelection.regular;
+  }
+  return switch (adminUser.role) {
+    backend.VeevaAdminRole.owner => _MemberSettingSelection.owner,
+    backend.VeevaAdminRole.manager => _MemberSettingSelection.manager,
+    backend.VeevaAdminRole.editor => _MemberSettingSelection.editor,
+    backend.VeevaAdminRole.viewer => _MemberSettingSelection.viewer,
+  };
+}
+
+backend.VeevaAdminRole? _roleForMemberSettingSelection(
+  _MemberSettingSelection selection,
+) {
+  return switch (selection) {
+    _MemberSettingSelection.owner => backend.VeevaAdminRole.owner,
+    _MemberSettingSelection.manager => backend.VeevaAdminRole.manager,
+    _MemberSettingSelection.editor => backend.VeevaAdminRole.editor,
+    _MemberSettingSelection.viewer => backend.VeevaAdminRole.viewer,
+    _MemberSettingSelection.regular ||
+    _MemberSettingSelection.disabledAccount =>
+      null,
+  };
+}
+
+String _memberSettingSelectionLabel(_MemberSettingSelection selection) {
+  return switch (selection) {
+    _MemberSettingSelection.regular => '一般會員',
+    _MemberSettingSelection.owner => '擁有者',
+    _MemberSettingSelection.manager => '管理員',
+    _MemberSettingSelection.editor => '編輯者',
+    _MemberSettingSelection.viewer => '檢視者',
+    _MemberSettingSelection.disabledAccount => '停用帳號',
+  };
+}
+
 String _permissionLabel(String id) {
   for (final option in _adminPermissionOptions) {
     if (option.id == id) return option.label;
@@ -2194,31 +2875,37 @@ String _adminStatusLabel(backend.VeevaAdminStatus status) {
   };
 }
 
-String _lineIdTokenStatusLabel(backend.VeevaMember member) {
-  return member.lineIdToken?.isNotEmpty == true ? '已記錄' : '未取得';
-}
-
-String _memberClinicText(backend.VeevaMember member) {
-  final hospital = member.hospital.trim();
-  final department = member.department.trim();
-  if (hospital.isEmpty && department.isEmpty) {
-    return '-';
-  }
-  if (hospital.isEmpty) {
-    return department;
-  }
-  if (department.isEmpty) {
-    return hospital;
-  }
-  return '$hospital / $department';
-}
-
-String _memberLastLoginText(backend.VeevaMember member) {
-  final lastLoginAt = member.lastLineLoginAt;
-  if (lastLoginAt == null) {
-    return '-';
-  }
-  return _formatAdminDateTime(lastLoginAt);
+backend.VeevaMember _memberWithSettings(
+  backend.VeevaMember member, {
+  required backend.VeevaMemberAccountStatus accountStatus,
+  required bool isAdmin,
+  String? adminRole,
+}) {
+  return backend.VeevaMember(
+    id: member.id,
+    name: member.name,
+    hospital: member.hospital,
+    department: member.department,
+    status: member.status,
+    accountStatus: accountStatus,
+    earnedCoupons: member.earnedCoupons,
+    invitedCount: member.invitedCount,
+    shareCode: member.shareCode,
+    lineUserId: member.lineUserId,
+    avatarUrl: member.avatarUrl,
+    email: member.email,
+    lineStatusMessage: member.lineStatusMessage,
+    lineIdToken: member.lineIdToken,
+    lineIdTokenUpdatedAt: member.lineIdTokenUpdatedAt,
+    createdAt: member.createdAt,
+    lastLineLoginAt: member.lastLineLoginAt,
+    referredByMemberId: member.referredByMemberId,
+    referredByShareCode: member.referredByShareCode,
+    referredAt: member.referredAt,
+    isAdmin: isAdmin,
+    adminRole: adminRole,
+    updatedAt: member.updatedAt,
+  );
 }
 
 String _memberStatusLabel(backend.VeevaMemberStatus status) {
@@ -2228,6 +2915,75 @@ String _memberStatusLabel(backend.VeevaMemberStatus status) {
     backend.VeevaMemberStatus.pendingReview => '待審核',
     backend.VeevaMemberStatus.verified => '已驗證',
   };
+}
+
+String _memberAccountStatusLabel(backend.VeevaMemberAccountStatus status) {
+  return switch (status) {
+    backend.VeevaMemberAccountStatus.active => '啟用帳號',
+    backend.VeevaMemberAccountStatus.disabled => '停用帳號',
+  };
+}
+
+String _reviewStatusLabel(ReviewStatus status) {
+  return switch (status) {
+    ReviewStatus.pending => '待審核',
+    ReviewStatus.approved => '已審核',
+    ReviewStatus.rejected => '已退回',
+  };
+}
+
+String _normalizeMemberSearch(String value) {
+  return value.trim().toLowerCase();
+}
+
+bool _memberMatchesSearch(backend.VeevaMember member, String query) {
+  if (query.isEmpty) return true;
+  return _normalizeMemberSearch([
+    member.id,
+    member.name,
+    member.hospital,
+    member.department,
+    member.shareCode,
+    member.lineUserId,
+    member.email,
+    member.lineStatusMessage,
+    _memberStatusLabel(member.status),
+    _memberAccountStatusLabel(member.accountStatus),
+    _memberDateTimeLabel(_memberFirstLoginAt(member)),
+    _memberDateTimeLabel(member.lastLineLoginAt),
+  ].whereType<String>().join(' '))
+      .contains(query);
+}
+
+bool _reviewMatchesSearch(AdminReviewItem item, String query) {
+  if (query.isEmpty) return true;
+  return _normalizeMemberSearch([
+    item.id,
+    item.memberId,
+    item.name,
+    item.hospital,
+    item.department,
+    item.completedAt,
+    _reviewStatusLabel(item.status),
+  ].join(' '))
+      .contains(query);
+}
+
+int _clampedPage(int page, int totalItems) {
+  if (totalItems <= 0) return 0;
+  final lastPage = (totalItems - 1) ~/ _MemberManagementState._pageSize;
+  if (page < 0) return 0;
+  if (page > lastPage) return lastPage;
+  return page;
+}
+
+List<T> _pageItems<T>(List<T> items, int page, int pageSize) {
+  if (items.isEmpty) return const [];
+  final start = page * pageSize;
+  if (start >= items.length) return const [];
+  final rawEnd = start + pageSize;
+  final end = rawEnd > items.length ? items.length : rawEnd;
+  return items.sublist(start, end);
 }
 
 class _MemberStatusTabs extends StatelessWidget {
