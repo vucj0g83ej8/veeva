@@ -5,13 +5,43 @@ import 'package:veeva_admin_app/data/veeva_repository.dart';
 import 'package:veeva_admin_app/main.dart';
 
 void main() {
-  testWidgets('admin app shows management dashboard', (tester) async {
+  testWidgets('admin gate opens dashboard for active LINE admin',
+      (tester) async {
     tester.view.physicalSize = const Size(1440, 1000);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
     await tester.pumpWidget(const VeevaAdminApp());
+    await tester.pumpAndSettle();
+
+    expect(find.text('儀表板'), findsWidgets);
+    expect(find.text('問卷完成'), findsOneWidget);
+  });
+
+  testWidgets('admin gate blocks LINE users without active permission',
+      (tester) async {
+    tester.view.physicalSize = const Size(440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(VeevaAdminApp(repository: _NoAdminRepository()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('尚未開通後台權限'), findsOneWidget);
+    expect(find.text('這個 LINE 帳號尚未啟用後台管理權限。'), findsOneWidget);
+    expect(find.text('登出 LINE'), findsOneWidget);
+    expect(find.text('問卷完成'), findsNothing);
+  });
+
+  testWidgets('admin app shows management dashboard', (tester) async {
+    tester.view.physicalSize = const Size(1440, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(const VeevaAdminApp(requireLineLogin: false));
 
     expect(find.text('VeeVa Admin'), findsOneWidget);
     expect(find.text('儀表板'), findsWidgets);
@@ -54,7 +84,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(const VeevaAdminApp());
+    await tester.pumpWidget(const VeevaAdminApp(requireLineLogin: false));
 
     await tester.tap(find.text('權限管理').first);
     await tester.pumpAndSettle();
@@ -117,8 +147,10 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester
-        .pumpWidget(VeevaAdminApp(repository: _LargeMemberRepository()));
+    await tester.pumpWidget(VeevaAdminApp(
+      repository: _LargeMemberRepository(),
+      requireLineLogin: false,
+    ));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('會員管理').first);
@@ -156,7 +188,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(const VeevaAdminApp());
+    await tester.pumpWidget(const VeevaAdminApp(requireLineLogin: false));
 
     expect(find.byIcon(Icons.menu), findsOneWidget);
     await tester.tap(find.byIcon(Icons.menu));
@@ -175,7 +207,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(const VeevaAdminApp());
+    await tester.pumpWidget(const VeevaAdminApp(requireLineLogin: false));
 
     await tester.tap(find.text('兌換券管理').first);
     await tester.pumpAndSettle();
@@ -185,10 +217,54 @@ void main() {
     expect(find.text('上架中'), findsWidgets);
     expect(find.text('120'), findsOneWidget);
 
-    await tester.tap(find.text('補庫存').first);
+    await tester.tap(find.text('新增兌換券'));
+    await tester.pumpAndSettle();
+    expect(find.text('新增兌換券'), findsWidgets);
+    expect(_rewardField('已發放'), findsNothing);
+    expect(_rewardField('已兌換'), findsNothing);
+    expect(find.text('兌換期限類型'), findsOneWidget);
+    expect(find.text('不限時'), findsOneWidget);
+    expect(_rewardField('兌換日期'), findsNothing);
+    await tester.tap(find.text('取消').last);
     await tester.pumpAndSettle();
 
-    expect(find.text('140'), findsOneWidget);
+    await tester.ensureVisible(find.byTooltip('調整庫存').first);
+    await tester.tap(find.byTooltip('調整庫存').first);
+    await tester.pumpAndSettle();
+
+    await tester.enterText(_rewardField('調整數量'), '15');
+    await tester.tap(find.text('套用'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('135'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('編輯').first);
+    await tester.pumpAndSettle();
+    await tester.enterText(_rewardField('商品名稱'), '星巴克大杯拿鐵');
+    await tester.tap(find.text('儲存'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('星巴克大杯拿鐵'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('預覽').first);
+    await tester.pumpAndSettle();
+    expect(find.text('兌換券預覽'), findsOneWidget);
+    await tester.tap(find.text('關閉'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('停用').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('已停用'), findsWidgets);
+
+    await tester.tap(find.byTooltip('刪除').first);
+    await tester.pumpAndSettle();
+    expect(find.text('刪除兌換券'), findsOneWidget);
+
+    await tester.tap(find.text('刪除').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('星巴克大杯拿鐵'), findsNothing);
   });
 
   testWidgets('admin can open activity and news management', (tester) async {
@@ -197,7 +273,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(const VeevaAdminApp());
+    await tester.pumpWidget(const VeevaAdminApp(requireLineLogin: false));
 
     await tester.tap(find.text('活動管理').first);
     await tester.pumpAndSettle();
@@ -205,6 +281,7 @@ void main() {
     expect(find.text('活動管理'), findsWidgets);
     expect(find.text('新增活動'), findsOneWidget);
     expect(find.text('填問卷，拿咖啡券'), findsOneWidget);
+    expect(find.text('只看進行中'), findsNothing);
 
     await tester.tap(find.text('最新資訊').first);
     await tester.pumpAndSettle();
@@ -213,6 +290,75 @@ void main() {
     expect(find.text('新增資訊'), findsOneWidget);
     expect(find.text('WHO 發布醫療產品警示'), findsOneWidget);
   });
+
+  testWidgets('admin can create edit preview and toggle activities',
+      (tester) async {
+    tester.view.physicalSize = const Size(1440, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(VeevaAdminApp(
+      repository: _SingleActivityRepository(),
+      requireLineLogin: false,
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('活動管理').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('原始活動'), findsOneWidget);
+    expect(find.text('進行中'), findsWidgets);
+
+    await tester.tap(find.text('新增活動'));
+    await tester.pumpAndSettle();
+
+    expect(_activityField('問卷網址'), findsOneWidget);
+
+    await tester.enterText(_activityField('活動名稱'), '端午會員任務');
+    await tester.enterText(_activityField('活動說明'), '完成任務即可取得會員獎勵。');
+    await tester.enterText(_activityField('獎勵內容'), '咖啡券 1 張');
+    await tester.enterText(_activityField('活動期間'), '2026/06/01 - 2026/06/30');
+    await tester.tap(find.text('建立'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('端午會員任務'), findsOneWidget);
+    expect(find.text('2026/06/01 - 2026/06/30'), findsOneWidget);
+
+    await tester.ensureVisible(find.byTooltip('編輯').first);
+    await tester.tap(find.byTooltip('編輯').first);
+    await tester.pumpAndSettle();
+    await tester.enterText(_activityField('活動名稱'), '更新後活動');
+    await tester.tap(find.text('儲存'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('更新後活動'), findsOneWidget);
+
+    await tester.ensureVisible(find.byTooltip('預覽').first);
+    await tester.tap(find.byTooltip('預覽').first);
+    await tester.pumpAndSettle();
+    expect(find.text('活動預覽'), findsOneWidget);
+    await tester.tap(find.text('關閉'));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byTooltip('停用').first);
+    await tester.tap(find.byTooltip('停用').first);
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('啟用'), findsWidgets);
+  });
+}
+
+Finder _activityField(String label) {
+  return find.byWidgetPredicate(
+    (widget) => widget is TextField && widget.decoration?.labelText == label,
+  );
+}
+
+Finder _rewardField(String label) {
+  return find.byWidgetPredicate(
+    (widget) => widget is TextField && widget.decoration?.labelText == label,
+  );
 }
 
 class _LargeMemberRepository extends DemoVeevaRepository {
@@ -243,5 +389,53 @@ class _LargeMemberRepository extends DemoVeevaRepository {
       ],
       adminUsers: const [],
     );
+  }
+}
+
+class _SingleActivityRepository extends DemoVeevaRepository {
+  @override
+  Future<backend.VeevaBootstrap> loadBootstrap() async {
+    return backend.VeevaBootstrap(
+      activities: const [
+        backend.VeevaActivity(
+          id: 'single-activity',
+          type: backend.VeevaActivityType.survey,
+          label: '任務',
+          title: '原始活動',
+          description: '完成指定任務。',
+          reward: '咖啡券',
+          rewardId: 'COFFEE-8X2L',
+          status: backend.VeevaContentStatus.published,
+          active: true,
+          periodText: '2026/06/01 - 2026/06/10',
+          note: '測試活動',
+        ),
+      ],
+      news: const [],
+      rewards: [
+        backend.VeevaReward(
+          id: 'COFFEE-8X2L',
+          name: '中杯美式咖啡 1 杯',
+          category: '飲品',
+          stock: 20,
+          issued: 0,
+          redeemed: 0,
+          expiresAt: DateTime(2026, 8, 31),
+          status: backend.VeevaRewardStatus.active,
+        ),
+      ],
+      reviews: const [],
+      members: const [],
+      adminUsers: const [],
+    );
+  }
+}
+
+class _NoAdminRepository extends DemoVeevaRepository {
+  @override
+  Future<backend.VeevaAdminUser?> loadActiveAdminUserByLineUserId(
+    String lineUserId,
+  ) async {
+    return null;
   }
 }

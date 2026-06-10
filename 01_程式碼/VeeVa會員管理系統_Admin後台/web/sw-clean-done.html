@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Cache-Control" content="no-store">
+  <title>更新完成</title>
+  <style>
+    body {
+      align-items: center;
+      background: #f5f7f6;
+      color: #10251e;
+      display: flex;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      justify-content: center;
+      margin: 0;
+      min-height: 100vh;
+    }
+
+    main {
+      background: #ffffff;
+      border: 1px solid #dfe7e2;
+      border-radius: 8px;
+      box-sizing: border-box;
+      max-width: 420px;
+      padding: 28px;
+      width: calc(100% - 32px);
+    }
+
+    h1 {
+      font-size: 22px;
+      margin: 0 0 12px;
+    }
+
+    p {
+      color: #50645b;
+      font-size: 15px;
+      line-height: 1.7;
+      margin: 0;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>更新完成</h1>
+    <p>正在重新進入後台。</p>
+  </main>
+
+  <script>
+    (function () {
+      var fallbackPath = '/?adminTab=activities&v=activity-cache-clean2';
+      var params = new URLSearchParams(window.location.search);
+      var next = params.get('next') || fallbackPath;
+      var separator = next.indexOf('?') === -1 ? '?' : '&';
+      setTimeout(function () {
+        window.location.replace(next + separator + 'cacheCleaned=' + Date.now());
+      }, 900);
+    }());
+  </script>
+</body>
+</html>

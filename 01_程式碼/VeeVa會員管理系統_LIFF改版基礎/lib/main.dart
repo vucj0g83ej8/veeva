@@ -141,7 +141,12 @@ class AppState extends ChangeNotifier {
     this.dataError,
     this.inviteShareMessage,
     this.inviteShareIsError = false,
-  });
+    this.pendingActivityId,
+    this.isActivityActionBusy = false,
+    this.activityActionMessage,
+    this.activityActionIsError = false,
+    Set<String>? registeredActivityIds,
+  }) : registeredActivityIds = registeredActivityIds ?? <String>{};
 
   factory AppState.demo({
     required VeevaRepository repository,
@@ -153,7 +158,7 @@ class AppState extends ChangeNotifier {
       liffSession: LiffSession.initial(),
       member: MemberProfile.guest(),
       currentPage: _requestedAppPageFromLaunchUri() ?? AppPage.landing,
-      coupons: defaultCoupons,
+      coupons: const [],
       reviewItems: defaultReviews.map(ReviewItem.fromBackend).toList(),
       activities: defaultActivities.map(ActivityNews.fromBackend).toList(),
       medicalNews: defaultNews.map(MedicalNewsItem.fromBackend).toList(),
@@ -175,6 +180,11 @@ class AppState extends ChangeNotifier {
   String? dataError;
   String? inviteShareMessage;
   bool inviteShareIsError;
+  String? pendingActivityId;
+  bool isActivityActionBusy;
+  String? activityActionMessage;
+  bool activityActionIsError;
+  final Set<String> registeredActivityIds;
 
   void notifyStateChanged() {
     notifyListeners();
@@ -212,11 +222,7 @@ class AppState extends ChangeNotifier {
         medicalNews = bootstrap.news.map(MedicalNewsItem.fromBackend).toList();
       }
       if (bootstrap.rewards.isNotEmpty) {
-        coupons = bootstrap.rewards
-            .where(
-                (reward) => reward.status == backend.VeevaRewardStatus.active)
-            .map(Coupon.fromBackend)
-            .toList();
+        coupons = [];
       }
       if (bootstrap.reviews.isNotEmpty) {
         reviewItems = bootstrap.reviews.map(ReviewItem.fromBackend).toList();
@@ -235,6 +241,7 @@ class AppState extends ChangeNotifier {
       final requestedPage = _requestedPageFromLaunchUri();
       if (liffSession.isLoggedIn) {
         await _syncLineProfileToMember();
+        await refreshMemberCoupons();
         final nextPage =
             _pageFromName(liffSession.postLoginPage) ?? requestedPage;
         if (nextPage != null) {
@@ -263,6 +270,7 @@ class AppState extends ChangeNotifier {
         return;
       }
       await _syncLineProfileToMember();
+      await refreshMemberCoupons();
       currentPage = nextPage;
     } catch (error) {
       authError = 'LINE 登入失敗：$error';
@@ -307,10 +315,100 @@ class AppState extends ChangeNotifier {
     authError = null;
   }
 
-  void completeSurvey() {
+  void openActivity(ActivityNews activity) {
+    pendingActivityId = activity.id;
+    activityActionMessage = null;
+    activityActionIsError = false;
+    if (member.status == MemberStatus.guest) {
+      currentPage = AppPage.login;
+    } else {
+      currentPage = _pageForActivityType(activity.type);
+    }
+  }
+
+  AppPage pendingActivityLoginTarget() {
+    final activity = _activityForPage();
+    if (activity == null) {
+      return AppPage.survey;
+    }
+    return _pageForActivityType(activity.type);
+  }
+
+  ActivityNews? activityForPage(backend.VeevaActivityType type) {
+    final pendingId = pendingActivityId;
+    if (pendingId != null && pendingId.isNotEmpty) {
+      for (final activity in activities) {
+        if (activity.id == pendingId &&
+            activity.active &&
+            activity.type == type) {
+          return activity;
+        }
+      }
+    }
+    for (final activity in activities) {
+      if (activity.active && activity.type == type) {
+        return activity;
+      }
+    }
+    return null;
+  }
+
+  Future<void> registerForActivity(ActivityNews activity) async {
+    if (member.status == MemberStatus.guest) {
+      openActivity(activity);
+      notifyStateChanged();
+      return;
+    }
+    final memberId = member.lineUserId ?? member.name;
+    if (memberId.trim().isEmpty) {
+      activityActionMessage = '請先完成 LINE 登入後再報名。';
+      activityActionIsError = true;
+      notifyStateChanged();
+      return;
+    }
+    isActivityActionBusy = true;
+    activityActionMessage = null;
+    activityActionIsError = false;
+    notifyStateChanged();
+    try {
+      await repository.registerActivity(
+        memberId: memberId,
+        memberName: member.name,
+        activityId: activity.id,
+      );
+      registeredActivityIds.add(activity.id);
+      if (activity.rewardId?.trim().isNotEmpty == true) {
+        await _issueRewardForActivity(activity);
+      }
+      activityActionMessage = '已完成報名';
+      activityActionIsError = false;
+    } catch (_) {
+      activityActionMessage = '報名失敗，請稍後再試。';
+      activityActionIsError = true;
+    } finally {
+      isActivityActionBusy = false;
+      notifyStateChanged();
+    }
+  }
+
+  void completeSurvey({ActivityNews? activity}) {
     member = member.copyWith(status: MemberStatus.pendingReview);
     currentPage = AppPage.thankYou;
     unawaited(repository.submitReview(member.toBackend()));
+    final surveyActivity = activity ?? _activityForRewardIssue();
+    final memberId = member.lineUserId ?? member.name;
+    if (surveyActivity != null && memberId.trim().isNotEmpty) {
+      unawaited(
+        repository.recordActivityCompletion(
+          memberId: memberId,
+          memberName: member.name,
+          activityId: surveyActivity.id,
+          activityTitle: surveyActivity.title,
+          surveyUrl: surveyActivity.surveyUrl ?? defaultVeevaSurveyUrl,
+        ),
+      );
+      unawaited(_issueRewardForActivity(surveyActivity));
+    }
   }
 
   void approveCurrentMember() {
@@ -344,6 +442,82 @@ class AppState extends ChangeNotifier {
         ),
       ),
     );
+  }
+
+  Future<void> refreshMemberCoupons() async {
+    final memberId = member.lineUserId ?? member.name;
+    if (member.status == MemberStatus.guest || memberId.trim().isEmpty) {
+      coupons = [];
+      return;
+    }
+    final claims = await repository.loadMemberRewardClaims(memberId);
+    coupons = claims.map(Coupon.fromClaim).toList();
+  }
+
+  Future<void> redeemCoupon(Coupon coupon) async {
+    if (coupon.status != CouponStatus.available) {
+      return;
+    }
+    await repository.redeemMemberRewardClaim(coupon.claimId);
+    coupons = [
+      for (final item in coupons)
+        item.claimId == coupon.claimId
+            ? item.copyWith(status: CouponStatus.used)
+            : item,
+    ];
+    notifyStateChanged();
+  }
+
+  Future<void> _issueRewardForActivity(ActivityNews activity) async {
+    final memberId = member.lineUserId ?? member.name;
+    if (memberId.trim().isEmpty) {
+      return;
+    }
+    try {
+      final claim = await repository.issueActivityReward(
+        memberId: memberId,
+        activityId: activity.id,
+      );
+      if (claim == null) {
+        return;
+      }
+      final coupon = Coupon.fromClaim(claim);
+      final existingIndex =
+          coupons.indexWhere((item) => item.claimId == coupon.claimId);
+      if (existingIndex == -1) {
+        coupons = [coupon, ...coupons];
+      } else {
+        coupons = [
+          for (var index = 0; index < coupons.length; index += 1)
+            index == existingIndex ? coupon : coupons[index],
+        ];
+      }
+      notifyStateChanged();
+    } catch (_) {
+      dataError = '活動獎勵發放失敗，請稍後重新整理會員中心。';
+      notifyStateChanged();
+    }
+  }
+
+  ActivityNews? _activityForRewardIssue() {
+    return activityForPage(backend.VeevaActivityType.survey);
+  }
+
+  ActivityNews? _activityForPage() {
+    final pendingId = pendingActivityId;
+    if (pendingId != null && pendingId.isNotEmpty) {
+      for (final activity in activities) {
+        if (activity.id == pendingId && activity.active) {
+          return activity;
+        }
+      }
+    }
+    for (final activity in activities) {
+      if (activity.active) {
+        return activity;
+      }
+    }
+    return null;
   }
 
   Future<void> _syncLineProfileToMember() async {
@@ -474,6 +648,7 @@ AppPage? _requestedAppPageFromLaunchUri() {
     'coupon' || 'coupons' => AppPage.coupon,
     'news' => AppPage.news,
     'survey' => AppPage.survey,
+    'activity' || 'registration' || 'register' => AppPage.activityRegistration,
     _ => null,
   };
 }
@@ -501,6 +676,7 @@ enum AppPage {
   news,
   login,
   survey,
+  activityRegistration,
   thankYou,
   memberCenter,
   coupon,
@@ -514,8 +690,44 @@ enum CouponStatus { available, used, expired }
 
 enum ReviewStatus { pending, approved, rejected }
 
+AppPage _pageForActivityType(backend.VeevaActivityType type) {
+  return switch (type) {
+    backend.VeevaActivityType.survey => AppPage.survey,
+    backend.VeevaActivityType.registration => AppPage.activityRegistration,
+  };
+}
+
+String _activityTypeLabel(backend.VeevaActivityType type) {
+  return switch (type) {
+    backend.VeevaActivityType.survey => '問卷',
+    backend.VeevaActivityType.registration => '活動報名',
+  };
+}
+
+IconData _activityTypeIcon(backend.VeevaActivityType type) {
+  return switch (type) {
+    backend.VeevaActivityType.survey => Icons.fact_check_outlined,
+    backend.VeevaActivityType.registration => Icons.event_available_outlined,
+  };
+}
+
 String _formatDate(DateTime date) {
   return '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}';
+}
+
+String _formatCouponExpiry(DateTime date) {
+  if (date.year >= 9999) {
+    return '不限時';
+  }
+  return _formatDate(date);
+}
+
+String _couponStatusLabel(CouponStatus status) {
+  return switch (status) {
+    CouponStatus.available => '可使用',
+    CouponStatus.used => '已使用',
+    CouponStatus.expired => '已過期',
+  };
 }
 
 String _formatDateTime(DateTime date) {
@@ -525,9 +737,6 @@ String _formatDateTime(DateTime date) {
   final minute = value.minute.toString().padLeft(2, '0');
   return '$dateText $hour:$minute';
 }
-
-const veevaSurveyUrl =
-    'https://privacyportal.onetrust.com/webform/3d676ed2-16b1-4c48-97f8-a911923a3adf/0dad5f26-4fad-41d6-a15d-836c329695e1';
 
 class MemberProfile {
   const MemberProfile({
@@ -681,6 +890,7 @@ backend.VeevaMemberAccountStatus _memberAccountStatusToBackend(
 
 class Coupon {
   const Coupon({
+    required this.claimId,
     required this.code,
     required this.title,
     required this.status,
@@ -689,6 +899,7 @@ class Coupon {
 
   factory Coupon.fromBackend(backend.VeevaReward reward) {
     return Coupon(
+      claimId: reward.id,
       code: reward.id.toUpperCase(),
       title: reward.name,
       status: switch (reward.status) {
@@ -700,44 +911,78 @@ class Coupon {
     );
   }
 
+  factory Coupon.fromClaim(backend.VeevaMemberRewardClaim claim) {
+    return Coupon(
+      claimId: claim.id,
+      code: claim.code ?? claim.id.toUpperCase(),
+      title: claim.rewardName,
+      status: switch (claim.status) {
+        backend.VeevaMemberRewardClaimStatus.available =>
+          CouponStatus.available,
+        backend.VeevaMemberRewardClaimStatus.used => CouponStatus.used,
+        backend.VeevaMemberRewardClaimStatus.expired => CouponStatus.expired,
+      },
+      expiresAt: claim.expiresAt,
+    );
+  }
+
+  final String claimId;
   final String code;
   final String title;
   final CouponStatus status;
   final DateTime expiresAt;
+
+  Coupon copyWith({
+    CouponStatus? status,
+  }) {
+    return Coupon(
+      claimId: claimId,
+      code: code,
+      title: title,
+      status: status ?? this.status,
+      expiresAt: expiresAt,
+    );
+  }
 }
 
 final defaultCoupons = <Coupon>[
   Coupon(
+    claimId: 'demo-coffee-claim',
     code: 'COFFEE-8X2L',
     title: '中杯美式咖啡 1 杯',
     status: CouponStatus.available,
     expiresAt: DateTime(2026, 8, 31),
   ),
   Coupon(
+    claimId: 'demo-tea-claim',
     code: 'TEA-42QK',
     title: '無糖綠茶 1 瓶',
     status: CouponStatus.available,
     expiresAt: DateTime(2026, 9, 15),
   ),
   Coupon(
+    claimId: 'demo-book-claim',
     code: 'BOOK-7P9A',
     title: '醫學書展 100 元折抵券',
     status: CouponStatus.available,
     expiresAt: DateTime(2026, 10, 5),
   ),
   Coupon(
+    claimId: 'demo-mask-claim',
     code: 'MASK-M3D8',
     title: '醫療口罩 1 盒',
     status: CouponStatus.available,
     expiresAt: DateTime(2026, 7, 20),
   ),
   Coupon(
+    claimId: 'demo-bento-claim',
     code: 'BENTO-Q6R2',
     title: '健康便當折價券',
     status: CouponStatus.available,
     expiresAt: DateTime(2026, 9, 30),
   ),
   Coupon(
+    claimId: 'demo-point-claim',
     code: 'POINT-L5N1',
     title: '會員點數 300 點',
     status: CouponStatus.available,
@@ -873,6 +1118,7 @@ class AppShell extends StatelessWidget {
           AppPage.news => const MedicalNewsPage(),
           AppPage.login => const LoginPage(),
           AppPage.survey => const SurveyPage(),
+          AppPage.activityRegistration => const ActivityRegistrationPage(),
           AppPage.thankYou => const ThankYouPage(),
           AppPage.memberCenter => const MemberCenterPage(),
           AppPage.coupon => const CouponPage(),
@@ -1222,31 +1468,41 @@ class _ActivityHeader extends StatelessWidget {
 
 class ActivityNews {
   const ActivityNews({
+    required this.id,
     required this.label,
+    required this.type,
     required this.title,
     required this.description,
     required this.reward,
+    this.rewardId,
+    this.surveyUrl,
     required this.icon,
     required this.active,
   });
 
   factory ActivityNews.fromBackend(backend.VeevaActivity activity) {
     return ActivityNews(
+      id: activity.id,
       label: activity.label,
+      type: activity.type,
       title: activity.title,
       description: activity.description,
       reward: activity.reward,
-      icon: activity.active
-          ? Icons.local_cafe_outlined
-          : Icons.event_available_outlined,
+      rewardId: activity.rewardId,
+      surveyUrl: activity.surveyUrl,
+      icon: _activityTypeIcon(activity.type),
       active: activity.active,
     );
   }
 
+  final String id;
   final String label;
+  final backend.VeevaActivityType type;
   final String title;
   final String description;
   final String reward;
+  final String? rewardId;
+  final String? surveyUrl;
   final IconData icon;
   final bool active;
 }
@@ -1295,6 +1551,8 @@ class _ActivityNewsCard extends StatelessWidget {
         news.active ? const Color(0xFFFFFBF1) : const Color(0xFFF7FBF8);
     final accentColor =
         news.active ? const Color(0xFFC58A2A) : const Color(0xFF216B57);
+    final actionLabel =
+        news.type == backend.VeevaActivityType.survey ? '填寫問卷' : '參加報名';
     return DecoratedBox(
       decoration: BoxDecoration(
         color: cardColor,
@@ -1368,7 +1626,7 @@ class _ActivityNewsCard extends StatelessWidget {
                 key: news.active ? const Key('start-login-button') : null,
                 onPressed: news.active
                     ? () {
-                        scope.state.currentPage = AppPage.login;
+                        scope.state.openActivity(news);
                         scope.notify();
                       }
                     : null,
@@ -1382,9 +1640,10 @@ class _ActivityNewsCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(8),
                   ),
                 ),
-                icon:
-                    Icon(news.active ? Icons.arrow_forward : Icons.lock_clock),
-                label: Text(news.active ? '立即開始' : '尚未開放'),
+                icon: Icon(
+                  news.active ? _activityTypeIcon(news.type) : Icons.lock_clock,
+                ),
+                label: Text(news.active ? actionLabel : '尚未開放'),
               ),
             ),
           ],
@@ -1529,7 +1788,10 @@ class LoginPage extends StatelessWidget {
                 label: '使用 LINE 登入',
                 onPressed: state.isLiffBusy
                     ? null
-                    : () => _startLineLogin(context, AppPage.survey),
+                    : () => _startLineLogin(
+                          context,
+                          state.pendingActivityLoginTarget(),
+                        ),
               ),
             ],
           ),
@@ -1545,20 +1807,177 @@ class SurveyPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scope = AppScope.of(context);
+    final activity =
+        scope.state.activityForPage(backend.VeevaActivityType.survey);
     return _PageFrame(
       key: const ValueKey('survey'),
-      title: 'Veeva 問卷填寫',
+      title: activity?.title ?? 'Veeva 問卷填寫',
       subtitle: '請直接在下方完成 Veeva 問卷，完成後按下頁面下方按鈕送出審核。',
       maxWidth: 1280,
       padding: const EdgeInsets.fromLTRB(8, 12, 8, 20),
       showHeader: false,
       child: EmbeddedSurveyWebForm(
-        url: veevaSurveyUrl,
+        url: activity?.surveyUrl ?? defaultVeevaSurveyUrl,
         onSurveyCompleted: () {
-          scope.state.completeSurvey();
+          scope.state.completeSurvey(activity: activity);
           scope.notify();
         },
       ),
+    );
+  }
+}
+
+class ActivityRegistrationPage extends StatelessWidget {
+  const ActivityRegistrationPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final scope = AppScope.of(context);
+    final state = scope.state;
+    final activity =
+        state.activityForPage(backend.VeevaActivityType.registration);
+    if (activity == null) {
+      return const _PageFrame(
+        key: ValueKey('activityRegistrationEmpty'),
+        title: '活動報名',
+        subtitle: '',
+        child: _ActivityEmptyNotice(),
+      );
+    }
+    final registered = state.registeredActivityIds.contains(activity.id);
+    return _PageFrame(
+      key: const ValueKey('activityRegistration'),
+      title: '活動報名',
+      subtitle: '',
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(22),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  _SoftTag(
+                    label: _activityTypeLabel(activity.type),
+                    color: const Color(0xFF216B57),
+                  ),
+                  const SizedBox(width: 8),
+                  _SoftTag(
+                      label: activity.label, color: const Color(0xFFC58A2A)),
+                ],
+              ),
+              const SizedBox(height: 18),
+              Text(
+                activity.title,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0,
+                    ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                activity.description,
+                style: const TextStyle(height: 1.55, color: Color(0xFF4C5A55)),
+              ),
+              const SizedBox(height: 18),
+              _ActivityInfoLine(
+                icon: Icons.card_giftcard_outlined,
+                label: '活動回饋',
+                value: activity.reward,
+              ),
+              const SizedBox(height: 18),
+              if (state.activityActionMessage != null) ...[
+                _LiffStatusNotice(
+                  text: state.activityActionMessage!,
+                  isError: state.activityActionIsError,
+                ),
+                const SizedBox(height: 14),
+              ],
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  key: const Key('activity-register-button'),
+                  onPressed: registered || state.isActivityActionBusy
+                      ? null
+                      : () => unawaited(state.registerForActivity(activity)),
+                  icon: state.isActivityActionBusy
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(
+                          registered
+                              ? Icons.check_circle_outline
+                              : Icons.event_available_outlined,
+                        ),
+                  label: Text(registered ? '已報名' : '參加報名'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ActivityEmptyNotice extends StatelessWidget {
+  const _ActivityEmptyNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Card(
+      child: Padding(
+        padding: EdgeInsets.all(24),
+        child: Center(
+          child: Text(
+            '目前沒有可報名的活動。',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Color(0xFF61706A), height: 1.5),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ActivityInfoLine extends StatelessWidget {
+  const _ActivityInfoLine({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 20, color: const Color(0xFF216B57)),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Color(0xFF61706A),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(value, style: const TextStyle(fontWeight: FontWeight.w800)),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -2551,14 +2970,17 @@ class CouponPage extends StatelessWidget {
       subtitle: '',
       child: Column(
         children: [
-          for (final coupon in coupons)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: _RedeemCouponCard(
-                coupon: coupon,
-                onRedeem: () => _showRedeemDialog(context, coupon),
+          if (coupons.isEmpty)
+            const _EmptyCouponNotice()
+          else
+            for (final coupon in coupons)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _RedeemCouponCard(
+                  coupon: coupon,
+                  onRedeem: () => _showRedeemDialog(context, coupon),
+                ),
               ),
-            ),
         ],
       ),
     );
@@ -2577,12 +2999,60 @@ class CouponPage extends StatelessWidget {
               child: const Text('取消'),
             ),
             FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
+              onPressed: coupon.status == CouponStatus.available
+                  ? () async {
+                      await AppScope.of(context).state.redeemCoupon(coupon);
+                      if (dialogContext.mounted) {
+                        Navigator.of(dialogContext).pop();
+                      }
+                    }
+                  : null,
               child: const Text('確認兌換'),
             ),
           ],
         );
       },
+    );
+  }
+}
+
+class _EmptyCouponNotice extends StatelessWidget {
+  const _EmptyCouponNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(22),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: const Color(0xFFEAF3EA),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.task_alt_outlined,
+                color: Color(0xFF216B57),
+              ),
+            ),
+            const SizedBox(width: 14),
+            const Expanded(
+              child: Text(
+                '目前沒有可使用的兌換券。完成活動任務後，兌換券會自動發放到這裡。',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  height: 1.45,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -2630,7 +3100,17 @@ class _RedeemCouponCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 6),
-                  Text('兌換期限 ${_formatDate(coupon.expiresAt)}'),
+                  Text('兌換期限 ${_formatCouponExpiry(coupon.expiresAt)}'),
+                  const SizedBox(height: 6),
+                  Text(
+                    _couponStatusLabel(coupon.status),
+                    style: TextStyle(
+                      color: coupon.status == CouponStatus.available
+                          ? const Color(0xFF216B57)
+                          : const Color(0xFF7A8580),
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -2638,8 +3118,11 @@ class _RedeemCouponCard extends StatelessWidget {
               key: coupon.code == 'COFFEE-8X2L'
                   ? const Key('redeem-coupon-button')
                   : null,
-              onPressed: onRedeem,
-              child: const Text('兌換'),
+              onPressed:
+                  coupon.status == CouponStatus.available ? onRedeem : null,
+              child: Text(
+                coupon.status == CouponStatus.available ? '兌換' : '已使用',
+              ),
             ),
           ],
         ),

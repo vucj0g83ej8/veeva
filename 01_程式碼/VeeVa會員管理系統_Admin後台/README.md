@@ -8,13 +8,14 @@
 - Firebase Hosting site：`veeva-admin`
 - Firestore database：`(default)` / `asia-east1`
 - 正式網址：`https://veeva-admin.web.app`
+- Admin LIFF ID：`2010298394-CWB7Tlp4`
 
 ## 常用指令
 
 ```sh
 flutter analyze
 flutter test
-flutter build web
+flutter build web --dart-define=ADMIN_LIFF_ID=YOUR_ADMIN_LIFF_ID
 firebase deploy --only hosting
 ```
 
@@ -35,6 +36,8 @@ node tools/seed_firestore.mjs
 目前使用的 collections：`activities`、`news`、`rewards`、`members`、`reviewSubmissions`、`adminUsers`。
 
 後台權限使用 LINE 會員授權：會員需先透過 LIFF 登入產生 `members/{lineUserId}`，再由後台權限管理頁把該會員授權到 `adminUsers/{lineUserId}`。正式資料以真實 LINE 登入會員為準，不需再 seed `line-demo-*` 測試會員。
+
+後台登入統一使用 LINE LIFF。請在 LINE Developers 建立 Admin 專用 LIFF App，Endpoint URL 設為 `https://veeva-admin.web.app/`，部署時用 `ADMIN_LIFF_ID` 帶入；後台 LINE 登入會固定 redirect 回這個根網址，不會帶測試用 query string。若未設定，後台會停在 LINE 登入設定提示畫面。
 
 LIFF 登入後的 `members` 會記錄 LINE userId、displayName、avatarUrl、email、statusMessage、最近登入時間，以及最新 `lineIdToken` 與 token 更新時間。後台列表只顯示 token 是否已記錄，不直接顯示完整 token。
 

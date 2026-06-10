@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'data/firebase_bootstrap.dart';
 import 'data/veeva_models.dart' as backend;
 import 'data/veeva_repository.dart';
+import 'services/admin_line_auth_base.dart';
+import 'services/admin_line_auth_stub.dart'
+    if (dart.library.html) 'services/admin_line_auth_web.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -11,9 +14,16 @@ Future<void> main() async {
 }
 
 class VeevaAdminApp extends StatelessWidget {
-  const VeevaAdminApp({this.repository, super.key});
+  const VeevaAdminApp({
+    this.repository,
+    this.authService,
+    this.requireLineLogin = true,
+    super.key,
+  });
 
   final VeevaRepository? repository;
+  final AdminLineAuthService? authService;
+  final bool requireLineLogin;
 
   @override
   Widget build(BuildContext context) {
@@ -44,10 +54,19 @@ class VeevaAdminApp extends StatelessWidget {
           ),
         ),
       ),
-      home: AdminDashboardShell(
-        initialTab: _initialAdminTabFromUri(),
-        repository: repository,
-      ),
+      home: requireLineLogin
+          ? AdminAuthGate(
+              initialTab: _initialAdminTabFromUri(),
+              repository: repository ?? DemoVeevaRepository(),
+              authService: authService ??
+                  createAdminLineAuthService(
+                    config: AdminLineConfig.fromEnvironment(),
+                  ),
+            )
+          : AdminDashboardShell(
+              initialTab: _initialAdminTabFromUri(),
+              repository: repository,
+            ),
     );
   }
 
@@ -77,6 +96,8 @@ enum AdminTab {
 enum ReviewStatus { pending, approved, rejected }
 
 enum RewardStatus { active, paused, expired }
+
+enum _RewardExpiryMode { unlimited, limited }
 
 enum MemberManagementTab { loggedIn, pendingReview, approvedReview }
 
@@ -142,6 +163,7 @@ class AdminRewardItem {
     required this.redeemed,
     required this.expiresAt,
     required this.status,
+    this.imageUrl,
   });
 
   factory AdminRewardItem.fromBackend(backend.VeevaReward reward) {
@@ -152,12 +174,13 @@ class AdminRewardItem {
       stock: reward.stock,
       issued: reward.issued,
       redeemed: reward.redeemed,
-      expiresAt: _formatAdminDate(reward.expiresAt),
+      expiresAt: _formatRewardExpiry(reward.expiresAt),
       status: switch (reward.status) {
         backend.VeevaRewardStatus.active => RewardStatus.active,
         backend.VeevaRewardStatus.paused => RewardStatus.paused,
         backend.VeevaRewardStatus.expired => RewardStatus.expired,
       },
+      imageUrl: reward.imageUrl,
     );
   }
 
@@ -169,6 +192,32 @@ class AdminRewardItem {
   int redeemed;
   final String expiresAt;
   RewardStatus status;
+  final String? imageUrl;
+
+  AdminRewardItem copyWith({
+    String? name,
+    String? category,
+    int? stock,
+    int? issued,
+    int? redeemed,
+    String? expiresAt,
+    RewardStatus? status,
+    Object? imageUrl = _unchangedRewardImageUrl,
+  }) {
+    return AdminRewardItem(
+      id: id,
+      name: name ?? this.name,
+      category: category ?? this.category,
+      stock: stock ?? this.stock,
+      issued: issued ?? this.issued,
+      redeemed: redeemed ?? this.redeemed,
+      expiresAt: expiresAt ?? this.expiresAt,
+      status: status ?? this.status,
+      imageUrl: identical(imageUrl, _unchangedRewardImageUrl)
+          ? this.imageUrl
+          : imageUrl as String?,
+    );
+  }
 
   backend.VeevaReward toBackend() {
     return backend.VeevaReward(
@@ -184,12 +233,33 @@ class AdminRewardItem {
         RewardStatus.paused => backend.VeevaRewardStatus.paused,
         RewardStatus.expired => backend.VeevaRewardStatus.expired,
       },
+      imageUrl: imageUrl,
     );
   }
 }
 
+const _unchangedRewardImageUrl = Object();
+const _rewardUnlimitedExpiryLabel = '不限時';
+const _rewardUnlimitedExpiryYear = 9999;
+const _rewardCategoryOptions = [
+  '禮券',
+  '餐飲',
+  '飲品',
+  '折抵',
+  '實體贈品',
+  '點數',
+  '其他',
+];
+
 String _formatAdminDate(DateTime date) {
   return '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}';
+}
+
+String _formatRewardExpiry(DateTime date) {
+  if (_isUnlimitedRewardExpiryDate(date)) {
+    return _rewardUnlimitedExpiryLabel;
+  }
+  return _formatAdminDate(date);
 }
 
 String _formatAdminDateTime(DateTime date) {
@@ -207,8 +277,378 @@ DateTime? _memberFirstLoginAt(backend.VeevaMember member) {
 }
 
 DateTime _parseAdminDate(String value) {
-  final normalized = value.replaceAll('/', '-');
+  if (_isUnlimitedRewardExpiryText(value)) {
+    return DateTime(_rewardUnlimitedExpiryYear, 12, 31);
+  }
+  final normalized = value.trim().replaceAll('/', '-');
   return DateTime.tryParse(normalized) ?? DateTime(2026, 12, 31);
+}
+
+bool _isValidAdminDate(String value) {
+  return DateTime.tryParse(value.trim().replaceAll('/', '-')) != null;
+}
+
+bool _isUnlimitedRewardExpiryText(String value) {
+  final normalized = value.trim();
+  return normalized == _rewardUnlimitedExpiryLabel ||
+      normalized == '9999/12/31' ||
+      normalized == '9999-12-31';
+}
+
+bool _isUnlimitedRewardExpiryDate(DateTime date) {
+  return date.year >= _rewardUnlimitedExpiryYear;
+}
+
+enum _AdminAuthViewState {
+  checking,
+  signedOut,
+  redirecting,
+  unauthorized,
+  disabled,
+  error,
+}
+
+class AdminAuthGate extends StatefulWidget {
+  const AdminAuthGate({
+    required this.initialTab,
+    required this.repository,
+    required this.authService,
+    super.key,
+  });
+
+  final AdminTab initialTab;
+  final VeevaRepository repository;
+  final AdminLineAuthService authService;
+
+  @override
+  State<AdminAuthGate> createState() => _AdminAuthGateState();
+}
+
+class _AdminAuthGateState extends State<AdminAuthGate> {
+  _AdminAuthViewState viewState = _AdminAuthViewState.checking;
+  AdminLineSession session = AdminLineSession.initial();
+  backend.VeevaAdminUser? adminUser;
+  String? message;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkExistingSession();
+  }
+
+  Future<void> _checkExistingSession() async {
+    setState(() {
+      viewState = _AdminAuthViewState.checking;
+      message = null;
+    });
+    await _handleSession(await widget.authService.initialize());
+  }
+
+  Future<void> _loginWithLine() async {
+    setState(() {
+      viewState = _AdminAuthViewState.checking;
+      message = null;
+    });
+    await _handleSession(await widget.authService.login());
+  }
+
+  Future<void> _logout() async {
+    setState(() {
+      viewState = _AdminAuthViewState.checking;
+      adminUser = null;
+      message = null;
+    });
+    await widget.authService.logout();
+    if (!mounted) return;
+    setState(() {
+      session = AdminLineSession.initial();
+      viewState = _AdminAuthViewState.signedOut;
+    });
+  }
+
+  Future<void> _handleSession(AdminLineSession nextSession) async {
+    if (!mounted) return;
+    session = nextSession;
+
+    if (nextSession.isRedirecting) {
+      setState(() {
+        viewState = _AdminAuthViewState.redirecting;
+        message = '正在前往 LINE 登入頁面。';
+      });
+      return;
+    }
+
+    if (nextSession.hasError) {
+      setState(() {
+        viewState = _AdminAuthViewState.error;
+        message = nextSession.errorMessage;
+      });
+      return;
+    }
+
+    if (!nextSession.isLoggedIn) {
+      setState(() {
+        viewState = _AdminAuthViewState.signedOut;
+        message = null;
+      });
+      return;
+    }
+
+    final profile = nextSession.profile;
+    if (profile == null || profile.userId.trim().isEmpty) {
+      setState(() {
+        viewState = _AdminAuthViewState.error;
+        message = '無法取得 LINE 帳號資料，請重新登入。';
+      });
+      return;
+    }
+
+    try {
+      final activeAdmin = await widget.repository
+          .loadActiveAdminUserByLineUserId(profile.userId);
+      if (!mounted) return;
+      if (activeAdmin == null) {
+        setState(() {
+          viewState = _AdminAuthViewState.unauthorized;
+          message = '這個 LINE 帳號尚未啟用後台管理權限。';
+        });
+        return;
+      }
+
+      final member = await widget.repository.loadMember(activeAdmin.memberId);
+      if (!mounted) return;
+      if (member?.accountStatus == backend.VeevaMemberAccountStatus.disabled) {
+        setState(() {
+          viewState = _AdminAuthViewState.disabled;
+          message = '這個 LINE 帳號目前已停用，無法進入後台。';
+        });
+        return;
+      }
+
+      setState(() {
+        adminUser = activeAdmin;
+        viewState = _AdminAuthViewState.checking;
+        message = null;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        viewState = _AdminAuthViewState.error;
+        message = '後台權限檢查失敗，請確認 Firestore 已可讀取管理者資料。';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final activeAdmin = adminUser;
+    if (activeAdmin != null) {
+      return AdminDashboardShell(
+        initialTab: widget.initialTab,
+        repository: widget.repository,
+        currentAdmin: activeAdmin,
+        onLogout: _logout,
+      );
+    }
+
+    return _AdminAuthScreen(
+      state: viewState,
+      session: session,
+      message: message,
+      onLogin: _loginWithLine,
+      onRetry: _checkExistingSession,
+      onLogout: _logout,
+    );
+  }
+}
+
+class _AdminAuthScreen extends StatelessWidget {
+  const _AdminAuthScreen({
+    required this.state,
+    required this.session,
+    required this.message,
+    required this.onLogin,
+    required this.onRetry,
+    required this.onLogout,
+  });
+
+  final _AdminAuthViewState state;
+  final AdminLineSession session;
+  final String? message;
+  final VoidCallback onLogin;
+  final VoidCallback onRetry;
+  final VoidCallback onLogout;
+
+  @override
+  Widget build(BuildContext context) {
+    final isBusy = state == _AdminAuthViewState.checking ||
+        state == _AdminAuthViewState.redirecting;
+    final profile = session.profile;
+    final title = switch (state) {
+      _AdminAuthViewState.checking => '正在檢查登入狀態',
+      _AdminAuthViewState.redirecting => '正在開啟 LINE 登入',
+      _AdminAuthViewState.signedOut => 'VeeVa Admin 後台登入',
+      _AdminAuthViewState.unauthorized => '尚未開通後台權限',
+      _AdminAuthViewState.disabled => '帳號已停用',
+      _AdminAuthViewState.error => '登入檢查失敗',
+    };
+    final description = message ??
+        switch (state) {
+          _AdminAuthViewState.checking => '請稍候，正在確認 LINE 登入與後台權限。',
+          _AdminAuthViewState.redirecting => '請在 LINE 登入頁完成授權。',
+          _AdminAuthViewState.signedOut => '請使用已授權的 LINE 帳號登入後台。',
+          _AdminAuthViewState.unauthorized => '請先由既有管理者在權限管理頁面開通此會員。',
+          _AdminAuthViewState.disabled => '請聯絡管理者重新啟用帳號。',
+          _AdminAuthViewState.error => '請稍後重試，或確認 Admin LIFF 設定是否正確。',
+        };
+
+    return Scaffold(
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 440),
+          child: Card(
+            margin: const EdgeInsets.all(20),
+            child: Padding(
+              padding: const EdgeInsets.all(28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(
+                    width: 52,
+                    height: 52,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE8F5EF),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(
+                      Icons.admin_panel_settings_outlined,
+                      color: Color(0xFF216B57),
+                      size: 28,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    description,
+                    style: const TextStyle(
+                      color: Color(0xFF61706A),
+                      fontWeight: FontWeight.w600,
+                      height: 1.5,
+                    ),
+                  ),
+                  if (profile != null) ...[
+                    const SizedBox(height: 16),
+                    _AdminAuthProfile(profile: profile),
+                  ],
+                  const SizedBox(height: 22),
+                  if (isBusy)
+                    const Center(child: CircularProgressIndicator())
+                  else if (state == _AdminAuthViewState.signedOut)
+                    FilledButton.icon(
+                      onPressed: onLogin,
+                      icon: const Icon(Icons.login),
+                      label: const Text('使用 LINE 登入'),
+                    )
+                  else
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        FilledButton.icon(
+                          onPressed: onRetry,
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('重新檢查'),
+                        ),
+                        if (session.isLoggedIn)
+                          OutlinedButton.icon(
+                            onPressed: onLogout,
+                            icon: const Icon(Icons.logout),
+                            label: const Text('登出 LINE'),
+                          )
+                        else
+                          OutlinedButton.icon(
+                            onPressed: onLogin,
+                            icon: const Icon(Icons.login),
+                            label: const Text('使用 LINE 登入'),
+                          ),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AdminAuthProfile extends StatelessWidget {
+  const _AdminAuthProfile({required this.profile});
+
+  final AdminLineProfile profile;
+
+  @override
+  Widget build(BuildContext context) {
+    final displayName =
+        profile.displayName.trim().isEmpty ? 'LINE 會員' : profile.displayName;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5F7F8),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE4E8EA)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            CircleAvatar(
+              backgroundImage: profile.pictureUrl == null
+                  ? null
+                  : NetworkImage(profile.pictureUrl!),
+              child: profile.pictureUrl == null
+                  ? Text(displayName.characters.first)
+                  : null,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    displayName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                  Text(
+                    profile.email?.isNotEmpty == true
+                        ? profile.email!
+                        : 'LINE ID：${profile.userId}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF61706A),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class AdminDashboardShell extends StatefulWidget {
@@ -216,10 +656,14 @@ class AdminDashboardShell extends StatefulWidget {
     super.key,
     this.initialTab = AdminTab.dashboard,
     this.repository,
+    this.currentAdmin,
+    this.onLogout,
   });
 
   final AdminTab initialTab;
   final VeevaRepository? repository;
+  final backend.VeevaAdminUser? currentAdmin;
+  final Future<void> Function()? onLogout;
 
   @override
   State<AdminDashboardShell> createState() => _AdminDashboardShellState();
@@ -394,10 +838,10 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       setState(() {
         final shouldUseBackendUserData = repository is! DemoVeevaRepository;
         if (bootstrap.activities.isNotEmpty) {
-          activities = bootstrap.activities;
+          activities = [...bootstrap.activities];
         }
         if (bootstrap.news.isNotEmpty) {
-          news = bootstrap.news;
+          news = [...bootstrap.news];
         }
         if (shouldUseBackendUserData || bootstrap.reviews.isNotEmpty) {
           reviews
@@ -442,6 +886,8 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
             title: title,
             icon: titleIcon,
             showSearch: tab != AdminTab.members,
+            adminUser: widget.currentAdmin,
+            onLogout: widget.onLogout,
           ),
         Expanded(
           child: SingleChildScrollView(
@@ -458,10 +904,13 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
           title: _AdminPageTitle(title: title, icon: titleIcon, compact: true),
           backgroundColor: Colors.white,
           surfaceTintColor: Colors.transparent,
-          actions: const [
+          actions: [
             Padding(
-              padding: EdgeInsets.only(right: 12),
-              child: CircleAvatar(child: Icon(Icons.person_outline)),
+              padding: const EdgeInsets.only(right: 12),
+              child: _AdminAccountMenu(
+                adminUser: widget.currentAdmin,
+                onLogout: widget.onLogout,
+              ),
             ),
           ],
         ),
@@ -520,13 +969,23 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
           onApprove: _approveReview,
           onSaveMemberSettings: _saveMemberSettings,
         ),
-      AdminTab.activities => _ActivityManagement(activities: activities),
+      AdminTab.activities => _ActivityManagement(
+          activities: activities,
+          onCreate: () => _showActivityDialog(),
+          onEdit: (activity) => _showActivityDialog(activity: activity),
+          onToggleActive: _toggleActivityActive,
+          onArchive: _archiveActivity,
+        ),
       AdminTab.news => _NewsManagement(news: news),
       AdminTab.rewards => _RewardsManagement(
           rewards: rewards,
-          onCreate: _showCreateRewardDialog,
+          onCreate: () => _showRewardDialog(),
+          onEdit: (reward) => _showRewardDialog(reward: reward),
+          onPreview: _showRewardPreview,
           onToggleStatus: _toggleRewardStatus,
-          onAddStock: _addRewardStock,
+          onAdjustStock: _showRewardStockDialog,
+          onExpire: _expireReward,
+          onDelete: _deleteReward,
         ),
       AdminTab.permissions => _PermissionsManagement(
           members: members,
@@ -568,31 +1027,531 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
     }
   }
 
-  Future<void> _toggleRewardStatus(AdminRewardItem reward) async {
-    final previous = reward.status;
+  Future<void> _saveActivity(backend.VeevaActivity activity) async {
+    final index = activities.indexWhere((item) => item.id == activity.id);
+    final previous = index == -1 ? null : activities[index];
     setState(() {
-      reward.status = reward.status == RewardStatus.active
-          ? RewardStatus.paused
-          : RewardStatus.active;
+      backendError = null;
+      if (index == -1) {
+        activities.insert(0, activity);
+      } else {
+        activities[index] = activity;
+      }
     });
     try {
-      await repository.saveReward(reward.toBackend());
+      await repository.saveActivity(activity);
     } catch (_) {
+      if (!mounted) return;
       setState(() {
-        reward.status = previous;
-        backendError = '兌換券狀態更新失敗：請確認 Firestore API 與 rules 已啟用。';
+        if (previous == null) {
+          activities.removeWhere((item) => item.id == activity.id);
+        } else if (index != -1) {
+          activities[index] = previous;
+        }
+        backendError = '活動資料儲存失敗：請確認 Firestore API 與 rules 已啟用。';
       });
     }
   }
 
-  Future<void> _addRewardStock(AdminRewardItem reward) async {
-    setState(() => reward.stock += 20);
+  Future<void> _toggleActivityActive(backend.VeevaActivity activity) async {
+    final updated = backend.VeevaActivity(
+      id: activity.id,
+      type: activity.type,
+      label: activity.label,
+      title: activity.title,
+      description: activity.description,
+      reward: activity.reward,
+      status: activity.active
+          ? backend.VeevaContentStatus.archived
+          : backend.VeevaContentStatus.published,
+      active: !activity.active,
+      periodText: activity.periodText,
+      note: activity.note,
+      imageUrl: activity.imageUrl,
+      surveyUrl: activity.surveyUrl,
+    );
+    await _saveActivity(updated);
+  }
+
+  Future<void> _archiveActivity(backend.VeevaActivity activity) async {
+    final updated = backend.VeevaActivity(
+      id: activity.id,
+      type: activity.type,
+      label: activity.label,
+      title: activity.title,
+      description: activity.description,
+      reward: activity.reward,
+      status: backend.VeevaContentStatus.archived,
+      active: false,
+      periodText: activity.periodText,
+      note: activity.note,
+      imageUrl: activity.imageUrl,
+      surveyUrl: activity.surveyUrl,
+    );
+    await _saveActivity(updated);
+  }
+
+  Future<void> _showActivityDialog({backend.VeevaActivity? activity}) async {
+    final isEditing = activity != null;
+    const noRewardValue = '__no_reward__';
+    final labelController =
+        TextEditingController(text: activity?.label ?? '限時活動');
+    final titleController = TextEditingController(text: activity?.title ?? '');
+    final descriptionController =
+        TextEditingController(text: activity?.description ?? '');
+    final rewardController =
+        TextEditingController(text: activity?.reward ?? '咖啡券');
+    final rewardOptions = rewards
+        .where((reward) => reward.status != RewardStatus.expired)
+        .toList();
+    var selectedRewardId = activity?.rewardId;
+    if (selectedRewardId == null && !isEditing && rewardOptions.isNotEmpty) {
+      selectedRewardId = rewardOptions.first.id;
+      rewardController.text = rewardOptions.first.name;
+    }
+    final periodController =
+        TextEditingController(text: activity?.periodText ?? '');
+    final noteController = TextEditingController(text: activity?.note ?? '');
+    final imageController =
+        TextEditingController(text: activity?.imageUrl ?? '');
+    final surveyUrlController = TextEditingController(
+        text: activity?.surveyUrl ?? defaultVeevaSurveyUrl);
+    var activityType = activity?.type ?? backend.VeevaActivityType.survey;
+    var status = activity?.status ?? backend.VeevaContentStatus.published;
+    var active = activity?.active ?? true;
+    String? formError;
+    backend.VeevaActivity? pendingActivity;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text(isEditing ? '編輯活動' : '新增活動'),
+              content: SizedBox(
+                width: 560,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (formError != null) ...[
+                        _InlineError(message: formError!),
+                        const SizedBox(height: 12),
+                      ],
+                      DropdownButtonFormField<backend.VeevaActivityType>(
+                        value: activityType,
+                        decoration: const InputDecoration(
+                          labelText: '活動類型',
+                          prefixIcon: Icon(Icons.category_outlined),
+                        ),
+                        items: [
+                          for (final type in backend.VeevaActivityType.values)
+                            DropdownMenuItem(
+                              value: type,
+                              child: Text(_activityTypeLabel(type)),
+                            ),
+                        ],
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setDialogState(() {
+                            activityType = value;
+                            if (value ==
+                                    backend.VeevaActivityType.registration &&
+                                rewardController.text.trim() == '咖啡券') {
+                              rewardController.text = '活動報名';
+                            }
+                            if (value ==
+                                backend.VeevaActivityType.registration) {
+                              selectedRewardId = null;
+                            } else if (selectedRewardId == null &&
+                                rewardOptions.isNotEmpty) {
+                              selectedRewardId = rewardOptions.first.id;
+                              rewardController.text = rewardOptions.first.name;
+                              if (surveyUrlController.text.trim().isEmpty) {
+                                surveyUrlController.text =
+                                    defaultVeevaSurveyUrl;
+                              }
+                            }
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      if (activityType == backend.VeevaActivityType.survey) ...[
+                        TextField(
+                          controller: surveyUrlController,
+                          keyboardType: TextInputType.url,
+                          decoration: const InputDecoration(
+                            labelText: '問卷網址',
+                            prefixIcon: Icon(Icons.link_outlined),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      TextField(
+                        controller: titleController,
+                        decoration: const InputDecoration(
+                          labelText: '活動名稱',
+                          prefixIcon: Icon(Icons.campaign_outlined),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: labelController,
+                        decoration: const InputDecoration(
+                          labelText: '活動標籤',
+                          prefixIcon: Icon(Icons.label_outline),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: descriptionController,
+                        minLines: 3,
+                        maxLines: 5,
+                        decoration: const InputDecoration(
+                          labelText: '活動說明',
+                          alignLabelWithHint: true,
+                          prefixIcon: Icon(Icons.notes_outlined),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: rewardController,
+                              decoration: const InputDecoration(
+                                labelText: '獎勵內容',
+                                prefixIcon: Icon(Icons.redeem_outlined),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextField(
+                              controller: periodController,
+                              decoration: const InputDecoration(
+                                labelText: '活動期間',
+                                prefixIcon: Icon(Icons.date_range_outlined),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        value: selectedRewardId != null &&
+                                rewardOptions.any(
+                                  (reward) => reward.id == selectedRewardId,
+                                )
+                            ? selectedRewardId
+                            : noRewardValue,
+                        decoration: const InputDecoration(
+                          labelText: '完成後發放兌換券',
+                          prefixIcon: Icon(Icons.confirmation_number_outlined),
+                        ),
+                        items: [
+                          DropdownMenuItem(
+                            value: noRewardValue,
+                            child: Text(
+                              activityType == backend.VeevaActivityType.survey
+                                  ? '請選擇兌換券'
+                                  : '不發放兌換券',
+                            ),
+                          ),
+                          for (final reward in rewardOptions)
+                            DropdownMenuItem(
+                              value: reward.id,
+                              child: Text('${reward.name}（${reward.category}）'),
+                            ),
+                        ],
+                        onChanged: (value) {
+                          if (value == null) return;
+                          if (value == noRewardValue) {
+                            setDialogState(() {
+                              selectedRewardId = null;
+                            });
+                            return;
+                          }
+                          final selectedReward = rewardOptions.firstWhere(
+                            (reward) => reward.id == value,
+                          );
+                          setDialogState(() {
+                            selectedRewardId = value;
+                            rewardController.text = selectedReward.name;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: noteController,
+                        decoration: const InputDecoration(
+                          labelText: '備註',
+                          prefixIcon: Icon(Icons.sticky_note_2_outlined),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: imageController,
+                        decoration: const InputDecoration(
+                          labelText: '圖片網址',
+                          prefixIcon: Icon(Icons.image_outlined),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: DropdownButtonFormField<
+                                backend.VeevaContentStatus>(
+                              value: status,
+                              decoration: const InputDecoration(
+                                labelText: '發布狀態',
+                                prefixIcon: Icon(Icons.flag_outlined),
+                              ),
+                              items: [
+                                for (final item
+                                    in backend.VeevaContentStatus.values)
+                                  DropdownMenuItem(
+                                    value: item,
+                                    child: Text(_contentStatusLabel(item)),
+                                  ),
+                              ],
+                              onChanged: (value) {
+                                if (value == null) return;
+                                setDialogState(() {
+                                  status = value;
+                                  if (value ==
+                                      backend.VeevaContentStatus.archived) {
+                                    active = false;
+                                  }
+                                });
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: SwitchListTile(
+                              value: active,
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text('前台顯示'),
+                              subtitle: const Text('啟用後活動會出現在會員端'),
+                              onChanged: (value) {
+                                setDialogState(() {
+                                  active = value;
+                                  if (value) {
+                                    status =
+                                        backend.VeevaContentStatus.published;
+                                  }
+                                });
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('取消'),
+                ),
+                FilledButton.icon(
+                  onPressed: () async {
+                    final title = titleController.text.trim();
+                    final description = descriptionController.text.trim();
+                    final reward = _fallbackText(
+                      rewardController.text,
+                      activityType == backend.VeevaActivityType.registration
+                          ? '活動報名'
+                          : '兌換券',
+                    );
+                    if (title.isEmpty || description.isEmpty) {
+                      setDialogState(() {
+                        formError = '請至少填寫活動名稱與活動說明。';
+                      });
+                      return;
+                    }
+                    if (activityType == backend.VeevaActivityType.survey &&
+                        (selectedRewardId == null ||
+                            selectedRewardId!.isEmpty ||
+                            !rewardOptions.any(
+                                (reward) => reward.id == selectedRewardId))) {
+                      setDialogState(() {
+                        formError = '問卷活動需要選擇完成後要發放的兌換券。';
+                      });
+                      return;
+                    }
+                    final surveyUrl = _optionalText(surveyUrlController.text);
+                    if (activityType == backend.VeevaActivityType.survey &&
+                        !_isHttpUrl(surveyUrl)) {
+                      setDialogState(() {
+                        formError = '請填入正確的問卷網址。';
+                      });
+                      return;
+                    }
+
+                    pendingActivity = backend.VeevaActivity(
+                      id: activity?.id ?? createVeevaId('activity'),
+                      type: activityType,
+                      label: _fallbackText(labelController.text, '活動'),
+                      title: title,
+                      description: description,
+                      reward: reward,
+                      rewardId: selectedRewardId,
+                      status: active
+                          ? backend.VeevaContentStatus.published
+                          : status,
+                      active: active,
+                      periodText: _optionalText(periodController.text),
+                      note: _optionalText(noteController.text),
+                      imageUrl: _optionalText(imageController.text),
+                      surveyUrl:
+                          activityType == backend.VeevaActivityType.survey
+                              ? surveyUrl
+                              : null,
+                    );
+                    Navigator.of(dialogContext).pop();
+                  },
+                  icon: Icon(isEditing ? Icons.save_outlined : Icons.add),
+                  label: Text(isEditing ? '儲存' : '建立'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    final activityToSave = pendingActivity;
+    if (activityToSave != null) {
+      await _saveActivity(activityToSave);
+    }
+
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    labelController.dispose();
+    titleController.dispose();
+    descriptionController.dispose();
+    rewardController.dispose();
+    periodController.dispose();
+    noteController.dispose();
+    imageController.dispose();
+    surveyUrlController.dispose();
+  }
+
+  Future<void> _saveReward(
+    AdminRewardItem reward, {
+    String errorMessage = '兌換券資料儲存失敗：請確認 Firestore API 與 rules 已啟用。',
+  }) async {
+    final index = rewards.indexWhere((item) => item.id == reward.id);
+    final previous = index == -1 ? null : rewards[index];
+    setState(() {
+      backendError = null;
+      if (index == -1) {
+        rewards.insert(0, reward);
+      } else {
+        rewards[index] = reward;
+      }
+    });
     try {
       await repository.saveReward(reward.toBackend());
     } catch (_) {
+      if (!mounted) return;
       setState(() {
-        reward.stock -= 20;
-        backendError = '庫存更新失敗：請確認 Firestore API 與 rules 已啟用。';
+        if (previous == null) {
+          rewards.removeWhere((item) => item.id == reward.id);
+        } else if (index != -1) {
+          rewards[index] = previous;
+        }
+        backendError = errorMessage;
+      });
+    }
+  }
+
+  Future<void> _toggleRewardStatus(AdminRewardItem reward) async {
+    if (reward.status == RewardStatus.expired) return;
+    final nextStatus = reward.status == RewardStatus.active
+        ? RewardStatus.paused
+        : RewardStatus.active;
+    await _saveReward(
+      reward.copyWith(status: nextStatus),
+      errorMessage: '兌換券狀態更新失敗：請確認 Firestore API 與 rules 已啟用。',
+    );
+  }
+
+  Future<void> _expireReward(AdminRewardItem reward) async {
+    if (reward.status == RewardStatus.expired) return;
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) {
+            return AlertDialog(
+              title: const Text('設為已過期'),
+              content: Text('確定要將「${reward.name}」設為已過期嗎？已發放與已兌換數量會保留。'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                  child: const Text('取消'),
+                ),
+                FilledButton.icon(
+                  onPressed: () => Navigator.of(dialogContext).pop(true),
+                  icon: const Icon(Icons.event_busy_outlined),
+                  label: const Text('設為已過期'),
+                ),
+              ],
+            );
+          },
+        ) ??
+        false;
+    if (!confirmed) return;
+
+    await _saveReward(
+      reward.copyWith(status: RewardStatus.expired),
+      errorMessage: '兌換券過期狀態更新失敗：請確認 Firestore API 與 rules 已啟用。',
+    );
+  }
+
+  Future<void> _deleteReward(AdminRewardItem reward) async {
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) {
+            return AlertDialog(
+              title: const Text('刪除兌換券'),
+              content: Text('確定要刪除「${reward.name}」嗎？刪除後會從兌換券清單移除。'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                  child: const Text('取消'),
+                ),
+                FilledButton.icon(
+                  onPressed: () => Navigator.of(dialogContext).pop(true),
+                  icon: const Icon(Icons.delete_outline),
+                  label: const Text('刪除'),
+                ),
+              ],
+            );
+          },
+        ) ??
+        false;
+    if (!confirmed) return;
+
+    final index = rewards.indexWhere((item) => item.id == reward.id);
+    if (index == -1) return;
+    final previous = rewards[index];
+    setState(() {
+      backendError = null;
+      rewards.removeAt(index);
+    });
+
+    try {
+      await repository.deleteReward(reward.id);
+    } catch (_) {
+      if (!mounted) return;
+      final insertIndex = index <= rewards.length ? index : rewards.length;
+      setState(() {
+        rewards.insert(insertIndex, previous);
+        backendError = '兌換券刪除失敗：請確認 Firestore API 與 rules 已啟用。';
       });
     }
   }
@@ -700,108 +1659,454 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
     }
   }
 
-  Future<void> _showCreateRewardDialog() async {
-    final nameController = TextEditingController();
-    final categoryController = TextEditingController(text: '禮券');
-    final stockController = TextEditingController(text: '50');
-    final expiryController = TextEditingController(text: '2026/08/31');
+  Future<void> _showRewardDialog({AdminRewardItem? reward}) async {
+    final isEditing = reward != null;
+    final nameController = TextEditingController(text: reward?.name ?? '');
+    final categoryOptions = [..._rewardCategoryOptions];
+    final existingCategory = reward?.category.trim();
+    if (existingCategory != null &&
+        existingCategory.isNotEmpty &&
+        !categoryOptions.contains(existingCategory)) {
+      categoryOptions.insert(0, existingCategory);
+    }
+    var category = existingCategory?.isNotEmpty == true
+        ? existingCategory!
+        : _rewardCategoryOptions.first;
+    final stockController =
+        TextEditingController(text: '${reward?.stock ?? 50}');
+    final hasLimitedExpiry =
+        reward != null && !_isUnlimitedRewardExpiryText(reward.expiresAt);
+    var expiryMode = hasLimitedExpiry
+        ? _RewardExpiryMode.limited
+        : _RewardExpiryMode.unlimited;
+    final expiryController = TextEditingController(
+        text: hasLimitedExpiry
+            ? reward.expiresAt
+            : _formatAdminDate(DateTime.now().add(const Duration(days: 90))));
+    final imageController = TextEditingController(text: reward?.imageUrl ?? '');
+    var status = reward?.status ?? RewardStatus.active;
+    String? formError;
+    AdminRewardItem? pendingReward;
 
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('新增兌換券'),
-          content: SizedBox(
-            width: 420,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameController,
-                  decoration: const InputDecoration(
-                    labelText: '商品名稱',
-                    prefixIcon: Icon(Icons.card_giftcard_outlined),
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> pickExpiryDate() async {
+              final initialDate = _parseAdminDate(expiryController.text);
+              final picked = await showDatePicker(
+                context: dialogContext,
+                initialDate: initialDate.year >= _rewardUnlimitedExpiryYear
+                    ? DateTime.now()
+                    : initialDate,
+                firstDate: DateTime(2020),
+                lastDate: DateTime(_rewardUnlimitedExpiryYear - 1, 12, 31),
+              );
+              if (picked == null) return;
+              setDialogState(() {
+                expiryController.text = _formatAdminDate(picked);
+              });
+            }
+
+            return AlertDialog(
+              title: Text(isEditing ? '編輯兌換券' : '新增兌換券'),
+              content: SizedBox(
+                width: 560,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (formError != null) ...[
+                        _InlineError(message: formError!),
+                        const SizedBox(height: 12),
+                      ],
+                      TextField(
+                        controller: nameController,
+                        decoration: const InputDecoration(
+                          labelText: '商品名稱',
+                          prefixIcon: Icon(Icons.card_giftcard_outlined),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              value: category,
+                              decoration: const InputDecoration(
+                                labelText: '分類',
+                                prefixIcon: Icon(Icons.category_outlined),
+                              ),
+                              items: [
+                                for (final option in categoryOptions)
+                                  DropdownMenuItem(
+                                    value: option,
+                                    child: Text(option),
+                                  ),
+                              ],
+                              onChanged: (value) {
+                                if (value == null) return;
+                                setDialogState(() => category = value);
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: DropdownButtonFormField<RewardStatus>(
+                              value: status,
+                              decoration: const InputDecoration(
+                                labelText: '狀態',
+                                prefixIcon:
+                                    Icon(Icons.check_circle_outline_outlined),
+                              ),
+                              items: const [
+                                DropdownMenuItem(
+                                  value: RewardStatus.active,
+                                  child: Text('上架中'),
+                                ),
+                                DropdownMenuItem(
+                                  value: RewardStatus.paused,
+                                  child: Text('已停用'),
+                                ),
+                                DropdownMenuItem(
+                                  value: RewardStatus.expired,
+                                  child: Text('已過期'),
+                                ),
+                              ],
+                              onChanged: (value) {
+                                if (value == null) return;
+                                setDialogState(() => status = value);
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: stockController,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText: '可用庫存',
+                                prefixIcon: Icon(Icons.inventory_2_outlined),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<_RewardExpiryMode>(
+                        value: expiryMode,
+                        decoration: const InputDecoration(
+                          labelText: '兌換期限類型',
+                          prefixIcon: Icon(Icons.schedule_outlined),
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: _RewardExpiryMode.unlimited,
+                            child: Text(_rewardUnlimitedExpiryLabel),
+                          ),
+                          DropdownMenuItem(
+                            value: _RewardExpiryMode.limited,
+                            child: Text('限時'),
+                          ),
+                        ],
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setDialogState(() => expiryMode = value);
+                        },
+                      ),
+                      if (expiryMode == _RewardExpiryMode.limited) ...[
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: expiryController,
+                          readOnly: true,
+                          onTap: pickExpiryDate,
+                          decoration: InputDecoration(
+                            labelText: '兌換日期',
+                            hintText: 'YYYY/MM/DD',
+                            prefixIcon:
+                                const Icon(Icons.event_available_outlined),
+                            suffixIcon: IconButton(
+                              tooltip: '選擇日期',
+                              onPressed: pickExpiryDate,
+                              icon: const Icon(Icons.calendar_month_outlined),
+                            ),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: imageController,
+                        decoration: const InputDecoration(
+                          labelText: '圖片網址',
+                          prefixIcon: Icon(Icons.image_outlined),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: categoryController,
-                  decoration: const InputDecoration(
-                    labelText: '分類',
-                    prefixIcon: Icon(Icons.category_outlined),
-                  ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('取消'),
                 ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: stockController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: '初始庫存',
-                    prefixIcon: Icon(Icons.inventory_2_outlined),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: expiryController,
-                  decoration: const InputDecoration(
-                    labelText: '兌換期限',
-                    prefixIcon: Icon(Icons.event_available_outlined),
-                  ),
+                FilledButton.icon(
+                  onPressed: () {
+                    final name = nameController.text.trim();
+                    final stock = int.tryParse(stockController.text.trim());
+                    final issued = reward?.issued ?? 0;
+                    final redeemed = reward?.redeemed ?? 0;
+                    final expiresAt = expiryMode == _RewardExpiryMode.unlimited
+                        ? _rewardUnlimitedExpiryLabel
+                        : expiryController.text.trim();
+
+                    if (name.isEmpty) {
+                      setDialogState(() => formError = '請填寫商品名稱。');
+                      return;
+                    }
+                    if (stock == null || stock < 0) {
+                      setDialogState(() => formError = '可用庫存必須是 0 以上的數字。');
+                      return;
+                    }
+                    if (expiryMode == _RewardExpiryMode.limited &&
+                        !_isValidAdminDate(expiresAt)) {
+                      setDialogState(
+                          () => formError = '兌換期限請使用 YYYY/MM/DD 格式。');
+                      return;
+                    }
+
+                    pendingReward = AdminRewardItem(
+                      id: reward?.id ?? createVeevaId('reward'),
+                      name: name,
+                      category: category,
+                      stock: stock,
+                      issued: issued,
+                      redeemed: redeemed,
+                      expiresAt: expiresAt,
+                      status: status,
+                      imageUrl: _optionalText(imageController.text),
+                    );
+                    Navigator.of(dialogContext).pop();
+                  },
+                  icon: Icon(isEditing ? Icons.save_outlined : Icons.add),
+                  label: Text(isEditing ? '儲存' : '建立'),
                 ),
               ],
+            );
+          },
+        );
+      },
+    );
+
+    final rewardToSave = pendingReward;
+    if (rewardToSave != null) {
+      await _saveReward(rewardToSave);
+    }
+
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    nameController.dispose();
+    stockController.dispose();
+    expiryController.dispose();
+    imageController.dispose();
+  }
+
+  Future<void> _showRewardStockDialog(AdminRewardItem reward) async {
+    final amountController = TextEditingController(text: '20');
+    var isAdding = true;
+    String? formError;
+    AdminRewardItem? pendingReward;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final parsedAmount =
+                int.tryParse(amountController.text.trim()) ?? 0;
+            final nextStock = isAdding
+                ? reward.stock + parsedAmount
+                : reward.stock - parsedAmount;
+            return AlertDialog(
+              title: const Text('調整庫存'),
+              content: SizedBox(
+                width: 420,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (formError != null) ...[
+                      _InlineError(message: formError!),
+                      const SizedBox(height: 12),
+                    ],
+                    _RewardSummaryTile(reward: reward),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<bool>(
+                      value: isAdding,
+                      decoration: const InputDecoration(
+                        labelText: '調整方式',
+                        prefixIcon: Icon(Icons.tune_outlined),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: true, child: Text('增加庫存')),
+                        DropdownMenuItem(value: false, child: Text('扣除庫存')),
+                      ],
+                      onChanged: (value) {
+                        if (value == null) return;
+                        setDialogState(() {
+                          isAdding = value;
+                          formError = null;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: amountController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: '調整數量',
+                        prefixIcon: Icon(Icons.add_box_outlined),
+                      ),
+                      onChanged: (_) => setDialogState(() => formError = null),
+                    ),
+                    const SizedBox(height: 12),
+                    _MiniInfo(
+                      label: '調整後庫存',
+                      value:
+                          parsedAmount > 0 ? '$nextStock' : '${reward.stock}',
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('取消'),
+                ),
+                FilledButton.icon(
+                  onPressed: () {
+                    final amount = int.tryParse(amountController.text.trim());
+                    if (amount == null || amount <= 0) {
+                      setDialogState(() => formError = '請輸入大於 0 的調整數量。');
+                      return;
+                    }
+                    final updatedStock = isAdding
+                        ? reward.stock + amount
+                        : reward.stock - amount;
+                    if (updatedStock < 0) {
+                      setDialogState(() => formError = '扣除後庫存不能小於 0。');
+                      return;
+                    }
+                    pendingReward = reward.copyWith(stock: updatedStock);
+                    Navigator.of(dialogContext).pop();
+                  },
+                  icon: const Icon(Icons.save_outlined),
+                  label: const Text('套用'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    final rewardToSave = pendingReward;
+    if (rewardToSave != null) {
+      await _saveReward(
+        rewardToSave,
+        errorMessage: '庫存更新失敗：請確認 Firestore API 與 rules 已啟用。',
+      );
+    }
+
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    amountController.dispose();
+  }
+
+  void _showRewardPreview(AdminRewardItem reward) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('兌換券預覽'),
+          content: SizedBox(
+            width: 500,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      _RewardStatusChip(status: reward.status),
+                      const SizedBox(width: 8),
+                      Text(
+                        reward.category,
+                        style: const TextStyle(
+                          color: Color(0xFF61706A),
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    reward.name,
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  _ActivityDetailLine(
+                    icon: Icons.inventory_2_outlined,
+                    label: '庫存',
+                    value: '${reward.stock}',
+                  ),
+                  _ActivityDetailLine(
+                    icon: Icons.send_outlined,
+                    label: '發放',
+                    value: '${reward.issued}',
+                  ),
+                  _ActivityDetailLine(
+                    icon: Icons.redeem_outlined,
+                    label: '兌換',
+                    value: '${reward.redeemed}',
+                  ),
+                  _ActivityDetailLine(
+                    icon: Icons.event_available_outlined,
+                    label: '期限',
+                    value: reward.expiresAt,
+                  ),
+                  if (reward.imageUrl?.isNotEmpty == true)
+                    _ActivityDetailLine(
+                      icon: Icons.image_outlined,
+                      label: '圖片',
+                      value: reward.imageUrl!,
+                    ),
+                ],
+              ),
             ),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('取消'),
+              child: const Text('關閉'),
             ),
             FilledButton.icon(
-              onPressed: () async {
-                final stock = int.tryParse(stockController.text.trim()) ?? 0;
-                final name = nameController.text.trim();
-                if (name.isEmpty || stock <= 0) return;
-
-                final reward = AdminRewardItem(
-                  id: createVeevaId('reward'),
-                  name: name,
-                  category: categoryController.text.trim().isEmpty
-                      ? '其他'
-                      : categoryController.text.trim(),
-                  stock: stock,
-                  issued: 0,
-                  redeemed: 0,
-                  expiresAt: expiryController.text.trim().isEmpty
-                      ? '2026/12/31'
-                      : expiryController.text.trim(),
-                  status: RewardStatus.active,
-                );
-                setState(() {
-                  rewards.insert(0, reward);
-                });
+              onPressed: () {
                 Navigator.of(dialogContext).pop();
-                try {
-                  await repository.saveReward(reward.toBackend());
-                } catch (_) {
-                  if (!mounted) return;
-                  setState(() {
-                    rewards.removeWhere((item) => item.id == reward.id);
-                    backendError = '新增兌換券失敗：請確認 Firestore API 與 rules 已啟用。';
-                  });
-                }
+                _showRewardDialog(reward: reward);
               },
-              icon: const Icon(Icons.add),
-              label: const Text('建立'),
+              icon: const Icon(Icons.edit_outlined),
+              label: const Text('編輯'),
             ),
           ],
         );
       },
     );
-
-    nameController.dispose();
-    categoryController.dispose();
-    stockController.dispose();
-    expiryController.dispose();
   }
 }
 
@@ -841,6 +2146,41 @@ class _BackendNotice extends StatelessWidget {
               onPressed: onRetry,
               icon: const Icon(Icons.refresh),
               label: const Text('重試'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InlineError extends StatelessWidget {
+  const _InlineError({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF4F0),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFF0B8A8)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            const Icon(Icons.error_outline, color: Color(0xFFAD3B24)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(
+                  color: Color(0xFF7A2718),
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
             ),
           ],
         ),
@@ -1006,11 +2346,15 @@ class _AdminTopBar extends StatelessWidget {
     required this.title,
     this.icon,
     this.showSearch = true,
+    this.adminUser,
+    this.onLogout,
   });
 
   final String title;
   final IconData? icon;
   final bool showSearch;
+  final backend.VeevaAdminUser? adminUser;
+  final Future<void> Function()? onLogout;
 
   @override
   Widget build(BuildContext context) {
@@ -1044,9 +2388,100 @@ class _AdminTopBar extends StatelessWidget {
             ),
             const SizedBox(width: 16),
           ],
-          const CircleAvatar(child: Icon(Icons.person_outline)),
+          _AdminAccountMenu(adminUser: adminUser, onLogout: onLogout),
         ],
       ),
+    );
+  }
+}
+
+class _AdminAccountMenu extends StatelessWidget {
+  const _AdminAccountMenu({
+    required this.adminUser,
+    required this.onLogout,
+  });
+
+  final backend.VeevaAdminUser? adminUser;
+  final Future<void> Function()? onLogout;
+
+  @override
+  Widget build(BuildContext context) {
+    final user = adminUser;
+    if (user == null) {
+      return const CircleAvatar(child: Icon(Icons.person_outline));
+    }
+
+    return PopupMenuButton<String>(
+      tooltip: '管理者帳號',
+      onSelected: (value) {
+        if (value == 'logout') {
+          onLogout?.call();
+        }
+      },
+      itemBuilder: (context) => [
+        PopupMenuItem<String>(
+          enabled: false,
+          child: SizedBox(
+            width: 220,
+            child: Row(
+              children: [
+                _AdminAvatar(adminUser: user),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        user.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                      Text(
+                        _adminRoleLabel(user.role),
+                        style: const TextStyle(
+                          color: Color(0xFF61706A),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (onLogout != null)
+          const PopupMenuItem<String>(
+            value: 'logout',
+            child: Row(
+              children: [
+                Icon(Icons.logout),
+                SizedBox(width: 10),
+                Text('登出 LINE'),
+              ],
+            ),
+          ),
+      ],
+      child: _AdminAvatar(adminUser: user),
+    );
+  }
+}
+
+class _AdminAvatar extends StatelessWidget {
+  const _AdminAvatar({required this.adminUser});
+
+  final backend.VeevaAdminUser adminUser;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = adminUser.name.trim().isEmpty ? 'A' : adminUser.name.trim();
+    return CircleAvatar(
+      backgroundImage: adminUser.avatarUrl == null
+          ? null
+          : NetworkImage(adminUser.avatarUrl!),
+      child: adminUser.avatarUrl == null ? Text(name.characters.first) : null,
     );
   }
 }
@@ -3103,27 +4538,749 @@ class _MemberStatusTab extends StatelessWidget {
   }
 }
 
-class _ActivityManagement extends StatelessWidget {
-  const _ActivityManagement({required this.activities});
+class _ActivityManagement extends StatefulWidget {
+  const _ActivityManagement({
+    required this.activities,
+    required this.onCreate,
+    required this.onEdit,
+    required this.onToggleActive,
+    required this.onArchive,
+  });
 
   final List<backend.VeevaActivity> activities;
+  final VoidCallback onCreate;
+  final ValueChanged<backend.VeevaActivity> onEdit;
+  final Future<void> Function(backend.VeevaActivity activity) onToggleActive;
+  final Future<void> Function(backend.VeevaActivity activity) onArchive;
+
+  @override
+  State<_ActivityManagement> createState() => _ActivityManagementState();
+}
+
+class _ActivityManagementState extends State<_ActivityManagement> {
+  String query = '';
+  String? statusFilter;
 
   @override
   Widget build(BuildContext context) {
-    return _ManagementTable(
-      icon: Icons.campaign_outlined,
-      title: '活動管理',
-      actionLabel: '新增活動',
-      columns: const ['活動名稱', '狀態', '活動期間', '備註'],
-      rows: [
-        for (final activity in activities)
-          [
-            activity.title,
-            activity.active ? '進行中' : _contentStatusLabel(activity.status),
-            activity.periodText ?? '未設定',
-            activity.note ?? activity.reward,
-          ],
+    final isCompact = MediaQuery.sizeOf(context).width < 820;
+    final visibleActivities = widget.activities.where(_matchesFilter).toList()
+      ..sort((a, b) {
+        if (a.active != b.active) return a.active ? -1 : 1;
+        return a.title.compareTo(b.title);
+      });
+    final activeCount =
+        widget.activities.where((activity) => activity.active).length;
+    final publishedCount = widget.activities
+        .where((activity) =>
+            activity.status == backend.VeevaContentStatus.published)
+        .length;
+    final draftCount = widget.activities
+        .where(
+            (activity) => activity.status == backend.VeevaContentStatus.draft)
+        .length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (isCompact)
+          Column(
+            children: [
+              _MetricCard(
+                label: '進行中',
+                value: '$activeCount',
+                icon: Icons.play_circle_outline,
+              ),
+              const SizedBox(height: 12),
+              _MetricCard(
+                label: '已發布',
+                value: '$publishedCount',
+                icon: Icons.public_outlined,
+              ),
+              const SizedBox(height: 12),
+              _MetricCard(
+                label: '草稿',
+                value: '$draftCount',
+                icon: Icons.edit_note_outlined,
+              ),
+            ],
+          )
+        else
+          Row(
+            children: [
+              Expanded(
+                child: _MetricCard(
+                  label: '進行中',
+                  value: '$activeCount',
+                  icon: Icons.play_circle_outline,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: _MetricCard(
+                  label: '已發布',
+                  value: '$publishedCount',
+                  icon: Icons.public_outlined,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: _MetricCard(
+                  label: '草稿',
+                  value: '$draftCount',
+                  icon: Icons.edit_note_outlined,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: _MetricCard(
+                  label: '活動總數',
+                  value: '${widget.activities.length}',
+                  icon: Icons.campaign_outlined,
+                ),
+              ),
+            ],
+          ),
+        const SizedBox(height: 18),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _ActivityHeader(onCreate: widget.onCreate),
+                const SizedBox(height: 16),
+                _ActivityFilters(
+                  query: query,
+                  statusFilter: statusFilter,
+                  onQueryChanged: (value) => setState(() => query = value),
+                  onStatusChanged: (value) =>
+                      setState(() => statusFilter = value),
+                ),
+                const SizedBox(height: 16),
+                if (visibleActivities.isEmpty)
+                  const _EmptyListMessage(message: '目前沒有符合條件的活動。')
+                else if (isCompact)
+                  Column(
+                    children: [
+                      for (final activity in visibleActivities)
+                        _ActivityMobileCard(
+                          activity: activity,
+                          onEdit: widget.onEdit,
+                          onPreview: _showPreview,
+                          onToggleActive: widget.onToggleActive,
+                          onArchive: widget.onArchive,
+                        ),
+                    ],
+                  )
+                else
+                  _ActivityDataTable(
+                    activities: visibleActivities,
+                    onEdit: widget.onEdit,
+                    onPreview: _showPreview,
+                    onToggleActive: widget.onToggleActive,
+                    onArchive: widget.onArchive,
+                  ),
+              ],
+            ),
+          ),
+        ),
       ],
+    );
+  }
+
+  bool _matchesFilter(backend.VeevaActivity activity) {
+    final keyword = query.trim().toLowerCase();
+    final matchesQuery = keyword.isEmpty ||
+        [
+          activity.title,
+          activity.label,
+          activity.description,
+          activity.reward,
+          _activityTypeLabel(activity.type),
+          activity.surveyUrl,
+          activity.periodText,
+          activity.note,
+          _activityStatusLabel(activity),
+        ].whereType<String>().any((value) {
+          return value.toLowerCase().contains(keyword);
+        });
+    final matchesStatus = statusFilter == null ||
+        (statusFilter == _activityActiveFilterValue && activity.active) ||
+        activity.status.name == statusFilter;
+    return matchesQuery && matchesStatus;
+  }
+
+  void _showPreview(backend.VeevaActivity activity) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('活動預覽'),
+          content: SizedBox(
+            width: 520,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      _ActivityStatusChip(activity: activity),
+                      const SizedBox(width: 8),
+                      Text(
+                        activity.label,
+                        style: const TextStyle(
+                          color: Color(0xFF61706A),
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    activity.title,
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    activity.description,
+                    style: const TextStyle(height: 1.5),
+                  ),
+                  const SizedBox(height: 14),
+                  _ActivityDetailLine(
+                    icon: Icons.redeem_outlined,
+                    label: '獎勵',
+                    value: activity.reward,
+                  ),
+                  _ActivityDetailLine(
+                    icon: _activityTypeIcon(activity.type),
+                    label: '類型',
+                    value: _activityTypeLabel(activity.type),
+                  ),
+                  if (activity.type == backend.VeevaActivityType.survey)
+                    _ActivityDetailLine(
+                      icon: Icons.link_outlined,
+                      label: '問卷網址',
+                      value: activity.surveyUrl ?? defaultVeevaSurveyUrl,
+                    ),
+                  _ActivityDetailLine(
+                    icon: Icons.date_range_outlined,
+                    label: '期間',
+                    value: activity.periodText ?? '未設定',
+                  ),
+                  if (activity.note?.isNotEmpty == true)
+                    _ActivityDetailLine(
+                      icon: Icons.sticky_note_2_outlined,
+                      label: '備註',
+                      value: activity.note!,
+                    ),
+                  if (activity.imageUrl?.isNotEmpty == true)
+                    _ActivityDetailLine(
+                      icon: Icons.image_outlined,
+                      label: '圖片',
+                      value: activity.imageUrl!,
+                    ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('關閉'),
+            ),
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                widget.onEdit(activity);
+              },
+              icon: const Icon(Icons.edit_outlined),
+              label: const Text('編輯'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _ActivityHeader extends StatelessWidget {
+  const _ActivityHeader({required this.onCreate});
+
+  final VoidCallback onCreate;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const Icon(Icons.campaign_outlined, color: Color(0xFF216B57)),
+        const SizedBox(width: 10),
+        const Expanded(
+          child: Text(
+            '活動管理',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+          ),
+        ),
+        FilledButton.icon(
+          onPressed: onCreate,
+          icon: const Icon(Icons.add),
+          label: const Text('新增活動'),
+        ),
+      ],
+    );
+  }
+}
+
+class _ActivityFilters extends StatelessWidget {
+  const _ActivityFilters({
+    required this.query,
+    required this.statusFilter,
+    required this.onQueryChanged,
+    required this.onStatusChanged,
+  });
+
+  final String query;
+  final String? statusFilter;
+  final ValueChanged<String> onQueryChanged;
+  final ValueChanged<String?> onStatusChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final isCompact = MediaQuery.sizeOf(context).width < 760;
+    final search = TextField(
+      onChanged: onQueryChanged,
+      decoration: InputDecoration(
+        hintText: '搜尋活動名稱、標籤、獎勵、備註',
+        prefixIcon: const Icon(Icons.search),
+        isDense: true,
+        filled: true,
+        fillColor: const Color(0xFFF5F7F8),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide.none,
+        ),
+      ),
+    );
+    final statusDropdown = DropdownButtonFormField<String?>(
+      value: statusFilter,
+      decoration: InputDecoration(
+        labelText: '狀態',
+        isDense: true,
+        filled: true,
+        fillColor: const Color(0xFFF5F7F8),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide.none,
+        ),
+      ),
+      items: [
+        const DropdownMenuItem<String?>(
+          value: null,
+          child: Text('全部狀態'),
+        ),
+        const DropdownMenuItem<String?>(
+          value: _activityActiveFilterValue,
+          child: Text('進行中'),
+        ),
+        for (final status in backend.VeevaContentStatus.values)
+          DropdownMenuItem<String?>(
+            value: status.name,
+            child: Text(_contentStatusLabel(status)),
+          ),
+      ],
+      onChanged: onStatusChanged,
+    );
+
+    if (isCompact) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          search,
+          const SizedBox(height: 10),
+          statusDropdown,
+        ],
+      );
+    }
+
+    return Row(
+      children: [
+        Expanded(flex: 2, child: search),
+        const SizedBox(width: 12),
+        SizedBox(width: 180, child: statusDropdown),
+      ],
+    );
+  }
+}
+
+class _ActivityDataTable extends StatelessWidget {
+  const _ActivityDataTable({
+    required this.activities,
+    required this.onEdit,
+    required this.onPreview,
+    required this.onToggleActive,
+    required this.onArchive,
+  });
+
+  final List<backend.VeevaActivity> activities;
+  final ValueChanged<backend.VeevaActivity> onEdit;
+  final ValueChanged<backend.VeevaActivity> onPreview;
+  final Future<void> Function(backend.VeevaActivity activity) onToggleActive;
+  final Future<void> Function(backend.VeevaActivity activity) onArchive;
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: DataTable(
+          headingRowColor: WidgetStateProperty.all(const Color(0xFFF5F7F8)),
+          horizontalMargin: 16,
+          columnSpacing: 18,
+          columns: const [
+            DataColumn(label: Text('活動名稱')),
+            DataColumn(label: Text('類型')),
+            DataColumn(label: Text('狀態')),
+            DataColumn(label: Text('獎勵')),
+            DataColumn(label: Text('活動期間')),
+            DataColumn(label: Text('備註')),
+            DataColumn(label: Text('操作')),
+          ],
+          rows: [
+            for (final activity in activities)
+              DataRow(
+                cells: [
+                  DataCell(_ActivityTitleCell(activity: activity)),
+                  DataCell(_ActivityTypeChip(type: activity.type)),
+                  DataCell(_ActivityStatusChip(activity: activity)),
+                  DataCell(Text(activity.reward)),
+                  DataCell(Text(activity.periodText ?? '未設定')),
+                  DataCell(
+                    SizedBox(
+                      width: 180,
+                      child: Text(
+                        activity.note ?? '-',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                  DataCell(
+                    _ActivityActions(
+                      activity: activity,
+                      onEdit: onEdit,
+                      onPreview: onPreview,
+                      onToggleActive: onToggleActive,
+                      onArchive: onArchive,
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ActivityMobileCard extends StatelessWidget {
+  const _ActivityMobileCard({
+    required this.activity,
+    required this.onEdit,
+    required this.onPreview,
+    required this.onToggleActive,
+    required this.onArchive,
+  });
+
+  final backend.VeevaActivity activity;
+  final ValueChanged<backend.VeevaActivity> onEdit;
+  final ValueChanged<backend.VeevaActivity> onPreview;
+  final Future<void> Function(backend.VeevaActivity activity) onToggleActive;
+  final Future<void> Function(backend.VeevaActivity activity) onArchive;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFA),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE4E8EA)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: _ActivityTitleCell(activity: activity)),
+              const SizedBox(width: 8),
+              _ActivityStatusChip(activity: activity),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            activity.description,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 10),
+          _ActivityDetailLine(
+            icon: Icons.redeem_outlined,
+            label: '獎勵',
+            value: activity.reward,
+          ),
+          _ActivityDetailLine(
+            icon: _activityTypeIcon(activity.type),
+            label: '類型',
+            value: _activityTypeLabel(activity.type),
+          ),
+          _ActivityDetailLine(
+            icon: Icons.date_range_outlined,
+            label: '期間',
+            value: activity.periodText ?? '未設定',
+          ),
+          if (activity.note?.isNotEmpty == true)
+            _ActivityDetailLine(
+              icon: Icons.sticky_note_2_outlined,
+              label: '備註',
+              value: activity.note!,
+            ),
+          const SizedBox(height: 10),
+          _ActivityActions(
+            activity: activity,
+            onEdit: onEdit,
+            onPreview: onPreview,
+            onToggleActive: onToggleActive,
+            onArchive: onArchive,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ActivityTitleCell extends StatelessWidget {
+  const _ActivityTitleCell({required this.activity});
+
+  final backend.VeevaActivity activity;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 220,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            activity.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            activity.label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Color(0xFF61706A), fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ActivityActions extends StatelessWidget {
+  const _ActivityActions({
+    required this.activity,
+    required this.onEdit,
+    required this.onPreview,
+    required this.onToggleActive,
+    required this.onArchive,
+  });
+
+  final backend.VeevaActivity activity;
+  final ValueChanged<backend.VeevaActivity> onEdit;
+  final ValueChanged<backend.VeevaActivity> onPreview;
+  final Future<void> Function(backend.VeevaActivity activity) onToggleActive;
+  final Future<void> Function(backend.VeevaActivity activity) onArchive;
+
+  @override
+  Widget build(BuildContext context) {
+    final canArchive = activity.status != backend.VeevaContentStatus.archived;
+    return SizedBox(
+      width: 128,
+      height: 36,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _ActivityActionIconButton(
+            tooltip: '編輯',
+            icon: Icons.edit_outlined,
+            onPressed: () => onEdit(activity),
+          ),
+          _ActivityActionIconButton(
+            tooltip: '預覽',
+            icon: Icons.visibility_outlined,
+            onPressed: () => onPreview(activity),
+          ),
+          _ActivityActionIconButton(
+            tooltip: activity.active ? '停用' : '啟用',
+            icon: activity.active
+                ? Icons.pause_circle_outline
+                : Icons.play_circle_outline,
+            onPressed: () => onToggleActive(activity),
+          ),
+          _ActivityActionIconButton(
+            tooltip: '封存',
+            icon: Icons.archive_outlined,
+            onPressed: canArchive ? () => onArchive(activity) : null,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ActivityActionIconButton extends StatelessWidget {
+  const _ActivityActionIconButton({
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onPressed != null;
+    final color = enabled
+        ? Theme.of(context).colorScheme.onSurface
+        : Theme.of(context).disabledColor;
+    return Tooltip(
+      message: tooltip,
+      child: Semantics(
+        button: true,
+        enabled: enabled,
+        label: tooltip,
+        child: MouseRegion(
+          cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onPressed,
+            child: SizedBox(
+              width: 32,
+              height: 36,
+              child: Center(
+                child: Icon(icon, size: 20, color: color),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ActivityStatusChip extends StatelessWidget {
+  const _ActivityStatusChip({required this.activity});
+
+  final backend.VeevaActivity activity;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _activityStatusColor(activity);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        _activityStatusLabel(activity),
+        style: const TextStyle(
+          color: Color(0xFF16362E),
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
+class _ActivityTypeChip extends StatelessWidget {
+  const _ActivityTypeChip({required this.type});
+
+  final backend.VeevaActivityType type;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEAF3EA),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(_activityTypeIcon(type),
+              size: 15, color: const Color(0xFF216B57)),
+          const SizedBox(width: 5),
+          Text(
+            _activityTypeLabel(type),
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ActivityDetailLine extends StatelessWidget {
+  const _ActivityDetailLine({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: const Color(0xFF61706A)),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 42,
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: Color(0xFF61706A),
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(child: Text(value)),
+        ],
+      ),
     );
   }
 }
@@ -3160,6 +5317,62 @@ String _contentStatusLabel(backend.VeevaContentStatus status) {
     backend.VeevaContentStatus.published => '已發布',
     backend.VeevaContentStatus.archived => '已封存',
   };
+}
+
+const _activityActiveFilterValue = 'active';
+
+String _activityTypeLabel(backend.VeevaActivityType type) {
+  return switch (type) {
+    backend.VeevaActivityType.survey => '問卷',
+    backend.VeevaActivityType.registration => '活動報名',
+  };
+}
+
+IconData _activityTypeIcon(backend.VeevaActivityType type) {
+  return switch (type) {
+    backend.VeevaActivityType.survey => Icons.fact_check_outlined,
+    backend.VeevaActivityType.registration => Icons.event_available_outlined,
+  };
+}
+
+String _activityStatusLabel(backend.VeevaActivity activity) {
+  if (activity.active) {
+    return '進行中';
+  }
+  return _contentStatusLabel(activity.status);
+}
+
+Color _activityStatusColor(backend.VeevaActivity activity) {
+  if (activity.active) {
+    return const Color(0xFFEAF3EA);
+  }
+  return switch (activity.status) {
+    backend.VeevaContentStatus.draft => const Color(0xFFEFF3F6),
+    backend.VeevaContentStatus.scheduled => const Color(0xFFEAF0FF),
+    backend.VeevaContentStatus.published => const Color(0xFFE8F5EF),
+    backend.VeevaContentStatus.archived => const Color(0xFFFFF4D9),
+  };
+}
+
+String _fallbackText(String value, String fallback) {
+  final text = value.trim();
+  return text.isEmpty ? fallback : text;
+}
+
+String? _optionalText(String value) {
+  final text = value.trim();
+  return text.isEmpty ? null : text;
+}
+
+bool _isHttpUrl(String? value) {
+  final text = value?.trim();
+  if (text == null || text.isEmpty) {
+    return false;
+  }
+  final uri = Uri.tryParse(text);
+  return uri != null &&
+      uri.host.isNotEmpty &&
+      (uri.scheme == 'https' || uri.scheme == 'http');
 }
 
 class _ManagementTable extends StatelessWidget {
@@ -3290,14 +5503,22 @@ class _RewardsManagement extends StatefulWidget {
   const _RewardsManagement({
     required this.rewards,
     required this.onCreate,
+    required this.onEdit,
+    required this.onPreview,
     required this.onToggleStatus,
-    required this.onAddStock,
+    required this.onAdjustStock,
+    required this.onExpire,
+    required this.onDelete,
   });
 
   final List<AdminRewardItem> rewards;
   final VoidCallback onCreate;
   final ValueChanged<AdminRewardItem> onToggleStatus;
-  final ValueChanged<AdminRewardItem> onAddStock;
+  final ValueChanged<AdminRewardItem> onEdit;
+  final ValueChanged<AdminRewardItem> onPreview;
+  final ValueChanged<AdminRewardItem> onAdjustStock;
+  final ValueChanged<AdminRewardItem> onExpire;
+  final ValueChanged<AdminRewardItem> onDelete;
 
   @override
   State<_RewardsManagement> createState() => _RewardsManagementState();
@@ -3311,10 +5532,11 @@ class _RewardsManagementState extends State<_RewardsManagement> {
   Widget build(BuildContext context) {
     final isCompact = MediaQuery.sizeOf(context).width < 760;
     final visibleRewards = widget.rewards.where((reward) {
-      final keyword = query.trim();
+      final keyword = query.trim().toLowerCase();
       final matchesQuery = keyword.isEmpty ||
-          reward.name.contains(keyword) ||
-          reward.category.contains(keyword);
+          reward.name.toLowerCase().contains(keyword) ||
+          reward.category.toLowerCase().contains(keyword) ||
+          reward.expiresAt.contains(keyword);
       final matchesFilter = filter == null || reward.status == filter;
       return matchesQuery && matchesFilter;
     }).toList();
@@ -3413,70 +5635,34 @@ class _RewardsManagementState extends State<_RewardsManagement> {
                 if (isCompact)
                   Column(
                     children: [
-                      for (final reward in visibleRewards)
-                        _RewardMobileCard(
-                          reward: reward,
-                          onToggleStatus: () => widget.onToggleStatus(reward),
-                          onAddStock: () => widget.onAddStock(reward),
-                        ),
+                      if (visibleRewards.isEmpty)
+                        const _EmptyListMessage(message: '目前沒有符合條件的兌換券。')
+                      else
+                        for (final reward in visibleRewards)
+                          _RewardMobileCard(
+                            reward: reward,
+                            onEdit: () => widget.onEdit(reward),
+                            onPreview: () => widget.onPreview(reward),
+                            onToggleStatus: () => widget.onToggleStatus(reward),
+                            onAdjustStock: () => widget.onAdjustStock(reward),
+                            onExpire: () => widget.onExpire(reward),
+                            onDelete: () => widget.onDelete(reward),
+                          ),
                     ],
                   )
+                else if (visibleRewards.isEmpty)
+                  const _EmptyListMessage(message: '目前沒有符合條件的兌換券。')
                 else
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
-                    child: DataTable(
-                      columnSpacing: 24,
-                      horizontalMargin: 16,
-                      headingRowColor:
-                          WidgetStateProperty.all(const Color(0xFFF5F7F8)),
-                      columns: const [
-                        DataColumn(label: Text('兌換券')),
-                        DataColumn(label: Text('分類')),
-                        DataColumn(label: Text('庫存')),
-                        DataColumn(label: Text('發放 / 兌換')),
-                        DataColumn(label: Text('期限')),
-                        DataColumn(label: Text('狀態')),
-                        DataColumn(label: Text('操作')),
-                      ],
-                      rows: [
-                        for (final reward in visibleRewards)
-                          DataRow(
-                            cells: [
-                              DataCell(Text(reward.name)),
-                              DataCell(Text(reward.category)),
-                              DataCell(Text('${reward.stock}')),
-                              DataCell(Text(
-                                  '${reward.issued} / ${reward.redeemed}')),
-                              DataCell(Text(reward.expiresAt)),
-                              DataCell(
-                                  _RewardStatusChip(status: reward.status)),
-                              DataCell(
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    OutlinedButton(
-                                      onPressed: reward.status ==
-                                              RewardStatus.expired
-                                          ? null
-                                          : () => widget.onToggleStatus(reward),
-                                      child: Text(
-                                        reward.status == RewardStatus.active
-                                            ? '停用'
-                                            : '啟用',
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    FilledButton.tonal(
-                                      onPressed: () =>
-                                          widget.onAddStock(reward),
-                                      child: const Text('補庫存'),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                      ],
+                    child: _RewardDataTable(
+                      rewards: visibleRewards,
+                      onEdit: widget.onEdit,
+                      onPreview: widget.onPreview,
+                      onToggleStatus: widget.onToggleStatus,
+                      onAdjustStock: widget.onAdjustStock,
+                      onExpire: widget.onExpire,
+                      onDelete: widget.onDelete,
                     ),
                   ),
               ],
@@ -3585,16 +5771,105 @@ class _RewardToolbar extends StatelessWidget {
   }
 }
 
+class _RewardDataTable extends StatelessWidget {
+  const _RewardDataTable({
+    required this.rewards,
+    required this.onEdit,
+    required this.onPreview,
+    required this.onToggleStatus,
+    required this.onAdjustStock,
+    required this.onExpire,
+    required this.onDelete,
+  });
+
+  final List<AdminRewardItem> rewards;
+  final ValueChanged<AdminRewardItem> onEdit;
+  final ValueChanged<AdminRewardItem> onPreview;
+  final ValueChanged<AdminRewardItem> onToggleStatus;
+  final ValueChanged<AdminRewardItem> onAdjustStock;
+  final ValueChanged<AdminRewardItem> onExpire;
+  final ValueChanged<AdminRewardItem> onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return DataTable(
+      columnSpacing: 24,
+      horizontalMargin: 16,
+      headingRowColor: WidgetStateProperty.all(const Color(0xFFF5F7F8)),
+      columns: const [
+        DataColumn(label: Text('兌換券')),
+        DataColumn(label: Text('分類')),
+        DataColumn(label: Text('可用庫存')),
+        DataColumn(label: Text('發放 / 兌換')),
+        DataColumn(label: Text('期限')),
+        DataColumn(label: Text('狀態')),
+        DataColumn(label: Text('操作')),
+      ],
+      rows: [
+        for (final reward in rewards)
+          DataRow(
+            cells: [
+              DataCell(_RewardNameCell(reward: reward)),
+              DataCell(Text(reward.category)),
+              DataCell(Text('${reward.stock}')),
+              DataCell(Text('${reward.issued} / ${reward.redeemed}')),
+              DataCell(Text(reward.expiresAt)),
+              DataCell(_RewardStatusChip(status: reward.status)),
+              DataCell(
+                _RewardActions(
+                  reward: reward,
+                  onEdit: () => onEdit(reward),
+                  onPreview: () => onPreview(reward),
+                  onToggleStatus: () => onToggleStatus(reward),
+                  onAdjustStock: () => onAdjustStock(reward),
+                  onExpire: () => onExpire(reward),
+                  onDelete: () => onDelete(reward),
+                ),
+              ),
+            ],
+          ),
+      ],
+    );
+  }
+}
+
+class _RewardNameCell extends StatelessWidget {
+  const _RewardNameCell({required this.reward});
+
+  final AdminRewardItem reward;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 220,
+      child: Text(
+        reward.name,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontWeight: FontWeight.w900),
+      ),
+    );
+  }
+}
+
 class _RewardMobileCard extends StatelessWidget {
   const _RewardMobileCard({
     required this.reward,
+    required this.onEdit,
+    required this.onPreview,
     required this.onToggleStatus,
-    required this.onAddStock,
+    required this.onAdjustStock,
+    required this.onExpire,
+    required this.onDelete,
   });
 
   final AdminRewardItem reward;
+  final VoidCallback onEdit;
+  final VoidCallback onPreview;
   final VoidCallback onToggleStatus;
-  final VoidCallback onAddStock;
+  final VoidCallback onAdjustStock;
+  final VoidCallback onExpire;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -3637,24 +5912,139 @@ class _RewardMobileCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              OutlinedButton(
-                onPressed: reward.status == RewardStatus.expired
-                    ? null
-                    : onToggleStatus,
-                child: Text(
-                  reward.status == RewardStatus.active ? '停用' : '啟用',
-                ),
-              ),
-              const SizedBox(width: 8),
-              FilledButton.tonal(
-                onPressed: onAddStock,
-                child: const Text('補庫存'),
-              ),
-            ],
+          Align(
+            alignment: Alignment.centerRight,
+            child: _RewardActions(
+              reward: reward,
+              onEdit: onEdit,
+              onPreview: onPreview,
+              onToggleStatus: onToggleStatus,
+              onAdjustStock: onAdjustStock,
+              onExpire: onExpire,
+              onDelete: onDelete,
+            ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RewardActions extends StatelessWidget {
+  const _RewardActions({
+    required this.reward,
+    required this.onEdit,
+    required this.onPreview,
+    required this.onToggleStatus,
+    required this.onAdjustStock,
+    required this.onExpire,
+    required this.onDelete,
+  });
+
+  final AdminRewardItem reward;
+  final VoidCallback onEdit;
+  final VoidCallback onPreview;
+  final VoidCallback onToggleStatus;
+  final VoidCallback onAdjustStock;
+  final VoidCallback onExpire;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final canChangeStatus = reward.status != RewardStatus.expired;
+    return SizedBox(
+      width: 240,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _RewardActionIconButton(
+            tooltip: '編輯',
+            onPressed: onEdit,
+            icon: Icons.edit_outlined,
+          ),
+          _RewardActionIconButton(
+            tooltip: '預覽',
+            onPressed: onPreview,
+            icon: Icons.visibility_outlined,
+          ),
+          _RewardActionIconButton(
+            tooltip: reward.status == RewardStatus.active ? '停用' : '啟用',
+            onPressed: canChangeStatus ? onToggleStatus : null,
+            icon: reward.status == RewardStatus.active
+                ? Icons.pause_circle_outline
+                : Icons.play_circle_outline,
+          ),
+          _RewardActionIconButton(
+            tooltip: '調整庫存',
+            onPressed: onAdjustStock,
+            icon: Icons.inventory_2_outlined,
+          ),
+          _RewardActionIconButton(
+            tooltip: '設為已過期',
+            onPressed: canChangeStatus ? onExpire : null,
+            icon: Icons.event_busy_outlined,
+          ),
+          _RewardActionIconButton(
+            tooltip: '刪除',
+            onPressed: onDelete,
+            icon: Icons.delete_outline,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RewardActionIconButton extends StatelessWidget {
+  const _RewardActionIconButton({
+    required this.tooltip,
+    required this.onPressed,
+    required this.icon,
+  });
+
+  final String tooltip;
+  final VoidCallback? onPressed;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      icon: Icon(icon),
+      iconSize: 20,
+      padding: EdgeInsets.zero,
+      visualDensity: VisualDensity.compact,
+      constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+    );
+  }
+}
+
+class _RewardSummaryTile extends StatelessWidget {
+  const _RewardSummaryTile({required this.reward});
+
+  final AdminRewardItem reward;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFA),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE4E8EA)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            reward.name,
+            style: const TextStyle(fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 6),
+          Text(
+              '目前庫存 ${reward.stock} · 已發放 ${reward.issued} · 已兌換 ${reward.redeemed}'),
         ],
       ),
     );
@@ -3722,22 +6112,20 @@ class _PlaceholderPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(28),
-        child: Row(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, size: 48, color: const Color(0xFF216B57)),
-            const SizedBox(width: 18),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title,
-                      style: const TextStyle(
-                          fontSize: 22, fontWeight: FontWeight.w900)),
-                  const SizedBox(height: 8),
-                  Text(description),
-                ],
-              ),
+            Icon(icon, size: 42, color: const Color(0xFF216B57)),
+            const SizedBox(height: 18),
+            Text(
+              title,
+              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              description,
+              style: const TextStyle(color: Color(0xFF61706A)),
             ),
           ],
         ),

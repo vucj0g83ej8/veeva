@@ -7,6 +7,7 @@ import 'package:veeva_member_app/data/veeva_models.dart' as backend;
 import 'package:veeva_member_app/data/veeva_repository.dart';
 import 'package:veeva_member_app/main.dart';
 import 'package:veeva_member_app/services/liff_service.dart';
+import 'package:veeva_member_app/survey_embed_stub.dart';
 
 void main() {
   testWidgets('user can complete the reward flow', (tester) async {
@@ -50,11 +51,12 @@ void main() {
     expect(find.text('兌換券'), findsWidgets);
     expect(find.text('中杯美式咖啡 1 杯'), findsOneWidget);
     expect(find.text('兌換期限 2026/08/31'), findsOneWidget);
-    expect(find.text('無糖綠茶 1 瓶'), findsOneWidget);
-    expect(find.text('醫學書展 100 元折抵券'), findsOneWidget);
-    expect(find.text('醫療口罩 1 盒'), findsOneWidget);
-    expect(find.text('健康便當折價券'), findsOneWidget);
-    expect(find.text('會員點數 300 點'), findsOneWidget);
+    expect(find.text('可使用'), findsOneWidget);
+    expect(find.text('無糖綠茶 1 瓶'), findsNothing);
+    expect(find.text('醫學書展 100 元折抵券'), findsNothing);
+    expect(find.text('醫療口罩 1 盒'), findsNothing);
+    expect(find.text('健康便當折價券'), findsNothing);
+    expect(find.text('會員點數 300 點'), findsNothing);
 
     await tester.tap(find.byKey(const Key('redeem-coupon-button')));
     await tester.pumpAndSettle();
@@ -245,6 +247,64 @@ void main() {
     expect(find.text('院所限定任務'), findsOneWidget);
     expect(find.text('LINE 登入'), findsNothing);
     expect(find.text('資格審核'), findsNothing);
+  });
+
+  testWidgets('member can register for an activity', (tester) async {
+    final repository = _RegistrationActivityRepository();
+    await tester.pumpWidget(
+      VeevaMemberApp(
+        repository: repository,
+        liffService: const _LoggedInMemberLiffService(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('醫學會講座報名'), findsOneWidget);
+    await tester.ensureVisible(find.byKey(const Key('start-login-button')));
+    await tester.tap(find.byKey(const Key('start-login-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('activityRegistration')), findsOneWidget);
+    expect(find.text('活動報名'), findsWidgets);
+
+    await tester.tap(find.byKey(const Key('activity-register-button')));
+    await tester.pumpAndSettle();
+
+    expect(repository.registeredActivityId, 'seminar-live');
+    expect(repository.registeredMemberId, 'inviter-line-user');
+    expect(find.text('已完成報名'), findsOneWidget);
+    expect(find.text('已報名'), findsOneWidget);
+  });
+
+  testWidgets('survey activity embeds its configured survey URL',
+      (tester) async {
+    await tester.pumpWidget(
+      VeevaMemberApp(repository: _SurveyUrlRepository()),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byKey(const Key('start-login-button')));
+    await tester.tap(find.byKey(const Key('start-login-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('line-login-button')));
+    await tester.pumpAndSettle();
+
+    final survey = tester.widget<EmbeddedSurveyWebForm>(
+      find.byType(EmbeddedSurveyWebForm),
+    );
+    expect(survey.url, _SurveyUrlRepository.customSurveyUrl);
+
+    await tester.tap(find.byKey(const Key('submit-survey-button')));
+    await tester.pumpAndSettle();
+
+    final repository = tester
+        .widget<VeevaMemberApp>(find.byType(VeevaMemberApp))
+        .repository! as _SurveyUrlRepository;
+    expect(repository.completedMemberId, 'demo-line-user');
+    expect(repository.completedMemberName, '王小明');
+    expect(repository.completedActivityId, 'custom-survey');
+    expect(repository.completedActivityTitle, '自訂網址問卷');
+    expect(repository.completedSurveyUrl, _SurveyUrlRepository.customSurveyUrl);
   });
 
   testWidgets('medical news page shows list items', (tester) async {
@@ -488,5 +548,91 @@ class _RecordingVeevaRepository extends DemoVeevaRepository {
       lineIdToken: lineIdToken,
       referralCode: referralCode,
     );
+  }
+}
+
+class _RegistrationActivityRepository extends DemoVeevaRepository {
+  String? registeredMemberId;
+  String? registeredActivityId;
+
+  @override
+  Future<backend.VeevaBootstrap> loadBootstrap() async {
+    return const backend.VeevaBootstrap(
+      activities: [
+        backend.VeevaActivity(
+          id: 'seminar-live',
+          type: backend.VeevaActivityType.registration,
+          label: '開放報名',
+          title: '醫學會講座報名',
+          description: '活動敘述與報名資訊會顯示在這裡。',
+          reward: '活動報名',
+          status: backend.VeevaContentStatus.published,
+          active: true,
+          periodText: '2026/07/01 - 2026/07/15',
+          note: '點選參加報名',
+        ),
+      ],
+      news: [],
+      rewards: [],
+      reviews: [],
+    );
+  }
+
+  @override
+  Future<void> registerActivity({
+    required String memberId,
+    required String memberName,
+    required String activityId,
+  }) async {
+    registeredMemberId = memberId;
+    registeredActivityId = activityId;
+  }
+}
+
+class _SurveyUrlRepository extends DemoVeevaRepository {
+  static const customSurveyUrl =
+      'https://privacyportal.onetrust.com/webform/custom-survey';
+  String? completedMemberId;
+  String? completedMemberName;
+  String? completedActivityId;
+  String? completedActivityTitle;
+  String? completedSurveyUrl;
+
+  @override
+  Future<backend.VeevaBootstrap> loadBootstrap() async {
+    return const backend.VeevaBootstrap(
+      activities: [
+        backend.VeevaActivity(
+          id: 'custom-survey',
+          type: backend.VeevaActivityType.survey,
+          label: '限時問卷',
+          title: '自訂網址問卷',
+          description: '使用後台設定的問卷網址。',
+          reward: '咖啡券',
+          rewardId: 'COFFEE-8X2L',
+          surveyUrl: customSurveyUrl,
+          status: backend.VeevaContentStatus.published,
+          active: true,
+        ),
+      ],
+      news: [],
+      rewards: [],
+      reviews: [],
+    );
+  }
+
+  @override
+  Future<void> recordActivityCompletion({
+    required String memberId,
+    required String memberName,
+    required String activityId,
+    required String activityTitle,
+    required String surveyUrl,
+  }) async {
+    completedMemberId = memberId;
+    completedMemberName = memberName;
+    completedActivityId = activityId;
+    completedActivityTitle = activityTitle;
+    completedSurveyUrl = surveyUrl;
   }
 }

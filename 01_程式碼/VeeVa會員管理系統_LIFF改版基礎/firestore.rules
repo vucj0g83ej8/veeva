@@ -32,6 +32,21 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /memberRewardClaims/{claimId} {
+      allow read, create, update: if true;
+      allow delete: if false;
+    }
+
+    match /activityRegistrations/{registrationId} {
+      allow read, create, update: if true;
+      allow delete: if false;
+    }
+
+    match /activityCompletions/{completionId} {
+      allow read, create, update: if true;
+      allow delete: if false;
+    }
+
     match /adminUsers/{adminUserId} {
       allow read, create, update: if true;
       allow delete: if false;

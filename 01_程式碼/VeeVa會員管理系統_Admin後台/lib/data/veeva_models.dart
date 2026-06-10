@@ -10,6 +10,8 @@ enum VeevaRewardStatus { active, paused, expired }
 
 enum VeevaContentStatus { draft, scheduled, published, archived }
 
+enum VeevaActivityType { survey, registration }
+
 enum VeevaAdminRole { owner, manager, editor, viewer }
 
 enum VeevaAdminStatus { active, disabled }
@@ -47,6 +49,24 @@ T _readEnum<T extends Enum>(
     (item) => item.name == text,
     orElse: () => fallback,
   );
+}
+
+VeevaActivityType _readActivityType(
+  Object? value, {
+  required String id,
+  required String title,
+  required String label,
+}) {
+  final explicit =
+      _readEnum(VeevaActivityType.values, value, VeevaActivityType.survey);
+  if (value != null && value.toString().trim().isNotEmpty) {
+    return explicit;
+  }
+  final text = '$id $title $label'.toLowerCase();
+  if (text.contains('survey') || text.contains('問卷')) {
+    return VeevaActivityType.survey;
+  }
+  return VeevaActivityType.registration;
 }
 
 List<String> _readStringList(Object? value) {
@@ -367,24 +387,32 @@ class VeevaReward {
 class VeevaActivity {
   const VeevaActivity({
     required this.id,
+    required this.type,
     required this.label,
     required this.title,
     required this.description,
     required this.reward,
     required this.status,
     required this.active,
+    this.rewardId,
+    this.surveyUrl,
     this.periodText,
     this.note,
     this.imageUrl,
   });
 
   factory VeevaActivity.fromMap(String id, Map<String, Object?> data) {
+    final title = data['title']?.toString() ?? '';
+    final label = data['label']?.toString() ?? '活動';
     return VeevaActivity(
       id: id,
-      label: data['label']?.toString() ?? '活動',
-      title: data['title']?.toString() ?? '',
+      type: _readActivityType(data['type'], id: id, title: title, label: label),
+      label: label,
+      title: title,
       description: data['description']?.toString() ?? '',
       reward: data['reward']?.toString() ?? '',
+      rewardId: data['rewardId']?.toString(),
+      surveyUrl: data['surveyUrl']?.toString(),
       status: _readEnum(
         VeevaContentStatus.values,
         data['status'],
@@ -398,10 +426,13 @@ class VeevaActivity {
   }
 
   final String id;
+  final VeevaActivityType type;
   final String label;
   final String title;
   final String description;
   final String reward;
+  final String? rewardId;
+  final String? surveyUrl;
   final VeevaContentStatus status;
   final bool active;
   final String? periodText;
@@ -410,10 +441,13 @@ class VeevaActivity {
 
   Map<String, Object?> toMap() {
     return {
+      'type': type.name,
       'label': label,
       'title': title,
       'description': description,
       'reward': reward,
+      'rewardId': rewardId,
+      'surveyUrl': surveyUrl,
       'status': status.name,
       'active': active,
       'periodText': periodText,

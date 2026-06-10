@@ -5,10 +5,15 @@ import 'package:firebase_storage/firebase_storage.dart';
 
 import 'veeva_models.dart';
 
+const defaultVeevaSurveyUrl =
+    'https://privacyportal.onetrust.com/webform/3d676ed2-16b1-4c48-97f8-a911923a3adf/0dad5f26-4fad-41d6-a15d-836c329695e1';
+
 abstract class VeevaRepository {
   Future<VeevaBootstrap> loadBootstrap();
 
   Future<VeevaMember?> loadMember(String memberId);
+
+  Future<VeevaAdminUser?> loadActiveAdminUserByLineUserId(String lineUserId);
 
   Future<VeevaMember> upsertLineMember({
     required String lineUserId,
@@ -24,6 +29,8 @@ abstract class VeevaRepository {
   Future<void> approveReview(VeevaReview review);
 
   Future<void> saveReward(VeevaReward reward);
+
+  Future<void> deleteReward(String rewardId);
 
   Future<void> saveActivity(VeevaActivity activity);
 
@@ -113,6 +120,39 @@ class FirestoreVeevaRepository implements VeevaRepository {
       return null;
     }
     return VeevaMember.fromMap(doc.id, data);
+  }
+
+  @override
+  Future<VeevaAdminUser?> loadActiveAdminUserByLineUserId(
+    String lineUserId,
+  ) async {
+    final candidates = <VeevaAdminUser>[];
+    final seen = <String>{};
+
+    Future<void> addDoc(
+      DocumentSnapshot<Map<String, dynamic>> doc,
+    ) async {
+      final data = doc.data();
+      if (!doc.exists || data == null || !seen.add(doc.id)) {
+        return;
+      }
+      candidates.add(VeevaAdminUser.fromMap(doc.id, data));
+    }
+
+    await addDoc(await _admins.doc(lineUserId).get());
+    final query =
+        await _admins.where('lineUserId', isEqualTo: lineUserId).limit(5).get();
+    for (final doc in query.docs) {
+      await addDoc(doc);
+    }
+
+    for (final admin in candidates) {
+      if (admin.status == VeevaAdminStatus.active &&
+          admin.lineUserId == lineUserId) {
+        return admin;
+      }
+    }
+    return null;
   }
 
   @override
@@ -208,6 +248,11 @@ class FirestoreVeevaRepository implements VeevaRepository {
   }
 
   @override
+  Future<void> deleteReward(String rewardId) {
+    return _rewards.doc(rewardId).delete();
+  }
+
+  @override
   Future<void> saveActivity(VeevaActivity activity) {
     return _activities
         .doc(activity.id)
@@ -300,6 +345,25 @@ class DemoVeevaRepository implements VeevaRepository {
   Future<VeevaMember?> loadMember(String memberId) async => null;
 
   @override
+  Future<VeevaAdminUser?> loadActiveAdminUserByLineUserId(
+    String lineUserId,
+  ) async {
+    if (lineUserId != 'line-demo-wang') {
+      return null;
+    }
+    return const VeevaAdminUser(
+      id: 'line-demo-wang',
+      memberId: 'line-demo-wang',
+      lineUserId: 'line-demo-wang',
+      name: '王小明',
+      email: 'wang@example.com',
+      role: VeevaAdminRole.owner,
+      status: VeevaAdminStatus.active,
+      permissions: ['members', 'activities', 'news', 'rewards', 'settings'],
+    );
+  }
+
+  @override
   Future<VeevaMember> upsertLineMember({
     required String lineUserId,
     required String displayName,
@@ -336,6 +400,9 @@ class DemoVeevaRepository implements VeevaRepository {
 
   @override
   Future<void> saveReward(VeevaReward reward) async {}
+
+  @override
+  Future<void> deleteReward(String rewardId) async {}
 
   @override
   Future<void> saveActivity(VeevaActivity activity) async {}
@@ -377,10 +444,13 @@ String _shareCodeFromId(String id) {
 final defaultActivities = <VeevaActivity>[
   const VeevaActivity(
     id: 'survey-coffee',
+    type: VeevaActivityType.survey,
     label: '限時活動',
     title: '填問卷，拿咖啡券',
     description: '完成問卷並通過資格確認後，即可獲得咖啡兌換券。分享給朋友，朋友完成後你再得 1 張。',
     reward: '咖啡兌換券',
+    rewardId: 'COFFEE-8X2L',
+    surveyUrl: defaultVeevaSurveyUrl,
     status: VeevaContentStatus.published,
     active: true,
     periodText: '2026/05/01 - 2026/06/30',
@@ -388,6 +458,7 @@ final defaultActivities = <VeevaActivity>[
   ),
   const VeevaActivity(
     id: 'seminar-reminder',
+    type: VeevaActivityType.registration,
     label: '即將開始',
     title: '研討會報名提醒',
     description: '醫學會活動名額開放後，會員可直接收到報名提醒與活動資訊。',
@@ -399,6 +470,7 @@ final defaultActivities = <VeevaActivity>[
   ),
   const VeevaActivity(
     id: 'hospital-mission',
+    type: VeevaActivityType.registration,
     label: '籌備中',
     title: '院所限定任務',
     description: '依照院所與科別推出限定任務，完成後可獲得專屬會員獎勵。',

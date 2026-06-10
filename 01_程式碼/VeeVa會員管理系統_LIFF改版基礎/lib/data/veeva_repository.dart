@@ -5,6 +5,9 @@ import 'package:firebase_storage/firebase_storage.dart';
 
 import 'veeva_models.dart';
 
+const defaultVeevaSurveyUrl =
+    'https://privacyportal.onetrust.com/webform/3d676ed2-16b1-4c48-97f8-a911923a3adf/0dad5f26-4fad-41d6-a15d-836c329695e1';
+
 abstract class VeevaRepository {
   Future<VeevaBootstrap> loadBootstrap();
 
@@ -21,6 +24,29 @@ abstract class VeevaRepository {
   });
 
   Future<List<VeevaReferral>> loadReferralRecords(String inviterMemberId);
+
+  Future<List<VeevaMemberRewardClaim>> loadMemberRewardClaims(String memberId);
+
+  Future<VeevaMemberRewardClaim?> issueActivityReward({
+    required String memberId,
+    required String activityId,
+  });
+
+  Future<void> registerActivity({
+    required String memberId,
+    required String memberName,
+    required String activityId,
+  });
+
+  Future<void> recordActivityCompletion({
+    required String memberId,
+    required String memberName,
+    required String activityId,
+    required String activityTitle,
+    required String surveyUrl,
+  });
+
+  Future<void> redeemMemberRewardClaim(String claimId);
 
   Future<void> submitReview(VeevaMember member);
 
@@ -61,6 +87,12 @@ class FirestoreVeevaRepository implements VeevaRepository {
       firestore.collection('rewards');
   CollectionReference<Map<String, dynamic>> get _referrals =>
       firestore.collection('referrals');
+  CollectionReference<Map<String, dynamic>> get _memberRewardClaims =>
+      firestore.collection('memberRewardClaims');
+  CollectionReference<Map<String, dynamic>> get _activityRegistrations =>
+      firestore.collection('activityRegistrations');
+  CollectionReference<Map<String, dynamic>> get _activityCompletions =>
+      firestore.collection('activityCompletions');
 
   @override
   Future<VeevaBootstrap> loadBootstrap() async {
@@ -119,6 +151,246 @@ class FirestoreVeevaRepository implements VeevaRepository {
         return right.compareTo(left);
       });
     return records;
+  }
+
+  @override
+  Future<List<VeevaMemberRewardClaim>> loadMemberRewardClaims(
+    String memberId,
+  ) async {
+    final normalizedMemberId = memberId.trim();
+    if (normalizedMemberId.isEmpty) {
+      return const [];
+    }
+    final snapshot = await _memberRewardClaims
+        .where('memberId', isEqualTo: normalizedMemberId)
+        .get();
+    final claims = snapshot.docs
+        .map((doc) => VeevaMemberRewardClaim.fromMap(doc.id, doc.data()))
+        .toList()
+      ..sort((a, b) => b.issuedAt.compareTo(a.issuedAt));
+    return claims;
+  }
+
+  @override
+  Future<VeevaMemberRewardClaim?> issueActivityReward({
+    required String memberId,
+    required String activityId,
+  }) async {
+    final normalizedMemberId = memberId.trim();
+    final normalizedActivityId = activityId.trim();
+    if (normalizedMemberId.isEmpty || normalizedActivityId.isEmpty) {
+      return null;
+    }
+
+    final activitySnapshot = await _activities.doc(normalizedActivityId).get();
+    final activityData = activitySnapshot.data();
+    if (!activitySnapshot.exists || activityData == null) {
+      return null;
+    }
+    final activity = VeevaActivity.fromMap(activitySnapshot.id, activityData);
+    if (!activity.active) {
+      return null;
+    }
+
+    final reward = await _rewardForActivity(activity);
+    if (reward == null || reward.status != VeevaRewardStatus.active) {
+      return null;
+    }
+
+    final claimRef = _memberRewardClaims.doc(
+      '${normalizedMemberId}_${normalizedActivityId}_${reward.id}',
+    );
+    final rewardRef = _rewards.doc(reward.id);
+    final now = DateTime.now();
+    final code = _couponCodeForClaim(
+      claimId: claimRef.id,
+      rewardId: reward.id,
+    );
+
+    final result = await firestore
+        .runTransaction<Map<String, Object?>?>((transaction) async {
+      final existingClaim = await transaction.get(claimRef);
+      if (existingClaim.exists) {
+        return {'id': existingClaim.id, ...?existingClaim.data()};
+      }
+
+      final latestRewardSnapshot = await transaction.get(rewardRef);
+      final latestRewardData = latestRewardSnapshot.data();
+      if (!latestRewardSnapshot.exists || latestRewardData == null) {
+        return null;
+      }
+      final latestReward =
+          VeevaReward.fromMap(latestRewardSnapshot.id, latestRewardData);
+      if (latestReward.status != VeevaRewardStatus.active ||
+          latestReward.stock <= 0 ||
+          latestReward.expiresAt.isBefore(DateTime.now())) {
+        return null;
+      }
+
+      final claimData = <String, Object?>{
+        'memberId': normalizedMemberId,
+        'activityId': normalizedActivityId,
+        'rewardId': latestReward.id,
+        'rewardName': latestReward.name,
+        'rewardCategory': latestReward.category,
+        'status': VeevaMemberRewardClaimStatus.available.name,
+        'code': code,
+        'issuedAt': FieldValue.serverTimestamp(),
+        'expiresAt': Timestamp.fromDate(latestReward.expiresAt),
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      transaction.set(claimRef, claimData);
+      transaction.set(
+        rewardRef,
+        {
+          'stock': FieldValue.increment(-1),
+          'issued': FieldValue.increment(1),
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+
+      return {
+        'id': claimRef.id,
+        'memberId': normalizedMemberId,
+        'activityId': normalizedActivityId,
+        'rewardId': latestReward.id,
+        'rewardName': latestReward.name,
+        'rewardCategory': latestReward.category,
+        'status': VeevaMemberRewardClaimStatus.available.name,
+        'code': code,
+        'issuedAt': now,
+        'expiresAt': latestReward.expiresAt,
+      };
+    });
+
+    if (result == null) {
+      return null;
+    }
+    final id = result['id']?.toString() ?? claimRef.id;
+    return VeevaMemberRewardClaim.fromMap(id, result);
+  }
+
+  @override
+  Future<void> redeemMemberRewardClaim(String claimId) async {
+    final normalizedClaimId = claimId.trim();
+    if (normalizedClaimId.isEmpty) {
+      return;
+    }
+    final claimRef = _memberRewardClaims.doc(normalizedClaimId);
+    await firestore.runTransaction<void>((transaction) async {
+      final claimSnapshot = await transaction.get(claimRef);
+      final claimData = claimSnapshot.data();
+      if (!claimSnapshot.exists || claimData == null) {
+        return;
+      }
+      final claim = VeevaMemberRewardClaim.fromMap(claimSnapshot.id, claimData);
+      if (claim.status != VeevaMemberRewardClaimStatus.available) {
+        return;
+      }
+      transaction.set(
+        claimRef,
+        {
+          'status': VeevaMemberRewardClaimStatus.used.name,
+          'usedAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+      transaction.set(
+        _rewards.doc(claim.rewardId),
+        {
+          'redeemed': FieldValue.increment(1),
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+    });
+  }
+
+  @override
+  Future<void> registerActivity({
+    required String memberId,
+    required String memberName,
+    required String activityId,
+  }) async {
+    final normalizedMemberId = memberId.trim();
+    final normalizedActivityId = activityId.trim();
+    if (normalizedMemberId.isEmpty || normalizedActivityId.isEmpty) {
+      return;
+    }
+    final activitySnapshot = await _activities.doc(normalizedActivityId).get();
+    final activityData = activitySnapshot.data();
+    if (!activitySnapshot.exists || activityData == null) {
+      return;
+    }
+    final activity = VeevaActivity.fromMap(activitySnapshot.id, activityData);
+    if (!activity.active || activity.type != VeevaActivityType.registration) {
+      return;
+    }
+    await _activityRegistrations
+        .doc('${normalizedMemberId}_$normalizedActivityId')
+        .set({
+      'memberId': normalizedMemberId,
+      'memberName': memberName.trim().isEmpty ? 'LINE 會員' : memberName.trim(),
+      'activityId': normalizedActivityId,
+      'activityTitle': activity.title,
+      'status': 'registered',
+      'registeredAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  @override
+  Future<void> recordActivityCompletion({
+    required String memberId,
+    required String memberName,
+    required String activityId,
+    required String activityTitle,
+    required String surveyUrl,
+  }) async {
+    final normalizedMemberId = memberId.trim();
+    final normalizedActivityId = activityId.trim();
+    if (normalizedMemberId.isEmpty || normalizedActivityId.isEmpty) {
+      return;
+    }
+
+    final completionRef = _activityCompletions.doc(
+      _activityCompletionDocumentId(normalizedMemberId, normalizedActivityId),
+    );
+    await firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(completionRef);
+      final data = <String, Object?>{
+        'memberId': normalizedMemberId,
+        'memberName': memberName.trim().isEmpty ? 'LINE 會員' : memberName.trim(),
+        'activityId': normalizedActivityId,
+        'activityTitle': activityTitle.trim(),
+        'type': VeevaActivityType.survey.name,
+        'status': 'completed',
+        'surveyUrl': surveyUrl.trim(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+      if (!snapshot.exists || snapshot.data()?['completedAt'] == null) {
+        data['completedAt'] = FieldValue.serverTimestamp();
+        data['createdAt'] = FieldValue.serverTimestamp();
+      }
+      transaction.set(completionRef, data, SetOptions(merge: true));
+    });
+  }
+
+  Future<VeevaReward?> _rewardForActivity(VeevaActivity activity) async {
+    final directRewardId = activity.rewardId?.trim();
+    if (directRewardId == null || directRewardId.isEmpty) {
+      return null;
+    }
+    final snapshot = await _rewards.doc(directRewardId).get();
+    final data = snapshot.data();
+    if (snapshot.exists && data != null) {
+      return VeevaReward.fromMap(snapshot.id, data);
+    }
+    return null;
   }
 
   @override
@@ -366,6 +638,57 @@ class DemoVeevaRepository implements VeevaRepository {
   }
 
   @override
+  Future<List<VeevaMemberRewardClaim>> loadMemberRewardClaims(
+    String memberId,
+  ) async {
+    if (memberId.trim().isEmpty) {
+      return const [];
+    }
+    return [
+      VeevaMemberRewardClaim(
+        id: '${memberId}_survey-coffee_COFFEE-8X2L',
+        memberId: memberId,
+        activityId: 'survey-coffee',
+        rewardId: 'COFFEE-8X2L',
+        rewardName: '中杯美式咖啡 1 杯',
+        rewardCategory: '飲品',
+        status: VeevaMemberRewardClaimStatus.available,
+        issuedAt: DateTime.now(),
+        expiresAt: DateTime(2026, 8, 31),
+        code: 'COFFEE-8X2L',
+      ),
+    ];
+  }
+
+  @override
+  Future<VeevaMemberRewardClaim?> issueActivityReward({
+    required String memberId,
+    required String activityId,
+  }) async {
+    final claims = await loadMemberRewardClaims(memberId);
+    return claims.isEmpty ? null : claims.first;
+  }
+
+  @override
+  Future<void> registerActivity({
+    required String memberId,
+    required String memberName,
+    required String activityId,
+  }) async {}
+
+  @override
+  Future<void> recordActivityCompletion({
+    required String memberId,
+    required String memberName,
+    required String activityId,
+    required String activityTitle,
+    required String surveyUrl,
+  }) async {}
+
+  @override
+  Future<void> redeemMemberRewardClaim(String claimId) async {}
+
+  @override
   Future<VeevaMember> upsertLineMember({
     required String lineUserId,
     required String displayName,
@@ -425,6 +748,15 @@ String createVeevaId(String prefix) {
   return '$prefix-${DateTime.now().millisecondsSinceEpoch}';
 }
 
+String _activityCompletionDocumentId(String memberId, String activityId) {
+  return '${_firestoreDocumentSegment(memberId)}_'
+      '${_firestoreDocumentSegment(activityId)}';
+}
+
+String _firestoreDocumentSegment(String value) {
+  return value.trim().replaceAll(RegExp(r'[/#?\[\]]'), '_');
+}
+
 String _shareCodeFromId(String id) {
   final compact = id.replaceAll(RegExp('[^a-zA-Z0-9]'), '').toUpperCase();
   if (compact.length >= 5) {
@@ -441,6 +773,22 @@ String? _normalizeShareCode(String? value) {
   return code.replaceAll(RegExp('[^a-zA-Z0-9]'), '').toUpperCase();
 }
 
+String _couponCodeForClaim({
+  required String claimId,
+  required String rewardId,
+}) {
+  final rewardPart = rewardId
+      .replaceAll(RegExp('[^a-zA-Z0-9]'), '')
+      .toUpperCase()
+      .padRight(6, 'X')
+      .substring(0, 6);
+  final claimPart = claimId
+      .replaceAll(RegExp('[^a-zA-Z0-9]'), '')
+      .toUpperCase()
+      .padLeft(4, '0');
+  return '$rewardPart-${claimPart.substring(claimPart.length - 4)}';
+}
+
 class _ReferralBinding {
   const _ReferralBinding({
     required this.inviterMemberId,
@@ -454,10 +802,13 @@ class _ReferralBinding {
 final defaultActivities = <VeevaActivity>[
   const VeevaActivity(
     id: 'survey-coffee',
+    type: VeevaActivityType.survey,
     label: '限時活動',
     title: '填問卷，拿咖啡券',
     description: '完成問卷並通過資格確認後，即可獲得咖啡兌換券。分享給朋友，朋友完成後你再得 1 張。',
     reward: '咖啡兌換券',
+    rewardId: 'COFFEE-8X2L',
+    surveyUrl: defaultVeevaSurveyUrl,
     status: VeevaContentStatus.published,
     active: true,
     periodText: '2026/05/01 - 2026/06/30',
@@ -465,6 +816,7 @@ final defaultActivities = <VeevaActivity>[
   ),
   const VeevaActivity(
     id: 'seminar-reminder',
+    type: VeevaActivityType.registration,
     label: '即將開始',
     title: '研討會報名提醒',
     description: '醫學會活動名額開放後，會員可直接收到報名提醒與活動資訊。',
@@ -476,6 +828,7 @@ final defaultActivities = <VeevaActivity>[
   ),
   const VeevaActivity(
     id: 'hospital-mission',
+    type: VeevaActivityType.registration,
     label: '籌備中',
     title: '院所限定任務',
     description: '依照院所與科別推出限定任務，完成後可獲得專屬會員獎勵。',

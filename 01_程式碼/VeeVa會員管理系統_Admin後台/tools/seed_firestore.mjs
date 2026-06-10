@@ -57,10 +57,14 @@ function write(collection, id, data) {
 const activities = [
   {
     id: 'survey-coffee',
+    type: 'survey',
     label: '限時活動',
     title: '填問卷，拿咖啡券',
     description: '完成問卷並通過資格確認後，即可獲得咖啡兌換券。分享給朋友，朋友完成後你再得 1 張。',
     reward: '咖啡兌換券',
+    rewardId: 'COFFEE-8X2L',
+    surveyUrl:
+      'https://privacyportal.onetrust.com/webform/3d676ed2-16b1-4c48-97f8-a911923a3adf/0dad5f26-4fad-41d6-a15d-836c329695e1',
     status: 'published',
     active: true,
     periodText: '2026/05/01 - 2026/06/30',
@@ -68,6 +72,7 @@ const activities = [
   },
   {
     id: 'seminar-reminder',
+    type: 'registration',
     label: '即將開始',
     title: '研討會報名提醒',
     description: '醫學會活動名額開放後，會員可直接收到報名提醒與活動資訊。',
@@ -79,6 +84,7 @@ const activities = [
   },
   {
     id: 'hospital-mission',
+    type: 'registration',
     label: '籌備中',
     title: '院所限定任務',
     description: '依照院所與科別推出限定任務，完成後可獲得專屬會員獎勵。',
