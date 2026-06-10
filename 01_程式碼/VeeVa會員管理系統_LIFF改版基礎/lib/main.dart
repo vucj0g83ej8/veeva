@@ -1812,7 +1812,7 @@ class SurveyPage extends StatelessWidget {
     return _PageFrame(
       key: const ValueKey('survey'),
       title: activity?.title ?? 'Veeva 問卷填寫',
-      subtitle: '請直接在下方完成 Veeva 問卷，完成後按下頁面下方按鈕送出審核。',
+      subtitle: '請直接在下方完成 Veeva 問卷，送出後系統會自動記錄完成。',
       maxWidth: 1280,
       padding: const EdgeInsets.fromLTRB(8, 12, 8, 20),
       showHeader: false,

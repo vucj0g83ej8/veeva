@@ -43,10 +43,10 @@ class EmbeddedSurveyWebForm extends StatelessWidget {
             Align(
               alignment: Alignment.centerRight,
               child: FilledButton.icon(
-                key: const Key('submit-survey-button'),
+                key: const Key('simulate-onetrust-submit-button'),
                 onPressed: onSurveyCompleted,
-                icon: const Icon(Icons.send_outlined),
-                label: const Text('我已完成問卷，送出審核'),
+                icon: const Icon(Icons.sensors_outlined),
+                label: const Text('模擬 OneTrust 送出事件'),
               ),
             ),
           ],

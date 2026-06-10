@@ -27,10 +27,13 @@ void main() {
     await tester.tap(find.byKey(const Key('line-login-button')));
     await tester.pumpAndSettle();
     expect(find.text('跨平台 WebView 預覽區'), findsOneWidget);
-    expect(find.text('我已完成問卷，送出審核'), findsOneWidget);
+    expect(find.text('我已完成問卷，送出審核'), findsNothing);
+    expect(find.byKey(const Key('simulate-onetrust-submit-button')),
+        findsOneWidget);
 
-    await tester.ensureVisible(find.byKey(const Key('submit-survey-button')));
-    await tester.tap(find.byKey(const Key('submit-survey-button')));
+    await tester.ensureVisible(
+        find.byKey(const Key('simulate-onetrust-submit-button')));
+    await tester.tap(find.byKey(const Key('simulate-onetrust-submit-button')));
     await tester.pumpAndSettle();
     expect(find.text('Thank You!'), findsOneWidget);
 
@@ -294,7 +297,7 @@ void main() {
     );
     expect(survey.url, _SurveyUrlRepository.customSurveyUrl);
 
-    await tester.tap(find.byKey(const Key('submit-survey-button')));
+    await tester.tap(find.byKey(const Key('simulate-onetrust-submit-button')));
     await tester.pumpAndSettle();
 
     final repository = tester
