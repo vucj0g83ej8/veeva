@@ -4,6 +4,7 @@
 library;
 
 import 'dart:html' as html;
+import 'dart:js_util' as js_util;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -58,20 +59,36 @@ void main() {
       ),
     );
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
 
-    html.window.dispatchEvent(
-      html.MessageEvent(
-        'message',
-        data: {
-          'source': 'OneTrust',
-          'event': 'WebFormSubmitted',
-          'requestId': 'request-002',
-        },
-        origin: 'https://privacyportal.onetrust.com',
-      ),
+    final iframe = html.document.querySelector(
+      'iframe[data-veeva-survey-iframe="true"]',
+    ) as html.IFrameElement?;
+
+    final eventInit = js_util.newObject();
+    js_util.setProperty(
+      eventInit,
+      'data',
+      js_util.jsify({
+        'source': 'OneTrust',
+        'event': 'WebFormSubmitted',
+        'requestId': 'request-002',
+      }),
     );
+    js_util.setProperty(
+      eventInit,
+      'origin',
+      'https://privacyportal.onetrust.com',
+    );
+    js_util.setProperty(eventInit, 'source', iframe?.contentWindow);
+    final messageEvent = js_util.callConstructor<html.Event>(
+      js_util.getProperty<Object>(html.window, 'MessageEvent'),
+      ['message', eventInit],
+    );
+    html.window.dispatchEvent(messageEvent);
     await tester.pump();
 
     expect(completedCount, 1);
   });
+
 }

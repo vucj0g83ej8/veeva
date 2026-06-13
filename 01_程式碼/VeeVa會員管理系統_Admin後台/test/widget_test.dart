@@ -287,8 +287,75 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('最新資訊管理'), findsWidgets);
-    expect(find.text('新增資訊'), findsOneWidget);
+    expect(find.text('新增文章'), findsOneWidget);
     expect(find.text('WHO 發布醫療產品警示'), findsOneWidget);
+  });
+
+  testWidgets('admin can create edit preview and update news articles',
+      (tester) async {
+    tester.view.physicalSize = const Size(1440, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final repository = _SingleNewsRepository();
+    await tester.pumpWidget(VeevaAdminApp(
+      repository: repository,
+      requireLineLogin: false,
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('最新資訊').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('原始文章'), findsOneWidget);
+    expect(find.text('已發布'), findsWidgets);
+
+    await tester.tap(find.text('新增文章'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('文章編輯器'), findsOneWidget);
+    expect(find.byTooltip('粗體'), findsOneWidget);
+    expect(find.byTooltip('小標題'), findsOneWidget);
+
+    await tester.enterText(_newsField('文章標題'), '新品上市資訊');
+    await tester.enterText(_newsField('摘要'), '這是一篇給會員閱讀的最新資訊摘要。');
+    await tester.enterText(
+        _newsField('文章內容'), '完整文章內容可以在後台編輯，並會儲存在 Firestore。');
+    await tester.enterText(_newsField('來源'), 'Veeva');
+    await tester.enterText(_newsField('分類'), '產品資訊');
+    await tester.tap(find.text('建立'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('新品上市資訊'), findsOneWidget);
+    expect(repository.savedNews?.title, '新品上市資訊');
+    expect(repository.savedNews?.content, contains('完整文章內容'));
+
+    await tester.ensureVisible(find.byTooltip('編輯').first);
+    await tester.tap(find.byTooltip('編輯').first);
+    await tester.pumpAndSettle();
+    await tester.enterText(_newsField('文章標題'), '更新後文章');
+    await tester.tap(find.text('儲存'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('更新後文章'), findsOneWidget);
+    expect(repository.savedNews?.title, '更新後文章');
+
+    await tester.ensureVisible(find.byTooltip('預覽').first);
+    await tester.tap(find.byTooltip('預覽').first);
+    await tester.pumpAndSettle();
+    expect(find.text('文章預覽'), findsOneWidget);
+    expect(find.text('更新後文章'), findsWidgets);
+    await tester.tap(find.text('關閉'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('切換狀態').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('草稿').last);
+    await tester.pumpAndSettle();
+
+    expect(repository.savedNews?.status, backend.VeevaContentStatus.draft);
+    expect(find.text('草稿'), findsWidgets);
   });
 
   testWidgets('admin can create edit preview and toggle activities',
@@ -308,7 +375,21 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('原始活動'), findsOneWidget);
+    expect(find.text('封存活動'), findsNothing);
+    expect(find.text('活動列表'), findsOneWidget);
+    expect(find.text('已封存'), findsOneWidget);
     expect(find.text('進行中'), findsWidgets);
+
+    await tester.tap(find.text('已封存'));
+    await tester.pumpAndSettle();
+    expect(find.text('封存活動'), findsOneWidget);
+    expect(find.text('原始活動'), findsNothing);
+    expect(find.text('新增活動'), findsNothing);
+
+    await tester.tap(find.text('活動列表'));
+    await tester.pumpAndSettle();
+    expect(find.text('原始活動'), findsOneWidget);
+    expect(find.text('封存活動'), findsNothing);
 
     await tester.tap(find.text('新增活動'));
     await tester.pumpAndSettle();
@@ -350,6 +431,12 @@ void main() {
 }
 
 Finder _activityField(String label) {
+  return find.byWidgetPredicate(
+    (widget) => widget is TextField && widget.decoration?.labelText == label,
+  );
+}
+
+Finder _newsField(String label) {
   return find.byWidgetPredicate(
     (widget) => widget is TextField && widget.decoration?.labelText == label,
   );
@@ -410,6 +497,18 @@ class _SingleActivityRepository extends DemoVeevaRepository {
           periodText: '2026/06/01 - 2026/06/10',
           note: '測試活動',
         ),
+        backend.VeevaActivity(
+          id: 'archived-activity',
+          type: backend.VeevaActivityType.registration,
+          label: '歷史活動',
+          title: '封存活動',
+          description: '已結束並封存的活動。',
+          reward: '歷史紀錄',
+          status: backend.VeevaContentStatus.archived,
+          active: false,
+          periodText: '2026/01/01 - 2026/01/31',
+          note: '封存測試',
+        ),
       ],
       news: const [],
       rewards: [
@@ -428,6 +527,38 @@ class _SingleActivityRepository extends DemoVeevaRepository {
       members: const [],
       adminUsers: const [],
     );
+  }
+}
+
+class _SingleNewsRepository extends DemoVeevaRepository {
+  backend.VeevaNews? savedNews;
+
+  @override
+  Future<backend.VeevaBootstrap> loadBootstrap() async {
+    return const backend.VeevaBootstrap(
+      activities: [],
+      news: [
+        backend.VeevaNews(
+          id: 'single-news',
+          date: '2026/06/01',
+          source: 'Veeva',
+          title: '原始文章',
+          summary: '原始文章摘要。',
+          status: backend.VeevaContentStatus.published,
+          category: '公告',
+          content: '原始文章內容。',
+        ),
+      ],
+      rewards: [],
+      reviews: [],
+      members: [],
+      adminUsers: [],
+    );
+  }
+
+  @override
+  Future<void> saveNews(backend.VeevaNews news) async {
+    savedNews = news;
   }
 }
 

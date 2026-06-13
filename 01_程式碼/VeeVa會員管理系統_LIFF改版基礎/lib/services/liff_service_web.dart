@@ -1,5 +1,6 @@
 // ignore_for_file: avoid_web_libraries_in_flutter
 
+import 'dart:convert';
 import 'dart:html' as html;
 import 'dart:js_util' as js_util;
 
@@ -7,8 +8,24 @@ import 'liff_service_base.dart';
 
 const _postLoginPageKey = 'veeva_liff_post_login_page';
 const _referralCodeKey = 'veeva_liff_referral_code';
+const _localLoginTokenKey = 'veeva_line_login_token';
+const _localLoginTokenExpiresAtKey = 'veeva_line_login_token_expires_at';
+const _localIdTokenKey = 'veeva_line_id_token';
+const _localIdTokenExpiresAtKey = 'veeva_line_id_token_expires_at';
+const _localLineUserIdKey = 'veeva_line_user_id';
+const _defaultTokenLifetime = Duration(hours: 1);
 const _inviteCoffeeImageUrl =
     'https://veeva-8d30c.web.app/assets/share/coffee-member-gift-v1.jpg';
+
+class _StoredLoginToken {
+  const _StoredLoginToken({
+    this.token,
+    this.expiresAt,
+  });
+
+  final String? token;
+  final DateTime? expiresAt;
+}
 
 LiffService createLiffService({required LiffConfig config}) {
   return WebLiffService(config: config);
@@ -177,6 +194,7 @@ class WebLiffService implements LiffService {
       }
       html.window.sessionStorage.remove(_postLoginPageKey);
       html.window.sessionStorage.remove(_referralCodeKey);
+      _clearLocalLoginToken();
       return _readSession(liff);
     } catch (error) {
       return LiffSession.unavailable('LINE 登出失敗：$error');
@@ -201,11 +219,20 @@ class WebLiffService implements LiffService {
     final isInClient = _readBool(liff, 'isInClient');
     LiffProfile? profile;
     String? idToken;
+    String? accessToken;
 
     if (isLoggedIn) {
       profile = await _readProfile(liff);
       idToken = _readOptionalStringFromMethod(liff, 'getIDToken');
+      accessToken = _readOptionalStringFromMethod(liff, 'getAccessToken');
     }
+    final storedLoginToken = isLoggedIn
+        ? _storeLocalLoginToken(
+            idToken: idToken,
+            accessToken: accessToken,
+            lineUserId: profile?.userId,
+          )
+        : _clearLocalLoginToken();
 
     final postLoginPage = html.window.sessionStorage[_postLoginPageKey];
     final referralCode = _referralCodeFromLocation() ??
@@ -224,12 +251,106 @@ class WebLiffService implements LiffService {
       isRedirecting: false,
       profile: profile,
       idToken: idToken,
+      localLoginToken: storedLoginToken.token,
       os: _readOptionalStringFromMethod(liff, 'getOS'),
       lineVersion: _readOptionalStringFromMethod(liff, 'getLineVersion'),
       liffVersion: _readOptionalStringFromMethod(liff, 'getVersion'),
+      idTokenExpiresAt: storedLoginToken.expiresAt,
       postLoginPage: postLoginPage,
       referralCode: referralCode,
     );
+  }
+
+  _StoredLoginToken _storeLocalLoginToken({
+    required String? idToken,
+    required String? accessToken,
+    required String? lineUserId,
+  }) {
+    final now = DateTime.now();
+    final cleanIdToken = idToken?.trim();
+    final cleanAccessToken = accessToken?.trim();
+    String? token;
+    DateTime? expiresAt;
+
+    if (cleanIdToken != null && cleanIdToken.isNotEmpty) {
+      final idTokenExpiresAt =
+          _idTokenExpiresAt(cleanIdToken) ?? now.add(_defaultTokenLifetime);
+      if (idTokenExpiresAt.isAfter(now)) {
+        token = cleanIdToken;
+        expiresAt = idTokenExpiresAt;
+      }
+    }
+
+    if ((token == null || token.isEmpty) &&
+        cleanAccessToken != null &&
+        cleanAccessToken.isNotEmpty) {
+      token = cleanAccessToken;
+      expiresAt = now.add(_defaultTokenLifetime);
+    }
+
+    if (token == null || token.isEmpty || expiresAt == null) {
+      return _clearLocalLoginToken();
+    }
+
+    html.window.localStorage[_localLoginTokenKey] = token;
+    html.window.localStorage[_localLoginTokenExpiresAtKey] =
+        expiresAt.toIso8601String();
+    if (token == cleanIdToken) {
+      html.window.localStorage[_localIdTokenKey] = cleanIdToken!;
+      html.window.localStorage[_localIdTokenExpiresAtKey] =
+          expiresAt.toIso8601String();
+    } else {
+      html.window.localStorage.remove(_localIdTokenKey);
+      html.window.localStorage.remove(_localIdTokenExpiresAtKey);
+    }
+    final userId = lineUserId?.trim();
+    if (userId != null && userId.isNotEmpty) {
+      html.window.localStorage[_localLineUserIdKey] = userId;
+    }
+    return _StoredLoginToken(token: token, expiresAt: expiresAt);
+  }
+
+  _StoredLoginToken _clearLocalLoginToken() {
+    html.window.localStorage.remove(_localLoginTokenKey);
+    html.window.localStorage.remove(_localLoginTokenExpiresAtKey);
+    html.window.localStorage.remove(_localIdTokenKey);
+    html.window.localStorage.remove(_localIdTokenExpiresAtKey);
+    html.window.localStorage.remove(_localLineUserIdKey);
+    return const _StoredLoginToken();
+  }
+
+  DateTime? _idTokenExpiresAt(String token) {
+    try {
+      final parts = token.split('.');
+      if (parts.length < 2) {
+        return null;
+      }
+      final payload =
+          utf8.decode(base64Url.decode(base64Url.normalize(parts[1])));
+      final data = jsonDecode(payload);
+      if (data is! Map<String, Object?>) {
+        return null;
+      }
+      final exp = data['exp'];
+      if (exp is num) {
+        return DateTime.fromMillisecondsSinceEpoch(
+          exp.toInt() * 1000,
+          isUtc: true,
+        ).toLocal();
+      }
+      if (exp is String) {
+        final seconds = int.tryParse(exp);
+        if (seconds != null) {
+          return DateTime.fromMillisecondsSinceEpoch(
+            seconds * 1000,
+            isUtc: true,
+          ).toLocal();
+        }
+      }
+    } catch (_) {
+      return null;
+    }
+    return null;
   }
 
   Future<LiffProfile?> _readProfile(Object liff) async {

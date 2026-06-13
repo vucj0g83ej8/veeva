@@ -9,22 +9,67 @@ import 'package:veeva_member_app/main.dart';
 import 'package:veeva_member_app/services/liff_service.dart';
 import 'package:veeva_member_app/survey_embed_stub.dart';
 
+DateTime _validLineTokenExpiry() => DateTime.now().add(
+      const Duration(hours: 1),
+    );
+
+Future<void> _completeInitialLineLogin(WidgetTester tester) async {
+  await tester.pumpAndSettle();
+  expect(find.text('會員登入'), findsOneWidget);
+  expect(find.byKey(const Key('line-login-button')), findsOneWidget);
+  expect(find.text('使用 Google 登入'), findsNothing);
+  await tester.tap(find.byKey(const Key('line-login-button')));
+  await tester.pumpAndSettle();
+}
+
 void main() {
+  test('LINE local token must have an unexpired expiry time', () {
+    final validSession = LiffSession(
+      isInitialized: true,
+      isLoggedIn: true,
+      isInClient: false,
+      isRedirecting: false,
+      idToken: 'line-id-token',
+      idTokenExpiresAt: _validLineTokenExpiry(),
+    );
+    final expiredSession = LiffSession(
+      isInitialized: true,
+      isLoggedIn: true,
+      isInClient: false,
+      isRedirecting: false,
+      idToken: 'line-id-token',
+      idTokenExpiresAt: DateTime.now().subtract(const Duration(minutes: 1)),
+    );
+    final localTokenFallbackSession = LiffSession(
+      isInitialized: true,
+      isLoggedIn: true,
+      isInClient: false,
+      isRedirecting: false,
+      localLoginToken: 'line-access-token',
+      idTokenExpiresAt: _validLineTokenExpiry(),
+    );
+    const missingExpirySession = LiffSession(
+      isInitialized: true,
+      isLoggedIn: true,
+      isInClient: false,
+      isRedirecting: false,
+      idToken: 'line-id-token',
+    );
+
+    expect(validSession.hasValidLocalToken, isTrue);
+    expect(localTokenFallbackSession.hasValidLocalToken, isTrue);
+    expect(expiredSession.hasValidLocalToken, isFalse);
+    expect(missingExpirySession.hasValidLocalToken, isFalse);
+  });
+
   testWidgets('user can complete the reward flow', (tester) async {
     await tester.pumpWidget(const VeevaMemberApp());
 
+    await _completeInitialLineLogin(tester);
     expect(find.text('填問卷，拿咖啡券'), findsOneWidget);
 
     await tester.ensureVisible(find.byKey(const Key('start-login-button')));
     await tester.tap(find.byKey(const Key('start-login-button')));
-    await tester.pumpAndSettle();
-    expect(find.text('會員登入'), findsOneWidget);
-    expect(find.text('使用 LINE 登入'), findsOneWidget);
-    expect(find.text('使用 Google 登入'), findsNothing);
-    expect(find.text('返回活動首頁'), findsNothing);
-
-    await tester.ensureVisible(find.byKey(const Key('line-login-button')));
-    await tester.tap(find.byKey(const Key('line-login-button')));
     await tester.pumpAndSettle();
     expect(find.text('跨平台 WebView 預覽區'), findsOneWidget);
     expect(find.text('我已完成問卷，送出審核'), findsNothing);
@@ -72,6 +117,7 @@ void main() {
   ) async {
     await tester.pumpWidget(const VeevaMemberApp());
 
+    await _completeInitialLineLogin(tester);
     expect(find.byType(NavigationBar), findsNothing);
     expect(find.byKey(const Key('customer-bottom-nav')), findsOneWidget);
     expect(find.text('兌換券'), findsOneWidget);
@@ -89,23 +135,24 @@ void main() {
     expect(find.text('恭喜您通過審查，請至信箱查看信件'), findsOneWidget);
   });
 
-  testWidgets('member page asks guest to sign in', (tester) async {
+  testWidgets('guest is forced to LINE login before customer app', (
+    tester,
+  ) async {
     await tester.pumpWidget(const VeevaMemberApp());
-
-    await tester.tap(find.text('會員'));
     await tester.pumpAndSettle();
 
-    expect(find.text('登入會員'), findsOneWidget);
-    expect(find.byKey(const Key('member-line-login-button')), findsOneWidget);
+    expect(find.text('會員登入'), findsOneWidget);
+    expect(find.byKey(const Key('line-login-button')), findsOneWidget);
+    expect(find.byKey(const Key('member-line-login-button')), findsNothing);
     expect(find.byKey(const Key('member-google-login-button')), findsNothing);
     expect(find.text('使用 Google 登入'), findsNothing);
     expect(find.text('會員功能'), findsNothing);
 
-    await tester.tap(find.byKey(const Key('member-line-login-button')));
+    await tester.tap(find.byKey(const Key('line-login-button')));
     await tester.pumpAndSettle();
 
-    expect(find.text('會員功能'), findsOneWidget);
-    expect(find.text('編輯會員資料'), findsOneWidget);
+    expect(find.text('活動消息'), findsOneWidget);
+    expect(find.byKey(const Key('customer-bottom-nav')), findsOneWidget);
   });
 
   testWidgets('member page shows syncing state while LINE session loads', (
@@ -122,20 +169,22 @@ void main() {
     await tester.tap(find.text('會員'));
     await tester.pump();
 
-    expect(find.text('正在同步 LINE 會員資料'), findsOneWidget);
+    expect(find.text('會員登入'), findsOneWidget);
+    expect(find.text('請先使用 LINE 登入後再繼續。'), findsOneWidget);
     expect(find.byKey(const Key('member-line-login-button')), findsNothing);
 
     sessionCompleter.complete(
-      const LiffSession(
+      LiffSession(
         isInitialized: true,
         isLoggedIn: true,
         isInClient: false,
         isRedirecting: false,
-        profile: LiffProfile(
+        profile: const LiffProfile(
           userId: 'pending-line-user',
           displayName: '同步會員',
         ),
         idToken: 'pending-id-token',
+        idTokenExpiresAt: _validLineTokenExpiry(),
       ),
     );
     await tester.pumpAndSettle();
@@ -148,14 +197,7 @@ void main() {
     final repository = _RecordingVeevaRepository();
 
     await tester.pumpWidget(VeevaMemberApp(repository: repository));
-
-    await tester.ensureVisible(find.byKey(const Key('start-login-button')));
-    await tester.tap(find.byKey(const Key('start-login-button')));
-    await tester.pumpAndSettle();
-
-    await tester.ensureVisible(find.byKey(const Key('line-login-button')));
-    await tester.tap(find.byKey(const Key('line-login-button')));
-    await tester.pumpAndSettle();
+    await _completeInitialLineLogin(tester);
 
     expect(repository.upsertCount, 1);
     expect(repository.lineUserId, 'demo-line-user');
@@ -243,6 +285,7 @@ void main() {
 
   testWidgets('landing page shows activity news cards', (tester) async {
     await tester.pumpWidget(const VeevaMemberApp());
+    await _completeInitialLineLogin(tester);
 
     expect(find.text('活動消息'), findsOneWidget);
     expect(find.text('填問卷，拿咖啡券'), findsOneWidget);
@@ -284,14 +327,11 @@ void main() {
     await tester.pumpWidget(
       VeevaMemberApp(repository: _SurveyUrlRepository()),
     );
-    await tester.pumpAndSettle();
+    await _completeInitialLineLogin(tester);
 
     await tester.ensureVisible(find.byKey(const Key('start-login-button')));
     await tester.tap(find.byKey(const Key('start-login-button')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('line-login-button')));
-    await tester.pumpAndSettle();
-
     final survey = tester.widget<EmbeddedSurveyWebForm>(
       find.byType(EmbeddedSurveyWebForm),
     );
@@ -312,6 +352,7 @@ void main() {
 
   testWidgets('medical news page shows list items', (tester) async {
     await tester.pumpWidget(const VeevaMemberApp());
+    await _completeInitialLineLogin(tester);
 
     await tester.tap(find.text('最新資訊'));
     await tester.pumpAndSettle();
@@ -329,17 +370,18 @@ class _LoggedInReferralLiffService implements LiffService {
 
   @override
   Future<LiffSession> initialize() async {
-    return const LiffSession(
+    return LiffSession(
       isInitialized: true,
       isLoggedIn: true,
       isInClient: false,
       isRedirecting: false,
       referralCode: 'A8D2K',
-      profile: LiffProfile(
+      profile: const LiffProfile(
         userId: 'demo-referral-user',
         displayName: '推薦會員',
       ),
       idToken: 'demo-referral-id-token',
+      idTokenExpiresAt: _validLineTokenExpiry(),
     );
   }
 
@@ -394,16 +436,17 @@ class _LoggedInMemberLiffService implements LiffService {
 
   @override
   Future<LiffSession> initialize() async {
-    return const LiffSession(
+    return LiffSession(
       isInitialized: true,
       isLoggedIn: true,
       isInClient: false,
       isRedirecting: false,
-      profile: LiffProfile(
+      profile: const LiffProfile(
         userId: 'inviter-line-user',
         displayName: '分享者',
       ),
       idToken: 'inviter-id-token',
+      idTokenExpiresAt: _validLineTokenExpiry(),
     );
   }
 
@@ -432,16 +475,17 @@ class _RecordingShareLiffService implements LiffService {
 
   @override
   Future<LiffSession> initialize() async {
-    return const LiffSession(
+    return LiffSession(
       isInitialized: true,
       isLoggedIn: true,
       isInClient: true,
       isRedirecting: false,
-      profile: LiffProfile(
+      profile: const LiffProfile(
         userId: 'share-line-user',
         displayName: '分享測試會員',
       ),
       idToken: 'share-id-token',
+      idTokenExpiresAt: _validLineTokenExpiry(),
     );
   }
 

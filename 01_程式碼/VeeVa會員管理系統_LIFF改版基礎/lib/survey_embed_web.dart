@@ -9,6 +9,8 @@ import 'dart:ui_web' as ui_web;
 
 import 'package:flutter/material.dart';
 
+const _iframeLoadCompletionDelay = Duration(seconds: 8);
+
 class EmbeddedSurveyWebForm extends StatefulWidget {
   const EmbeddedSurveyWebForm({
     required this.url,
@@ -27,15 +29,18 @@ class _EmbeddedSurveyWebFormState extends State<EmbeddedSurveyWebForm> {
   late final String viewType =
       'veeva-survey-iframe-${widget.url.hashCode}-${identityHashCode(this)}';
   late final html.IFrameElement _iframe;
+  StreamSubscription<html.Event>? _iframeLoadSubscription;
   StreamSubscription<html.Event>? _formSubmittedSubscription;
   StreamSubscription<html.MessageEvent>? _messageSubscription;
+  Timer? _iframeLoadCompletionTimer;
   bool _completionCaptured = false;
+  bool _hasSeenInitialIframeLoad = false;
+  bool _canCompleteFromIframeReload = false;
 
   @override
   void initState() {
     super.initState();
     _iframe = html.IFrameElement()
-      ..src = widget.url
       ..title = 'Veeva 問卷填寫'
       ..dataset['veevaSurveyIframe'] = 'true'
       ..style.border = '0'
@@ -44,8 +49,13 @@ class _EmbeddedSurveyWebFormState extends State<EmbeddedSurveyWebForm> {
       ..style.borderRadius = '8px'
       ..allow = 'clipboard-read; clipboard-write'
       ..referrerPolicy = 'strict-origin-when-cross-origin';
+    _iframeLoadSubscription = _iframe.onLoad.listen(_handleIframeLoad);
+    _iframe.src = widget.url;
     ui_web.platformViewRegistry.registerViewFactory(viewType, (int viewId) {
       return _iframe;
+    });
+    _iframeLoadCompletionTimer = Timer(_iframeLoadCompletionDelay, () {
+      _canCompleteFromIframeReload = true;
     });
     _formSubmittedSubscription =
         html.window.on['OneTrustWebFormSubmitted'].listen(
@@ -56,13 +66,26 @@ class _EmbeddedSurveyWebFormState extends State<EmbeddedSurveyWebForm> {
 
   @override
   void dispose() {
+    _iframeLoadSubscription?.cancel();
     _formSubmittedSubscription?.cancel();
     _messageSubscription?.cancel();
+    _iframeLoadCompletionTimer?.cancel();
     super.dispose();
   }
 
+  void _handleIframeLoad(html.Event _) {
+    if (!_hasSeenInitialIframeLoad) {
+      _hasSeenInitialIframeLoad = true;
+      return;
+    }
+    if (!_canCompleteFromIframeReload) {
+      return;
+    }
+    _completeFromOneTrustSignal('OneTrustIframeReload');
+  }
+
   void _handleMessage(html.MessageEvent event) {
-    if (!_isTrustedOneTrustMessage(event, widget.url, _iframe)) {
+    if (!_isTrustedOneTrustMessage(event, widget.url)) {
       return;
     }
     final messageText = _stringifyMessageData(event.data);
@@ -114,17 +137,8 @@ class _EmbeddedSurveyWebFormState extends State<EmbeddedSurveyWebForm> {
 bool _isTrustedOneTrustMessage(
   html.MessageEvent event,
   String formUrl,
-  html.IFrameElement iframe,
 ) {
-  if (!_isTrustedOneTrustOrigin(event.origin, formUrl)) {
-    return false;
-  }
-  final source = event.source;
-  final iframeWindow = iframe.contentWindow;
-  if (source != null && iframeWindow != null && source != iframeWindow) {
-    return false;
-  }
-  return true;
+  return _isTrustedOneTrustOrigin(event.origin, formUrl);
 }
 
 bool _isTrustedOneTrustOrigin(String origin, String formUrl) {

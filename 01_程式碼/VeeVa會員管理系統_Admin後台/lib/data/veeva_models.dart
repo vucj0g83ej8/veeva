@@ -468,6 +468,8 @@ class VeevaNews {
     required this.status,
     this.category,
     this.imageUrl,
+    this.content,
+    this.externalUrl,
   });
 
   factory VeevaNews.fromMap(String id, Map<String, Object?> data) {
@@ -484,6 +486,8 @@ class VeevaNews {
       ),
       category: data['category']?.toString(),
       imageUrl: data['imageUrl']?.toString(),
+      content: data['content']?.toString(),
+      externalUrl: data['externalUrl']?.toString(),
     );
   }
 
@@ -495,6 +499,8 @@ class VeevaNews {
   final VeevaContentStatus status;
   final String? category;
   final String? imageUrl;
+  final String? content;
+  final String? externalUrl;
 
   Map<String, Object?> toMap() {
     return {
@@ -505,6 +511,8 @@ class VeevaNews {
       'status': status.name,
       'category': category,
       'imageUrl': imageUrl,
+      'content': content,
+      'externalUrl': externalUrl,
       'updatedAt': FieldValue.serverTimestamp(),
     };
   }

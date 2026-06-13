@@ -31,6 +31,7 @@ class StubLiffService implements LiffService {
         displayName: '王小明',
       ),
       idToken: 'demo-id-token',
+      idTokenExpiresAt: DateTime.now().add(const Duration(hours: 1)),
     );
     return _session;
   }

@@ -145,6 +145,7 @@ class AppState extends ChangeNotifier {
     this.isActivityActionBusy = false,
     this.activityActionMessage,
     this.activityActionIsError = false,
+    this.pendingLoginPage,
     Set<String>? registeredActivityIds,
   }) : registeredActivityIds = registeredActivityIds ?? <String>{};
 
@@ -181,6 +182,7 @@ class AppState extends ChangeNotifier {
   String? inviteShareMessage;
   bool inviteShareIsError;
   String? pendingActivityId;
+  AppPage? pendingLoginPage;
   bool isActivityActionBusy;
   String? activityActionMessage;
   bool activityActionIsError;
@@ -209,6 +211,36 @@ class AppState extends ChangeNotifier {
 
   bool get loginNoticeIsError {
     return authError != null || liffSession.hasError;
+  }
+
+  bool get hasActiveLineLogin {
+    return liffSession.isLoggedIn &&
+        liffSession.hasValidLocalToken &&
+        member.status != MemberStatus.guest &&
+        (member.lineUserId?.trim().isNotEmpty ?? false);
+  }
+
+  AppPage get guardedCurrentPage {
+    if (isLiffBusy || !_requiresLineLogin(currentPage) || hasActiveLineLogin) {
+      return currentPage;
+    }
+    return AppPage.login;
+  }
+
+  void goToPage(AppPage page) {
+    if (_requiresLineLogin(page) && !hasActiveLineLogin) {
+      pendingLoginPage = page;
+      authError = '請先使用 LINE 登入後再繼續。';
+      currentPage = AppPage.login;
+      notifyStateChanged();
+      return;
+    }
+    if (page != AppPage.login) {
+      authError = null;
+      pendingLoginPage = null;
+    }
+    currentPage = page;
+    notifyStateChanged();
   }
 
   Future<void> loadBackendData() async {
@@ -242,13 +274,14 @@ class AppState extends ChangeNotifier {
       if (liffSession.isLoggedIn) {
         await _syncLineProfileToMember();
         await refreshMemberCoupons();
-        final nextPage =
-            _pageFromName(liffSession.postLoginPage) ?? requestedPage;
+        final nextPage = requestedPage ??
+            pendingLoginPage ??
+            _pageFromName(liffSession.postLoginPage);
         if (nextPage != null) {
-          currentPage = nextPage;
+          goToPage(nextPage);
         }
       } else if (requestedPage != null) {
-        currentPage = requestedPage;
+        goToPage(requestedPage);
       }
     } catch (error) {
       authError = 'LIFF 初始化失敗：$error';
@@ -271,7 +304,9 @@ class AppState extends ChangeNotifier {
       }
       await _syncLineProfileToMember();
       await refreshMemberCoupons();
-      currentPage = nextPage;
+      final targetPage = pendingLoginPage ?? nextPage;
+      pendingLoginPage = null;
+      goToPage(targetPage);
     } catch (error) {
       authError = 'LINE 登入失敗：$error';
     } finally {
@@ -310,8 +345,9 @@ class AppState extends ChangeNotifier {
       earnedCoupons: 0,
       invitedCount: 0,
       shareCode: 'A8D2K',
+      lineUserId: 'demo-line-user',
     );
-    currentPage = nextPage;
+    goToPage(nextPage);
     authError = null;
   }
 
@@ -319,11 +355,15 @@ class AppState extends ChangeNotifier {
     pendingActivityId = activity.id;
     activityActionMessage = null;
     activityActionIsError = false;
-    if (member.status == MemberStatus.guest) {
+    final targetPage = _pageForActivityType(activity.type);
+    if (!hasActiveLineLogin) {
+      pendingLoginPage = targetPage;
+      authError = '請先使用 LINE 登入後再參加活動。';
       currentPage = AppPage.login;
     } else {
-      currentPage = _pageForActivityType(activity.type);
+      currentPage = targetPage;
     }
+    notifyStateChanged();
   }
 
   AppPage pendingActivityLoginTarget() {
@@ -332,6 +372,17 @@ class AppState extends ChangeNotifier {
       return AppPage.survey;
     }
     return _pageForActivityType(activity.type);
+  }
+
+  AppPage pendingLineLoginTarget() {
+    final pendingPage = pendingLoginPage;
+    if (pendingPage != null) {
+      return pendingPage;
+    }
+    if (_requiresLineLogin(currentPage)) {
+      return currentPage;
+    }
+    return AppPage.landing;
   }
 
   ActivityNews? activityForPage(backend.VeevaActivityType type) {
@@ -354,7 +405,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> registerForActivity(ActivityNews activity) async {
-    if (member.status == MemberStatus.guest) {
+    if (!hasActiveLineLogin) {
       openActivity(activity);
       notifyStateChanged();
       return;
@@ -392,20 +443,49 @@ class AppState extends ChangeNotifier {
   }
 
   void completeSurvey({ActivityNews? activity}) {
+    final memberId = member.lineUserId?.trim() ?? '';
+    if (!hasActiveLineLogin || memberId.isEmpty) {
+      authError = '請先使用 LINE 登入後再填寫問卷。';
+      currentPage = AppPage.login;
+      return;
+    }
     member = member.copyWith(status: MemberStatus.pendingReview);
     currentPage = AppPage.thankYou;
-    unawaited(repository.submitReview(member.toBackend()));
+    final exists = reviewItems.any(
+      (item) => item.name == member.name && item.status == ReviewStatus.pending,
+    );
+    if (!exists) {
+      reviewItems = [
+        ReviewItem(
+          member.name,
+          member.hospital,
+          member.department,
+          ReviewStatus.pending,
+        ),
+        ...reviewItems,
+      ];
+    }
+    unawaited(
+      repository.submitReview(member.toBackend()).catchError((Object _) {
+        dataError = '問卷已完成，但待審核資料寫入失敗，請稍後再試。';
+        notifyStateChanged();
+      }),
+    );
     final surveyActivity = activity ?? _activityForRewardIssue();
-    final memberId = member.lineUserId ?? member.name;
-    if (surveyActivity != null && memberId.trim().isNotEmpty) {
+    if (surveyActivity != null) {
       unawaited(
-        repository.recordActivityCompletion(
+        repository
+            .recordActivityCompletion(
           memberId: memberId,
           memberName: member.name,
           activityId: surveyActivity.id,
           activityTitle: surveyActivity.title,
           surveyUrl: surveyActivity.surveyUrl ?? defaultVeevaSurveyUrl,
-        ),
+        )
+            .catchError((Object _) {
+          dataError = '問卷已完成，但活動完成紀錄寫入失敗，請稍後再試。';
+          notifyStateChanged();
+        }),
       );
       unawaited(_issueRewardForActivity(surveyActivity));
     }
@@ -651,6 +731,10 @@ AppPage? _requestedAppPageFromLaunchUri() {
     'activity' || 'registration' || 'register' => AppPage.activityRegistration,
     _ => null,
   };
+}
+
+bool _requiresLineLogin(AppPage page) {
+  return page != AppPage.login;
 }
 
 String? _referralCodeFromLiffState(Uri uri) {
@@ -1093,27 +1177,19 @@ class AppShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scope = AppScope.of(context);
-    final isLogin = scope.state.currentPage == AppPage.login;
+    final currentPage = scope.state.guardedCurrentPage;
+    final isLogin = currentPage == AppPage.login;
     return Scaffold(
       appBar: AppBar(
         title: isLogin ? const SizedBox.shrink() : const Text('顧客端 App'),
-        leading: isLogin
-            ? IconButton(
-                tooltip: '返回上一頁',
-                onPressed: () {
-                  scope.state.currentPage = AppPage.landing;
-                  scope.notify();
-                },
-                icon: const Icon(Icons.arrow_back),
-              )
-            : null,
+        leading: null,
         actions: [
           if (!isLogin) const _SystemMessagesButton(),
           const SizedBox(width: 8),
         ],
       ),
       body: RepaintBoundary(
-        child: switch (scope.state.currentPage) {
+        child: switch (currentPage) {
           AppPage.landing => const LandingPage(),
           AppPage.news => const MedicalNewsPage(),
           AppPage.login => const LoginPage(),
@@ -1127,16 +1203,16 @@ class AppShell extends StatelessWidget {
       bottomNavigationBar: isLogin
           ? null
           : _CustomerBottomNav(
-              selectedIndex: _selectedCustomerIndex(scope.state.currentPage),
+              selectedIndex: _selectedCustomerIndex(currentPage),
               onDestinationSelected: (index) {
-                scope.state.currentPage = switch (index) {
+                final page = switch (index) {
                   0 => AppPage.landing,
                   1 => AppPage.news,
                   2 => AppPage.coupon,
                   3 => AppPage.memberCenter,
                   _ => AppPage.landing,
                 };
-                scope.notify();
+                scope.state.goToPage(page);
               },
             ),
     );
@@ -1790,7 +1866,7 @@ class LoginPage extends StatelessWidget {
                     ? null
                     : () => _startLineLogin(
                           context,
-                          state.pendingActivityLoginTarget(),
+                          state.pendingLineLoginTarget(),
                         ),
               ),
             ],
@@ -1807,6 +1883,9 @@ class SurveyPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scope = AppScope.of(context);
+    if (!scope.state.hasActiveLineLogin) {
+      return const LoginPage();
+    }
     final activity =
         scope.state.activityForPage(backend.VeevaActivityType.survey);
     return _PageFrame(
@@ -2027,8 +2106,7 @@ class ThankYouPage extends StatelessWidget {
                               key: const Key('approve-current-member-button'),
                               onPressed: () {
                                 scope.state.approveCurrentMember();
-                                scope.state.currentPage = AppPage.memberCenter;
-                                scope.notify();
+                                scope.state.goToPage(AppPage.memberCenter);
                               },
                               icon: const Icon(Icons.verified_outlined),
                               label: const Text('回首頁'),

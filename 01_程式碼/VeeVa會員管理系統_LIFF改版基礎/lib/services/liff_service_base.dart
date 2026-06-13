@@ -8,6 +8,8 @@ abstract class LiffService {
   Future<LiffSession> logout();
 }
 
+const _defaultLiffId = '2010298394-7PwRtpTY';
+
 class LiffConfig {
   const LiffConfig({
     required this.liffId,
@@ -16,7 +18,7 @@ class LiffConfig {
 
   factory LiffConfig.fromEnvironment() {
     return const LiffConfig(
-      liffId: String.fromEnvironment('LIFF_ID'),
+      liffId: String.fromEnvironment('LIFF_ID', defaultValue: _defaultLiffId),
       withLoginOnExternalBrowser: bool.fromEnvironment(
         'LIFF_AUTO_LOGIN',
         defaultValue: false,
@@ -38,9 +40,11 @@ class LiffSession {
     required this.isRedirecting,
     this.profile,
     this.idToken,
+    this.localLoginToken,
     this.os,
     this.lineVersion,
     this.liffVersion,
+    this.idTokenExpiresAt,
     this.postLoginPage,
     this.referralCode,
     this.errorMessage,
@@ -90,14 +94,24 @@ class LiffSession {
   final bool isRedirecting;
   final LiffProfile? profile;
   final String? idToken;
+  final String? localLoginToken;
   final String? os;
   final String? lineVersion;
   final String? liffVersion;
+  final DateTime? idTokenExpiresAt;
   final String? postLoginPage;
   final String? referralCode;
   final String? errorMessage;
 
   bool get hasError => errorMessage != null && errorMessage!.isNotEmpty;
+  bool get hasValidLocalToken {
+    final token = (localLoginToken ?? idToken)?.trim();
+    if (token == null || token.isEmpty) {
+      return false;
+    }
+    final expiresAt = idTokenExpiresAt;
+    return expiresAt != null && expiresAt.isAfter(DateTime.now());
+  }
 
   LiffSession copyWith({
     bool? isInitialized,
@@ -106,9 +120,11 @@ class LiffSession {
     bool? isRedirecting,
     LiffProfile? profile,
     String? idToken,
+    String? localLoginToken,
     String? os,
     String? lineVersion,
     String? liffVersion,
+    DateTime? idTokenExpiresAt,
     String? postLoginPage,
     String? referralCode,
     String? errorMessage,
@@ -120,9 +136,11 @@ class LiffSession {
       isRedirecting: isRedirecting ?? this.isRedirecting,
       profile: profile ?? this.profile,
       idToken: idToken ?? this.idToken,
+      localLoginToken: localLoginToken ?? this.localLoginToken,
       os: os ?? this.os,
       lineVersion: lineVersion ?? this.lineVersion,
       liffVersion: liffVersion ?? this.liffVersion,
+      idTokenExpiresAt: idTokenExpiresAt ?? this.idTokenExpiresAt,
       postLoginPage: postLoginPage ?? this.postLoginPage,
       referralCode: referralCode ?? this.referralCode,
       errorMessage: errorMessage ?? this.errorMessage,

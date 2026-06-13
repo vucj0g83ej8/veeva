@@ -976,7 +976,12 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
           onToggleActive: _toggleActivityActive,
           onArchive: _archiveActivity,
         ),
-      AdminTab.news => _NewsManagement(news: news),
+      AdminTab.news => _NewsManagement(
+          news: news,
+          onCreate: () => _showNewsDialog(),
+          onEdit: (item) => _showNewsDialog(newsItem: item),
+          onStatusChanged: _setNewsStatus,
+        ),
       AdminTab.rewards => _RewardsManagement(
           rewards: rewards,
           onCreate: () => _showRewardDialog(),
@@ -1061,9 +1066,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       title: activity.title,
       description: activity.description,
       reward: activity.reward,
-      status: activity.active
-          ? backend.VeevaContentStatus.archived
-          : backend.VeevaContentStatus.published,
+      status: backend.VeevaContentStatus.published,
       active: !activity.active,
       periodText: activity.periodText,
       note: activity.note,
@@ -1439,6 +1442,112 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
     noteController.dispose();
     imageController.dispose();
     surveyUrlController.dispose();
+  }
+
+  Future<void> _saveNews(
+    backend.VeevaNews newsItem, {
+    String errorMessage = '最新資訊儲存失敗：請確認 Firestore API 與 rules 已啟用。',
+  }) async {
+    final index = news.indexWhere((item) => item.id == newsItem.id);
+    final previous = index == -1 ? null : news[index];
+    setState(() {
+      backendError = null;
+      if (index == -1) {
+        news.insert(0, newsItem);
+      } else {
+        news[index] = newsItem;
+      }
+    });
+    try {
+      await repository.saveNews(newsItem);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        if (previous == null) {
+          news.removeWhere((item) => item.id == newsItem.id);
+        } else if (index != -1) {
+          news[index] = previous;
+        }
+        backendError = errorMessage;
+      });
+    }
+  }
+
+  Future<void> _setNewsStatus(
+    backend.VeevaNews newsItem,
+    backend.VeevaContentStatus status,
+  ) async {
+    final updated = backend.VeevaNews(
+      id: newsItem.id,
+      date: newsItem.date,
+      source: newsItem.source,
+      title: newsItem.title,
+      summary: newsItem.summary,
+      status: status,
+      category: newsItem.category,
+      imageUrl: newsItem.imageUrl,
+      content: newsItem.content,
+      externalUrl: newsItem.externalUrl,
+    );
+    await _saveNews(
+      updated,
+      errorMessage: '最新資訊狀態更新失敗：請確認 Firestore API 與 rules 已啟用。',
+    );
+  }
+
+  Future<void> _showNewsDialog({backend.VeevaNews? newsItem}) async {
+    final isEditing = newsItem != null;
+    final titleController = TextEditingController(text: newsItem?.title ?? '');
+    final summaryController =
+        TextEditingController(text: newsItem?.summary ?? '');
+    final contentController = TextEditingController(
+      text: newsItem?.content ?? newsItem?.summary ?? '',
+    );
+    final sourceController =
+        TextEditingController(text: newsItem?.source ?? 'Veeva');
+    final categoryController =
+        TextEditingController(text: newsItem?.category ?? '醫療新知');
+    final dateController = TextEditingController(
+        text: newsItem?.date ?? _formatAdminDate(DateTime.now()));
+    final imageController =
+        TextEditingController(text: newsItem?.imageUrl ?? '');
+    final externalUrlController =
+        TextEditingController(text: newsItem?.externalUrl ?? '');
+    final initialStatus =
+        newsItem?.status ?? backend.VeevaContentStatus.published;
+
+    final newsToSave = await showDialog<backend.VeevaNews>(
+      context: context,
+      builder: (dialogContext) {
+        return _NewsEditorDialog(
+          newsItem: newsItem,
+          isEditing: isEditing,
+          titleController: titleController,
+          summaryController: summaryController,
+          contentController: contentController,
+          sourceController: sourceController,
+          categoryController: categoryController,
+          dateController: dateController,
+          imageController: imageController,
+          externalUrlController: externalUrlController,
+          initialStatus: initialStatus,
+        );
+      },
+    );
+
+    if (newsToSave != null) {
+      await _saveNews(newsToSave);
+    }
+
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    titleController.dispose();
+    summaryController.dispose();
+    contentController.dispose();
+    sourceController.dispose();
+    categoryController.dispose();
+    dateController.dispose();
+    imageController.dispose();
+    externalUrlController.dispose();
   }
 
   Future<void> _saveReward(
@@ -3668,30 +3777,22 @@ class _PermissionsManagementState extends State<_PermissionsManagement> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: _MetricCard(
-                label: '管理者總數',
-                value: '$activeAdmins',
-                icon: Icons.groups_outlined,
-              ),
+        _PermissionMetrics(
+          items: [
+            (
+              label: '管理者總數',
+              value: '$activeAdmins',
+              icon: Icons.groups_outlined,
             ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: _MetricCard(
-                label: '啟用管理者',
-                value: '$activeAdmins',
-                icon: Icons.admin_panel_settings_outlined,
-              ),
+            (
+              label: '啟用管理者',
+              value: '$activeAdmins',
+              icon: Icons.admin_panel_settings_outlined,
             ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: _MetricCard(
-                label: '停用帳號',
-                value: '$disabledMembers',
-                icon: Icons.block_outlined,
-              ),
+            (
+              label: '停用帳號',
+              value: '$disabledMembers',
+              icon: Icons.block_outlined,
             ),
           ],
         ),
@@ -3855,6 +3956,102 @@ class _PermissionsManagementState extends State<_PermissionsManagement> {
       }
     }
     return null;
+  }
+}
+
+class _PermissionMetrics extends StatelessWidget {
+  const _PermissionMetrics({required this.items});
+
+  final List<({String label, String value, IconData icon})> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isMobile = constraints.maxWidth < 560;
+        if (isMobile) {
+          return Column(
+            children: [
+              for (var index = 0; index < items.length; index++) ...[
+                _PermissionMobileMetricCard(item: items[index]),
+                if (index != items.length - 1) const SizedBox(height: 10),
+              ],
+            ],
+          );
+        }
+
+        return Row(
+          children: [
+            for (var index = 0; index < items.length; index++) ...[
+              Expanded(
+                child: _MetricCard(
+                  label: items[index].label,
+                  value: items[index].value,
+                  icon: items[index].icon,
+                ),
+              ),
+              if (index != items.length - 1) const SizedBox(width: 16),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _PermissionMobileMetricCard extends StatelessWidget {
+  const _PermissionMobileMetricCard({required this.item});
+
+  final ({String label, String value, IconData icon}) item;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: const Color(0xFFEAF3EA),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                item.icon,
+                color: const Color(0xFF216B57),
+                size: 23,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                item.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Color(0xFF53635D),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              item.value,
+              style: const TextStyle(
+                color: Color(0xFF17251F),
+                fontSize: 26,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -4560,22 +4757,31 @@ class _ActivityManagement extends StatefulWidget {
 class _ActivityManagementState extends State<_ActivityManagement> {
   String query = '';
   String? statusFilter;
+  _ActivityListPage currentPage = _ActivityListPage.active;
 
   @override
   Widget build(BuildContext context) {
     final isCompact = MediaQuery.sizeOf(context).width < 820;
-    final visibleActivities = widget.activities.where(_matchesFilter).toList()
+    final archivedActivities =
+        widget.activities.where(_isArchivedActivity).toList();
+    final activeActivities = widget.activities
+        .where((activity) => !_isArchivedActivity(activity))
+        .toList();
+    final isArchivePage = currentPage == _ActivityListPage.archived;
+    final sourceActivities =
+        isArchivePage ? archivedActivities : activeActivities;
+    final visibleActivities = sourceActivities.where(_matchesFilter).toList()
       ..sort((a, b) {
         if (a.active != b.active) return a.active ? -1 : 1;
         return a.title.compareTo(b.title);
       });
     final activeCount =
-        widget.activities.where((activity) => activity.active).length;
-    final publishedCount = widget.activities
+        activeActivities.where((activity) => activity.active).length;
+    final publishedCount = activeActivities
         .where((activity) =>
             activity.status == backend.VeevaContentStatus.published)
         .length;
-    final draftCount = widget.activities
+    final draftCount = activeActivities
         .where(
             (activity) => activity.status == backend.VeevaContentStatus.draft)
         .length;
@@ -4635,7 +4841,7 @@ class _ActivityManagementState extends State<_ActivityManagement> {
               Expanded(
                 child: _MetricCard(
                   label: '活動總數',
-                  value: '${widget.activities.length}',
+                  value: '${activeActivities.length}',
                   icon: Icons.campaign_outlined,
                 ),
               ),
@@ -4648,18 +4854,36 @@ class _ActivityManagementState extends State<_ActivityManagement> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _ActivityHeader(onCreate: widget.onCreate),
+                _ActivityHeader(
+                  onCreate: widget.onCreate,
+                  showCreateButton: !isArchivePage,
+                ),
+                const SizedBox(height: 14),
+                _ActivityPageTabs(
+                  selected: currentPage,
+                  activeCount: activeActivities.length,
+                  archivedCount: archivedActivities.length,
+                  onChanged: (value) {
+                    setState(() {
+                      currentPage = value;
+                      statusFilter = null;
+                    });
+                  },
+                ),
                 const SizedBox(height: 16),
                 _ActivityFilters(
                   query: query,
                   statusFilter: statusFilter,
+                  showStatusFilter: !isArchivePage,
                   onQueryChanged: (value) => setState(() => query = value),
                   onStatusChanged: (value) =>
                       setState(() => statusFilter = value),
                 ),
                 const SizedBox(height: 16),
                 if (visibleActivities.isEmpty)
-                  const _EmptyListMessage(message: '目前沒有符合條件的活動。')
+                  _EmptyListMessage(
+                    message: isArchivePage ? '目前沒有已封存的活動。' : '目前沒有符合條件的活動。',
+                  )
                 else if (isCompact)
                   Column(
                     children: [
@@ -4705,10 +4929,15 @@ class _ActivityManagementState extends State<_ActivityManagement> {
         ].whereType<String>().any((value) {
           return value.toLowerCase().contains(keyword);
         });
-    final matchesStatus = statusFilter == null ||
+    final matchesStatus = currentPage == _ActivityListPage.archived ||
+        statusFilter == null ||
         (statusFilter == _activityActiveFilterValue && activity.active) ||
         activity.status.name == statusFilter;
     return matchesQuery && matchesStatus;
+  }
+
+  bool _isArchivedActivity(backend.VeevaActivity activity) {
+    return activity.status == backend.VeevaContentStatus.archived;
   }
 
   void _showPreview(backend.VeevaActivity activity) {
@@ -4809,9 +5038,13 @@ class _ActivityManagementState extends State<_ActivityManagement> {
 }
 
 class _ActivityHeader extends StatelessWidget {
-  const _ActivityHeader({required this.onCreate});
+  const _ActivityHeader({
+    required this.onCreate,
+    required this.showCreateButton,
+  });
 
   final VoidCallback onCreate;
+  final bool showCreateButton;
 
   @override
   Widget build(BuildContext context) {
@@ -4825,12 +5058,150 @@ class _ActivityHeader extends StatelessWidget {
             style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
           ),
         ),
-        FilledButton.icon(
-          onPressed: onCreate,
-          icon: const Icon(Icons.add),
-          label: const Text('新增活動'),
-        ),
+        if (showCreateButton)
+          FilledButton.icon(
+            onPressed: onCreate,
+            icon: const Icon(Icons.add),
+            label: const Text('新增活動'),
+          ),
       ],
+    );
+  }
+}
+
+class _ActivityPageTabs extends StatelessWidget {
+  const _ActivityPageTabs({
+    required this.selected,
+    required this.activeCount,
+    required this.archivedCount,
+    required this.onChanged,
+  });
+
+  final _ActivityListPage selected;
+  final int activeCount;
+  final int archivedCount;
+  final ValueChanged<_ActivityListPage> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final isCompact = MediaQuery.sizeOf(context).width < 560;
+    final children = [
+      _ActivityPageTabButton(
+        label: '活動列表',
+        count: activeCount,
+        icon: Icons.list_alt_outlined,
+        selected: selected == _ActivityListPage.active,
+        onTap: () => onChanged(_ActivityListPage.active),
+      ),
+      _ActivityPageTabButton(
+        label: '已封存',
+        count: archivedCount,
+        icon: Icons.archive_outlined,
+        selected: selected == _ActivityListPage.archived,
+        onTap: () => onChanged(_ActivityListPage.archived),
+      ),
+    ];
+
+    if (isCompact) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          children[0],
+          const SizedBox(height: 8),
+          children[1],
+        ],
+      );
+    }
+
+    return Row(
+      children: [
+        Expanded(child: children[0]),
+        const SizedBox(width: 10),
+        Expanded(child: children[1]),
+      ],
+    );
+  }
+}
+
+class _ActivityPageTabButton extends StatelessWidget {
+  const _ActivityPageTabButton({
+    required this.label,
+    required this.count,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final int count;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: selected ? null : onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: selected ? const Color(0xFFE8F5EF) : const Color(0xFFF5F7F8),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color:
+                  selected ? const Color(0xFF9AD5BF) : const Color(0xFFE1E7E5),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                color: selected
+                    ? const Color(0xFF216B57)
+                    : const Color(0xFF60716A),
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: selected
+                        ? const Color(0xFF173F34)
+                        : const Color(0xFF394A43),
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: const Color(0xFFDCE6E2)),
+                ),
+                child: Text(
+                  '$count',
+                  style: const TextStyle(
+                    color: Color(0xFF20342E),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -4839,12 +5210,14 @@ class _ActivityFilters extends StatelessWidget {
   const _ActivityFilters({
     required this.query,
     required this.statusFilter,
+    required this.showStatusFilter,
     required this.onQueryChanged,
     required this.onStatusChanged,
   });
 
   final String query;
   final String? statusFilter;
+  final bool showStatusFilter;
   final ValueChanged<String> onQueryChanged;
   final ValueChanged<String?> onStatusChanged;
 
@@ -4887,10 +5260,11 @@ class _ActivityFilters extends StatelessWidget {
           child: Text('進行中'),
         ),
         for (final status in backend.VeevaContentStatus.values)
-          DropdownMenuItem<String?>(
-            value: status.name,
-            child: Text(_contentStatusLabel(status)),
-          ),
+          if (status != backend.VeevaContentStatus.archived)
+            DropdownMenuItem<String?>(
+              value: status.name,
+              child: Text(_contentStatusLabel(status)),
+            ),
       ],
       onChanged: onStatusChanged,
     );
@@ -4900,8 +5274,18 @@ class _ActivityFilters extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           search,
-          const SizedBox(height: 10),
-          statusDropdown,
+          if (showStatusFilter) ...[
+            const SizedBox(height: 10),
+            statusDropdown,
+          ],
+        ],
+      );
+    }
+
+    if (!showStatusFilter) {
+      return Row(
+        children: [
+          Expanded(child: search),
         ],
       );
     }
@@ -4941,6 +5325,8 @@ class _ActivityDataTable extends StatelessWidget {
           headingRowColor: WidgetStateProperty.all(const Color(0xFFF5F7F8)),
           horizontalMargin: 16,
           columnSpacing: 18,
+          dataRowMinHeight: 72,
+          dataRowMaxHeight: 96,
           columns: const [
             DataColumn(label: Text('活動名稱')),
             DataColumn(label: Text('類型')),
@@ -5285,29 +5671,618 @@ class _ActivityDetailLine extends StatelessWidget {
   }
 }
 
-class _NewsManagement extends StatelessWidget {
-  const _NewsManagement({required this.news});
+class _NewsManagement extends StatefulWidget {
+  const _NewsManagement({
+    required this.news,
+    required this.onCreate,
+    required this.onEdit,
+    required this.onStatusChanged,
+  });
 
   final List<backend.VeevaNews> news;
+  final VoidCallback onCreate;
+  final ValueChanged<backend.VeevaNews> onEdit;
+  final Future<void> Function(
+    backend.VeevaNews item,
+    backend.VeevaContentStatus status,
+  ) onStatusChanged;
+
+  @override
+  State<_NewsManagement> createState() => _NewsManagementState();
+}
+
+class _NewsManagementState extends State<_NewsManagement> {
+  String query = '';
+  backend.VeevaContentStatus? statusFilter;
 
   @override
   Widget build(BuildContext context) {
-    return _ManagementTable(
-      icon: Icons.newspaper_outlined,
-      title: '最新資訊管理',
-      actionLabel: '新增資訊',
-      columns: const ['標題', '狀態', '發布日期', '分類'],
-      rows: [
-        for (final item in news)
-          [
-            item.title,
-            _contentStatusLabel(item.status),
-            item.date,
-            item.category ?? item.source,
-          ],
+    final isCompact = MediaQuery.sizeOf(context).width < 820;
+    final visibleNews = widget.news.where(_matchesFilter).toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
+    final publishedCount = widget.news
+        .where((item) => item.status == backend.VeevaContentStatus.published)
+        .length;
+    final draftCount = widget.news
+        .where((item) => item.status == backend.VeevaContentStatus.draft)
+        .length;
+    final scheduledCount = widget.news
+        .where((item) => item.status == backend.VeevaContentStatus.scheduled)
+        .length;
+    final metrics = [
+      _MetricCard(
+        label: '已發布',
+        value: '$publishedCount',
+        icon: Icons.public_outlined,
+      ),
+      _MetricCard(
+        label: '草稿',
+        value: '$draftCount',
+        icon: Icons.edit_note_outlined,
+      ),
+      _MetricCard(
+        label: '排程中',
+        value: '$scheduledCount',
+        icon: Icons.schedule_outlined,
+      ),
+      _MetricCard(
+        label: '文章總數',
+        value: '${widget.news.length}',
+        icon: Icons.article_outlined,
+      ),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (isCompact)
+          Column(
+            children: [
+              for (final metric in metrics)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: metric,
+                ),
+            ],
+          )
+        else
+          Row(
+            children: [
+              for (var index = 0; index < metrics.length; index++) ...[
+                Expanded(child: metrics[index]),
+                if (index != metrics.length - 1) const SizedBox(width: 16),
+              ],
+            ],
+          ),
+        const SizedBox(height: 18),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _NewsHeader(onCreate: widget.onCreate),
+                const SizedBox(height: 16),
+                _NewsFilters(
+                  query: query,
+                  statusFilter: statusFilter,
+                  onQueryChanged: (value) => setState(() => query = value),
+                  onStatusChanged: (value) =>
+                      setState(() => statusFilter = value),
+                ),
+                const SizedBox(height: 16),
+                if (visibleNews.isEmpty)
+                  const _EmptyListMessage(message: '目前沒有符合條件的最新資訊。')
+                else if (isCompact)
+                  Column(
+                    children: [
+                      for (final item in visibleNews)
+                        _NewsMobileCard(
+                          item: item,
+                          onEdit: widget.onEdit,
+                          onPreview: _showPreview,
+                          onStatusChanged: widget.onStatusChanged,
+                        ),
+                    ],
+                  )
+                else
+                  _NewsDataTable(
+                    news: visibleNews,
+                    onEdit: widget.onEdit,
+                    onPreview: _showPreview,
+                    onStatusChanged: widget.onStatusChanged,
+                  ),
+              ],
+            ),
+          ),
+        ),
       ],
     );
   }
+
+  bool _matchesFilter(backend.VeevaNews item) {
+    final keyword = query.trim().toLowerCase();
+    final matchesQuery = keyword.isEmpty ||
+        [
+          item.title,
+          item.summary,
+          item.content,
+          item.source,
+          item.category,
+          item.date,
+          _contentStatusLabel(item.status),
+        ].whereType<String>().any((value) {
+          return value.toLowerCase().contains(keyword);
+        });
+    final matchesStatus = statusFilter == null || item.status == statusFilter;
+    return matchesQuery && matchesStatus;
+  }
+
+  void _showPreview(backend.VeevaNews item) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('文章預覽'),
+          content: SizedBox(
+            width: 560,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      _NewsStatusChip(status: item.status),
+                      const SizedBox(width: 8),
+                      Text(
+                        item.category ?? item.source,
+                        style: const TextStyle(
+                          color: Color(0xFF61706A),
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    item.title,
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '${item.date} ・ ${item.source}',
+                    style: const TextStyle(
+                      color: Color(0xFF61706A),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (item.imageUrl?.isNotEmpty == true) ...[
+                    const SizedBox(height: 14),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.network(
+                        item.imageUrl!,
+                        height: 180,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) {
+                          return Container(
+                            height: 120,
+                            alignment: Alignment.center,
+                            color: const Color(0xFFF1F4F3),
+                            child: const Text('圖片無法載入'),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 14),
+                  Text(
+                    item.summary,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    _newsBody(item),
+                    style: const TextStyle(height: 1.55),
+                  ),
+                  if (item.externalUrl?.isNotEmpty == true) ...[
+                    const SizedBox(height: 14),
+                    _ActivityDetailLine(
+                      icon: Icons.link_outlined,
+                      label: '連結',
+                      value: item.externalUrl!,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('關閉'),
+            ),
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                widget.onEdit(item);
+              },
+              icon: const Icon(Icons.edit_outlined),
+              label: const Text('編輯'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _NewsHeader extends StatelessWidget {
+  const _NewsHeader({required this.onCreate});
+
+  final VoidCallback onCreate;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const Icon(Icons.newspaper_outlined, color: Color(0xFF216B57)),
+        const SizedBox(width: 10),
+        const Expanded(
+          child: Text(
+            '最新資訊管理',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+          ),
+        ),
+        FilledButton.icon(
+          onPressed: onCreate,
+          icon: const Icon(Icons.add),
+          label: const Text('新增文章'),
+        ),
+      ],
+    );
+  }
+}
+
+class _NewsFilters extends StatelessWidget {
+  const _NewsFilters({
+    required this.query,
+    required this.statusFilter,
+    required this.onQueryChanged,
+    required this.onStatusChanged,
+  });
+
+  final String query;
+  final backend.VeevaContentStatus? statusFilter;
+  final ValueChanged<String> onQueryChanged;
+  final ValueChanged<backend.VeevaContentStatus?> onStatusChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final isCompact = MediaQuery.sizeOf(context).width < 760;
+    final search = TextField(
+      onChanged: onQueryChanged,
+      decoration: InputDecoration(
+        hintText: '搜尋文章標題、摘要、分類、來源',
+        prefixIcon: const Icon(Icons.search),
+        isDense: true,
+        filled: true,
+        fillColor: const Color(0xFFF5F7F8),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide.none,
+        ),
+      ),
+    );
+    final statusDropdown = DropdownButtonFormField<backend.VeevaContentStatus?>(
+      value: statusFilter,
+      decoration: InputDecoration(
+        labelText: '狀態',
+        isDense: true,
+        filled: true,
+        fillColor: const Color(0xFFF5F7F8),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide.none,
+        ),
+      ),
+      items: [
+        const DropdownMenuItem<backend.VeevaContentStatus?>(
+          value: null,
+          child: Text('全部狀態'),
+        ),
+        for (final status in backend.VeevaContentStatus.values)
+          DropdownMenuItem<backend.VeevaContentStatus?>(
+            value: status,
+            child: Text(_contentStatusLabel(status)),
+          ),
+      ],
+      onChanged: onStatusChanged,
+    );
+
+    if (isCompact) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          search,
+          const SizedBox(height: 10),
+          statusDropdown,
+        ],
+      );
+    }
+
+    return Row(
+      children: [
+        Expanded(flex: 2, child: search),
+        const SizedBox(width: 12),
+        SizedBox(width: 180, child: statusDropdown),
+      ],
+    );
+  }
+}
+
+class _NewsDataTable extends StatelessWidget {
+  const _NewsDataTable({
+    required this.news,
+    required this.onEdit,
+    required this.onPreview,
+    required this.onStatusChanged,
+  });
+
+  final List<backend.VeevaNews> news;
+  final ValueChanged<backend.VeevaNews> onEdit;
+  final ValueChanged<backend.VeevaNews> onPreview;
+  final Future<void> Function(
+    backend.VeevaNews item,
+    backend.VeevaContentStatus status,
+  ) onStatusChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: DataTable(
+          headingRowColor: WidgetStateProperty.all(const Color(0xFFF5F7F8)),
+          horizontalMargin: 16,
+          columnSpacing: 18,
+          dataRowMinHeight: 76,
+          dataRowMaxHeight: 104,
+          columns: const [
+            DataColumn(label: Text('文章')),
+            DataColumn(label: Text('狀態')),
+            DataColumn(label: Text('發布日期')),
+            DataColumn(label: Text('來源')),
+            DataColumn(label: Text('分類')),
+            DataColumn(label: Text('操作')),
+          ],
+          rows: [
+            for (final item in news)
+              DataRow(
+                cells: [
+                  DataCell(_NewsTitleCell(item: item)),
+                  DataCell(_NewsStatusChip(status: item.status)),
+                  DataCell(Text(item.date)),
+                  DataCell(Text(item.source)),
+                  DataCell(Text(item.category ?? '-')),
+                  DataCell(
+                    _NewsActions(
+                      item: item,
+                      onEdit: onEdit,
+                      onPreview: onPreview,
+                      onStatusChanged: onStatusChanged,
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NewsMobileCard extends StatelessWidget {
+  const _NewsMobileCard({
+    required this.item,
+    required this.onEdit,
+    required this.onPreview,
+    required this.onStatusChanged,
+  });
+
+  final backend.VeevaNews item;
+  final ValueChanged<backend.VeevaNews> onEdit;
+  final ValueChanged<backend.VeevaNews> onPreview;
+  final Future<void> Function(
+    backend.VeevaNews item,
+    backend.VeevaContentStatus status,
+  ) onStatusChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFA),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE4E8EA)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: _NewsTitleCell(item: item)),
+              const SizedBox(width: 8),
+              _NewsStatusChip(status: item.status),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            item.summary,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 10),
+          _ActivityDetailLine(
+            icon: Icons.event_outlined,
+            label: '日期',
+            value: item.date,
+          ),
+          _ActivityDetailLine(
+            icon: Icons.source_outlined,
+            label: '來源',
+            value: item.source,
+          ),
+          _ActivityDetailLine(
+            icon: Icons.category_outlined,
+            label: '分類',
+            value: item.category ?? '-',
+          ),
+          const SizedBox(height: 10),
+          _NewsActions(
+            item: item,
+            onEdit: onEdit,
+            onPreview: onPreview,
+            onStatusChanged: onStatusChanged,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NewsTitleCell extends StatelessWidget {
+  const _NewsTitleCell({required this.item});
+
+  final backend.VeevaNews item;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 260,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            item.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w900),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NewsActions extends StatelessWidget {
+  const _NewsActions({
+    required this.item,
+    required this.onEdit,
+    required this.onPreview,
+    required this.onStatusChanged,
+  });
+
+  final backend.VeevaNews item;
+  final ValueChanged<backend.VeevaNews> onEdit;
+  final ValueChanged<backend.VeevaNews> onPreview;
+  final Future<void> Function(
+    backend.VeevaNews item,
+    backend.VeevaContentStatus status,
+  ) onStatusChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 132,
+      height: 36,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _ActivityActionIconButton(
+            tooltip: '編輯',
+            icon: Icons.edit_outlined,
+            onPressed: () => onEdit(item),
+          ),
+          _ActivityActionIconButton(
+            tooltip: '預覽',
+            icon: Icons.visibility_outlined,
+            onPressed: () => onPreview(item),
+          ),
+          PopupMenuButton<backend.VeevaContentStatus>(
+            tooltip: '切換狀態',
+            icon: const Icon(Icons.more_vert, size: 20),
+            onSelected: (status) => onStatusChanged(item, status),
+            itemBuilder: (context) {
+              return [
+                for (final status in backend.VeevaContentStatus.values)
+                  PopupMenuItem(
+                    value: status,
+                    enabled: status != item.status,
+                    child: Row(
+                      children: [
+                        Icon(
+                          status == item.status
+                              ? Icons.check_circle
+                              : Icons.radio_button_unchecked,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(_contentStatusLabel(status)),
+                      ],
+                    ),
+                  ),
+              ];
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NewsStatusChip extends StatelessWidget {
+  const _NewsStatusChip({required this.status});
+
+  final backend.VeevaContentStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: _newsStatusColor(status),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        _contentStatusLabel(status),
+        style: const TextStyle(
+          color: Color(0xFF16362E),
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
+String _newsBody(backend.VeevaNews item) {
+  final content = item.content?.trim();
+  return content == null || content.isEmpty ? item.summary : content;
 }
 
 String _contentStatusLabel(backend.VeevaContentStatus status) {
@@ -5319,7 +6294,18 @@ String _contentStatusLabel(backend.VeevaContentStatus status) {
   };
 }
 
+Color _newsStatusColor(backend.VeevaContentStatus status) {
+  return switch (status) {
+    backend.VeevaContentStatus.draft => const Color(0xFFEFF3F6),
+    backend.VeevaContentStatus.scheduled => const Color(0xFFEAF0FF),
+    backend.VeevaContentStatus.published => const Color(0xFFE8F5EF),
+    backend.VeevaContentStatus.archived => const Color(0xFFFFF4D9),
+  };
+}
+
 const _activityActiveFilterValue = 'active';
+
+enum _ActivityListPage { active, archived }
 
 String _activityTypeLabel(backend.VeevaActivityType type) {
   return switch (type) {
@@ -5375,124 +6361,555 @@ bool _isHttpUrl(String? value) {
       (uri.scheme == 'https' || uri.scheme == 'http');
 }
 
-class _ManagementTable extends StatelessWidget {
-  const _ManagementTable({
-    required this.icon,
-    required this.title,
-    required this.actionLabel,
-    required this.columns,
-    required this.rows,
+class _NewsEditorDialog extends StatefulWidget {
+  const _NewsEditorDialog({
+    required this.newsItem,
+    required this.isEditing,
+    required this.titleController,
+    required this.summaryController,
+    required this.contentController,
+    required this.sourceController,
+    required this.categoryController,
+    required this.dateController,
+    required this.imageController,
+    required this.externalUrlController,
+    required this.initialStatus,
   });
 
-  final IconData icon;
-  final String title;
-  final String actionLabel;
-  final List<String> columns;
-  final List<List<String>> rows;
+  final backend.VeevaNews? newsItem;
+  final bool isEditing;
+  final TextEditingController titleController;
+  final TextEditingController summaryController;
+  final TextEditingController contentController;
+  final TextEditingController sourceController;
+  final TextEditingController categoryController;
+  final TextEditingController dateController;
+  final TextEditingController imageController;
+  final TextEditingController externalUrlController;
+  final backend.VeevaContentStatus initialStatus;
+
+  @override
+  State<_NewsEditorDialog> createState() => _NewsEditorDialogState();
+}
+
+class _NewsEditorDialogState extends State<_NewsEditorDialog> {
+  final FocusNode _contentFocusNode = FocusNode();
+
+  late backend.VeevaContentStatus _status;
+  String? _formError;
+
+  @override
+  void initState() {
+    super.initState();
+    _status = widget.initialStatus;
+  }
+
+  @override
+  void dispose() {
+    _contentFocusNode.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final isCompact = MediaQuery.sizeOf(context).width < 760;
+    final size = MediaQuery.sizeOf(context);
+    final horizontalInset = size.width < 720 ? 10.0 : 32.0;
+    final verticalInset = size.height < 720 ? 10.0 : 24.0;
+    final availableWidth = size.width - horizontalInset * 2;
+    final availableHeight = size.height - verticalInset * 2;
+    final dialogWidth =
+        (availableWidth > 1180 ? 1180.0 : availableWidth.clamp(320.0, 1180.0))
+            .toDouble();
+    final dialogHeight =
+        (availableHeight > 820 ? 820.0 : availableHeight.clamp(420.0, 820.0))
+            .toDouble();
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
+    return Dialog(
+      insetPadding: EdgeInsets.symmetric(
+        horizontal: horizontalInset,
+        vertical: verticalInset,
+      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      clipBehavior: Clip.antiAlias,
+      child: SizedBox(
+        width: dialogWidth,
+        height: dialogHeight,
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            _buildHeader(context),
+            _buildToolbar(context),
+            Expanded(
+              child: Container(
+                color: const Color(0xFFF4F6F7),
+                padding: const EdgeInsets.all(18),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isNarrow = constraints.maxWidth < 900;
+                    if (isNarrow) {
+                      return SingleChildScrollView(
+                        child: Column(
+                          children: [
+                            _buildDocumentEditor(expandContent: false),
+                            const SizedBox(height: 14),
+                            _buildSettingPanel(),
+                          ],
+                        ),
+                      );
+                    }
+
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(
+                          child: _buildDocumentEditor(expandContent: true),
+                        ),
+                        const SizedBox(width: 16),
+                        SizedBox(
+                          width: 310,
+                          child: _buildSettingPanel(),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 14, 14, 14),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: Color(0xFFE3E8EA))),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: const Color(0xFFE8F5EF),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(
+              Icons.article_outlined,
+              color: Color(0xFF216B57),
+              size: 21,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(icon, color: const Color(0xFF216B57)),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w900,
-                    ),
+                Text(
+                  widget.isEditing ? '編輯文章' : '新增文章',
+                  style: const TextStyle(
+                    color: Color(0xFF20342E),
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
                   ),
                 ),
-                FilledButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(Icons.add),
-                  label: Text(actionLabel),
+                const SizedBox(height: 2),
+                const Text(
+                  '文章編輯器',
+                  style: TextStyle(
+                    color: Color(0xFF6B7A74),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            if (isCompact)
-              Column(
-                children: [
-                  for (final row in rows)
-                    Container(
-                      width: double.infinity,
-                      margin: const EdgeInsets.only(bottom: 12),
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF8FAFA),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFFE4E8EA)),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            row.first,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          for (var index = 1; index < row.length; index++)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 4),
-                              child: Text('${columns[index]}：${row[index]}'),
-                            ),
-                        ],
-                      ),
-                    ),
-                ],
-              )
-            else
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: DataTable(
-                  headingRowColor:
-                      WidgetStateProperty.all(const Color(0xFFF5F7F8)),
-                  columns: [
-                    for (final column in columns)
-                      DataColumn(label: Text(column)),
-                    const DataColumn(label: Text('操作')),
-                  ],
-                  rows: [
-                    for (final row in rows)
-                      DataRow(
-                        cells: [
-                          for (final cell in row) DataCell(Text(cell)),
-                          const DataCell(
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                OutlinedButton(
-                                  onPressed: null,
-                                  child: Text('編輯'),
-                                ),
-                                SizedBox(width: 8),
-                                FilledButton.tonal(
-                                  onPressed: null,
-                                  child: Text('預覽'),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                  ],
-                ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('取消'),
+          ),
+          const SizedBox(width: 8),
+          FilledButton.icon(
+            onPressed: _submit,
+            icon: Icon(widget.isEditing ? Icons.save_outlined : Icons.add),
+            label: Text(widget.isEditing ? '儲存' : '建立'),
+          ),
+          const SizedBox(width: 4),
+          IconButton(
+            tooltip: '關閉',
+            onPressed: () => Navigator.of(context).pop(),
+            icon: const Icon(Icons.close),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildToolbar(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+      decoration: const BoxDecoration(
+        color: Color(0xFFFAFBFB),
+        border: Border(bottom: BorderSide(color: Color(0xFFE3E8EA))),
+      ),
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          _NewsEditorToolButton(
+            tooltip: '粗體',
+            icon: Icons.format_bold,
+            onPressed: () => _wrapSelection('**', '**', '重點文字'),
+          ),
+          _NewsEditorToolButton(
+            tooltip: '斜體',
+            icon: Icons.format_italic,
+            onPressed: () => _wrapSelection('_', '_', '斜體文字'),
+          ),
+          _NewsEditorToolButton(
+            tooltip: '小標題',
+            icon: Icons.format_size,
+            onPressed: () => _insertBlock('## 小標題\n'),
+          ),
+          _NewsEditorToolButton(
+            tooltip: '項目清單',
+            icon: Icons.format_list_bulleted,
+            onPressed: () => _insertBlock('- 清單項目\n'),
+          ),
+          _NewsEditorToolButton(
+            tooltip: '編號清單',
+            icon: Icons.format_list_numbered,
+            onPressed: () => _insertBlock('1. 清單項目\n'),
+          ),
+          _NewsEditorToolButton(
+            tooltip: '引用',
+            icon: Icons.format_quote,
+            onPressed: () => _insertBlock('> 引用內容\n'),
+          ),
+          _NewsEditorToolButton(
+            tooltip: '插入連結',
+            icon: Icons.link_outlined,
+            onPressed: () =>
+                _wrapSelection('[', '](https://example.com)', '連結文字'),
+          ),
+          _NewsEditorToolButton(
+            tooltip: '插入圖片',
+            icon: Icons.image_outlined,
+            onPressed: () => _insertBlock('![圖片說明](https://image-url)\n'),
+          ),
+          _NewsEditorToolButton(
+            tooltip: '分隔線',
+            icon: Icons.horizontal_rule,
+            onPressed: () => _insertBlock('---\n'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDocumentEditor({required bool expandContent}) {
+    final contentField = TextField(
+      controller: widget.contentController,
+      focusNode: _contentFocusNode,
+      minLines: expandContent ? null : 14,
+      maxLines: expandContent ? null : 24,
+      expands: expandContent,
+      textAlignVertical:
+          expandContent ? TextAlignVertical.top : TextAlignVertical.center,
+      decoration: const InputDecoration(
+        labelText: '文章內容',
+        alignLabelWithHint: true,
+        border: OutlineInputBorder(),
+        filled: true,
+        fillColor: Colors.white,
+      ),
+      style: const TextStyle(
+        color: Color(0xFF25352F),
+        fontSize: 16,
+        height: 1.65,
+      ),
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE0E5E7)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x12000000),
+            offset: Offset(0, 12),
+            blurRadius: 26,
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            controller: widget.titleController,
+            maxLines: 2,
+            decoration: const InputDecoration(
+              labelText: '文章標題',
+              hintText: '輸入文章標題',
+              border: UnderlineInputBorder(),
+            ),
+            style: const TextStyle(
+              color: Color(0xFF20342E),
+              fontSize: 25,
+              fontWeight: FontWeight.w900,
+              height: 1.25,
+            ),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: widget.summaryController,
+            minLines: 2,
+            maxLines: 4,
+            decoration: const InputDecoration(
+              labelText: '摘要',
+              alignLabelWithHint: true,
+              border: OutlineInputBorder(),
+              filled: true,
+              fillColor: Color(0xFFFAFBFB),
+            ),
+            style: const TextStyle(
+              color: Color(0xFF42524D),
+              fontSize: 14,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 16),
+          if (expandContent) Expanded(child: contentField) else contentField,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSettingPanel() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE0E5E7)),
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              '文章設定',
+              style: TextStyle(
+                color: Color(0xFF20342E),
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
               ),
+            ),
+            const SizedBox(height: 12),
+            if (_formError != null) ...[
+              _InlineError(message: _formError!),
+              const SizedBox(height: 12),
+            ],
+            TextField(
+              controller: widget.sourceController,
+              decoration: const InputDecoration(
+                labelText: '來源',
+                prefixIcon: Icon(Icons.source_outlined),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: widget.categoryController,
+              decoration: const InputDecoration(
+                labelText: '分類',
+                prefixIcon: Icon(Icons.category_outlined),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: widget.dateController,
+              decoration: const InputDecoration(
+                labelText: '發布日期',
+                helperText: '例如 2026/06/11 或 2026/06',
+                prefixIcon: Icon(Icons.event_outlined),
+              ),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<backend.VeevaContentStatus>(
+              value: _status,
+              decoration: const InputDecoration(
+                labelText: '發布狀態',
+                prefixIcon: Icon(Icons.flag_outlined),
+              ),
+              items: [
+                for (final item in backend.VeevaContentStatus.values)
+                  DropdownMenuItem(
+                    value: item,
+                    child: Text(_contentStatusLabel(item)),
+                  ),
+              ],
+              onChanged: (value) {
+                if (value == null) {
+                  return;
+                }
+                setState(() => _status = value);
+              },
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: widget.imageController,
+              keyboardType: TextInputType.url,
+              decoration: const InputDecoration(
+                labelText: '封面圖片網址',
+                prefixIcon: Icon(Icons.image_outlined),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: widget.externalUrlController,
+              keyboardType: TextInputType.url,
+              decoration: const InputDecoration(
+                labelText: '外部連結',
+                prefixIcon: Icon(Icons.link_outlined),
+              ),
+            ),
           ],
+        ),
+      ),
+    );
+  }
+
+  void _submit() {
+    final title = widget.titleController.text.trim();
+    final summary = widget.summaryController.text.trim();
+    final content = widget.contentController.text.trim();
+    final date = widget.dateController.text.trim();
+    final imageUrl = _optionalText(widget.imageController.text);
+    final externalUrl = _optionalText(widget.externalUrlController.text);
+
+    if (title.isEmpty || summary.isEmpty) {
+      setState(() => _formError = '請至少填寫文章標題與摘要。');
+      return;
+    }
+    if (date.isEmpty) {
+      setState(() => _formError = '請填寫發布日期。');
+      return;
+    }
+    if (imageUrl != null && !_isHttpUrl(imageUrl)) {
+      setState(() => _formError = '封面圖片網址需要是 http 或 https 開頭。');
+      return;
+    }
+    if (externalUrl != null && !_isHttpUrl(externalUrl)) {
+      setState(() => _formError = '外部連結需要是 http 或 https 開頭。');
+      return;
+    }
+
+    final news = backend.VeevaNews(
+      id: widget.newsItem?.id ?? createVeevaId('news'),
+      date: date,
+      source: _fallbackText(widget.sourceController.text, 'Veeva'),
+      title: title,
+      summary: summary,
+      status: _status,
+      category: _optionalText(widget.categoryController.text),
+      imageUrl: imageUrl,
+      content: content.isEmpty ? summary : content,
+      externalUrl: externalUrl,
+    );
+    Navigator.of(context).pop(news);
+  }
+
+  void _insertBlock(String block) {
+    final controller = widget.contentController;
+    final text = controller.text;
+    final (:start, :end) = _normalizedSelection(controller.selection, text);
+    final needsLeadingBreak =
+        start > 0 && !text.substring(0, start).endsWith('\n');
+    final needsTrailingBreak =
+        end < text.length && !text.substring(end).startsWith('\n');
+    final replacement = [
+      if (needsLeadingBreak) '\n',
+      block,
+      if (needsTrailingBreak) '\n',
+    ].join();
+    final updated = text.replaceRange(start, end, replacement);
+    controller.value = TextEditingValue(
+      text: updated,
+      selection: TextSelection.collapsed(offset: start + replacement.length),
+    );
+    _contentFocusNode.requestFocus();
+  }
+
+  void _wrapSelection(String prefix, String suffix, String placeholder) {
+    final controller = widget.contentController;
+    final text = controller.text;
+    final (:start, :end) = _normalizedSelection(controller.selection, text);
+    final selected = start == end ? placeholder : text.substring(start, end);
+    final replacement = '$prefix$selected$suffix';
+    controller.value = TextEditingValue(
+      text: text.replaceRange(start, end, replacement),
+      selection: TextSelection(
+        baseOffset: start + prefix.length,
+        extentOffset: start + prefix.length + selected.length,
+      ),
+    );
+    _contentFocusNode.requestFocus();
+  }
+
+  ({int start, int end}) _normalizedSelection(
+    TextSelection selection,
+    String text,
+  ) {
+    var start = selection.start;
+    var end = selection.end;
+    if (!selection.isValid || start < 0 || end < 0) {
+      start = text.length;
+      end = text.length;
+    }
+    if (start > end) {
+      final previousStart = start;
+      start = end;
+      end = previousStart;
+    }
+    start = start.clamp(0, text.length).toInt();
+    end = end.clamp(0, text.length).toInt();
+    return (start: start, end: end);
+  }
+}
+
+class _NewsEditorToolButton extends StatelessWidget {
+  const _NewsEditorToolButton({
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 38,
+      height: 38,
+      child: IconButton(
+        tooltip: tooltip,
+        onPressed: onPressed,
+        icon: Icon(icon, size: 20),
+        style: IconButton.styleFrom(
+          foregroundColor: const Color(0xFF30443D),
+          backgroundColor: Colors.white,
+          side: const BorderSide(color: Color(0xFFDCE4E1)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
       ),
     );
