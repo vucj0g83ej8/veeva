@@ -475,6 +475,8 @@ class _LargeMemberRepository extends DemoVeevaRepository {
           ),
       ],
       adminUsers: const [],
+      activityRecords: const [],
+      memberRewards: const [],
     );
   }
 }
@@ -526,6 +528,8 @@ class _SingleActivityRepository extends DemoVeevaRepository {
       reviews: const [],
       members: const [],
       adminUsers: const [],
+      activityRecords: const [],
+      memberRewards: const [],
     );
   }
 }
@@ -553,6 +557,8 @@ class _SingleNewsRepository extends DemoVeevaRepository {
       reviews: [],
       members: [],
       adminUsers: [],
+      activityRecords: [],
+      memberRewards: [],
     );
   }
 

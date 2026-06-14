@@ -15,8 +15,15 @@ class AdminLineConfig {
   factory AdminLineConfig.fromEnvironment() {
     const adminLiffId = String.fromEnvironment('ADMIN_LIFF_ID');
     const sharedLiffId = String.fromEnvironment('LIFF_ID');
+    const defaultAdminLiffId = '2010298394-CWB7Tlp4';
+    final resolvedLiffId = adminLiffId.trim().isNotEmpty
+        ? adminLiffId
+        : sharedLiffId.trim().isNotEmpty
+            ? sharedLiffId
+            : defaultAdminLiffId;
+
     return AdminLineConfig(
-      liffId: adminLiffId.trim().isNotEmpty ? adminLiffId : sharedLiffId,
+      liffId: resolvedLiffId,
       withLoginOnExternalBrowser: const bool.fromEnvironment(
         'ADMIN_LIFF_AUTO_LOGIN',
         defaultValue: false,

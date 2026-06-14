@@ -832,6 +832,8 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       permissions: ['members', 'activities', 'news', 'rewards', 'settings'],
     ),
   ];
+  final activityRecords = <backend.VeevaActivityRecord>[];
+  final memberRewards = <backend.VeevaMemberReward>[];
 
   @override
   void initState() {
@@ -874,6 +876,16 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
           adminUsers
             ..clear()
             ..addAll(bootstrap.adminUsers);
+        }
+        if (shouldUseBackendUserData || bootstrap.activityRecords.isNotEmpty) {
+          activityRecords
+            ..clear()
+            ..addAll(bootstrap.activityRecords);
+        }
+        if (shouldUseBackendUserData || bootstrap.memberRewards.isNotEmpty) {
+          memberRewards
+            ..clear()
+            ..addAll(bootstrap.memberRewards);
         }
         isLoading = false;
       });
@@ -994,6 +1006,10 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       AdminTab.rewardDistribution => _RewardDistributionManagement(
           activities: activities,
           rewards: rewards,
+          members: members,
+          activityRecords: activityRecords,
+          memberRewards: memberRewards,
+          onGrantReward: _grantRewardToMember,
         ),
       AdminTab.news => _NewsManagement(
           news: news,
@@ -1085,6 +1101,8 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       title: activity.title,
       description: activity.description,
       reward: activity.reward,
+      completionRewardId: activity.completionRewardId,
+      referrerRewardId: activity.referrerRewardId,
       status: backend.VeevaContentStatus.published,
       active: !activity.active,
       periodText: activity.periodText,
@@ -1103,6 +1121,8 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       title: activity.title,
       description: activity.description,
       reward: activity.reward,
+      completionRewardId: activity.completionRewardId,
+      referrerRewardId: activity.referrerRewardId,
       status: backend.VeevaContentStatus.archived,
       active: false,
       periodText: activity.periodText,
@@ -1141,10 +1161,19 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
     final rewardOptions = rewards
         .where((reward) => reward.status != RewardStatus.expired)
         .toList();
-    var selectedRewardId = activity?.rewardId;
-    if (selectedRewardId == null && !isEditing && rewardOptions.isNotEmpty) {
-      selectedRewardId = rewardOptions.first.id;
-      rewardController.text = rewardOptions.first.name;
+    var selectedCompletionRewardId = activity?.completionRewardId;
+    var selectedReferrerRewardId = activity?.referrerRewardId;
+    var enableReferrerReward = selectedReferrerRewardId != null &&
+        selectedReferrerRewardId.trim().isNotEmpty;
+    if ((rewardController.text.trim().isEmpty ||
+            rewardController.text == '咖啡券') &&
+        selectedCompletionRewardId != null) {
+      for (final reward in rewardOptions) {
+        if (reward.id == selectedCompletionRewardId) {
+          rewardController.text = reward.name;
+          break;
+        }
+      }
     }
     final periodController =
         TextEditingController(text: activity?.periodText ?? '');
@@ -1164,6 +1193,18 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            String rewardNameFor(String? rewardId) {
+              if (rewardId == null || rewardId.trim().isEmpty) {
+                return '不發放';
+              }
+              for (final reward in rewardOptions) {
+                if (reward.id == rewardId) {
+                  return reward.name;
+                }
+              }
+              return rewardId;
+            }
+
             backend.VeevaActivity buildActivity({required bool draft}) {
               final isDraft = draft && !isEditing;
               final title = _fallbackText(
@@ -1190,7 +1231,9 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                 title: title,
                 description: description,
                 reward: reward,
-                rewardId: selectedRewardId,
+                completionRewardId: selectedCompletionRewardId,
+                referrerRewardId:
+                    enableReferrerReward ? selectedReferrerRewardId : null,
                 status: active && !isDraft
                     ? backend.VeevaContentStatus.published
                     : savedStatus,
@@ -1213,12 +1256,22 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                 return false;
               }
               if (!draft &&
-                  activityType == backend.VeevaActivityType.survey &&
-                  (selectedRewardId == null ||
-                      selectedRewardId!.isEmpty ||
-                      !rewardOptions
-                          .any((reward) => reward.id == selectedRewardId))) {
-                setDialogState(() => formError = '問卷活動需要選擇完成後要發放的兌換券。');
+                  selectedCompletionRewardId != null &&
+                  selectedCompletionRewardId!.isNotEmpty &&
+                  !rewardOptions.any(
+                    (reward) => reward.id == selectedCompletionRewardId,
+                  )) {
+                setDialogState(() => formError = '請選擇正確的完成任務獎勵兌換券。');
+                return false;
+              }
+              if (!draft &&
+                  enableReferrerReward &&
+                  (selectedReferrerRewardId == null ||
+                      selectedReferrerRewardId!.isEmpty ||
+                      !rewardOptions.any(
+                        (reward) => reward.id == selectedReferrerRewardId,
+                      ))) {
+                setDialogState(() => formError = '請選擇邀請者加碼獎勵兌換券。');
                 return false;
               }
               if (!draft &&
@@ -1274,8 +1327,13 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                             const SizedBox(height: 14),
                             _ActivityDetailLine(
                               icon: Icons.redeem_outlined,
-                              label: '獎勵',
-                              value: preview.reward,
+                              label: '完成獎勵',
+                              value: rewardNameFor(preview.completionRewardId),
+                            ),
+                            _ActivityDetailLine(
+                              icon: Icons.group_add_outlined,
+                              label: '邀請者獎勵',
+                              value: rewardNameFor(preview.referrerRewardId),
                             ),
                             _ActivityDetailLine(
                               icon: _activityTypeIcon(preview.type),
@@ -1457,22 +1515,13 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                                               rewardController.text = '活動報名';
                                             }
                                             if (value ==
-                                                backend.VeevaActivityType
-                                                    .registration) {
-                                              selectedRewardId = null;
-                                            } else if (selectedRewardId ==
-                                                    null &&
-                                                rewardOptions.isNotEmpty) {
-                                              selectedRewardId =
-                                                  rewardOptions.first.id;
-                                              rewardController.text =
-                                                  rewardOptions.first.name;
-                                              if (surveyUrlController.text
-                                                  .trim()
-                                                  .isEmpty) {
-                                                surveyUrlController.text =
-                                                    defaultVeevaSurveyUrl;
-                                              }
+                                                    backend.VeevaActivityType
+                                                        .survey &&
+                                                surveyUrlController.text
+                                                    .trim()
+                                                    .isEmpty) {
+                                              surveyUrlController.text =
+                                                  defaultVeevaSurveyUrl;
                                             }
                                           });
                                         },
@@ -1627,46 +1676,47 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                                         const SizedBox(height: 16),
                                         periodField,
                                       ],
-                                      const SizedBox(height: 16),
-                                      SizedBox(
-                                        width: twoColumns
-                                            ? constraints.maxWidth / 2 - 13
-                                            : double.infinity,
+                                      const SizedBox(height: 18),
+                                      const _ActivityFieldLabel(
+                                        text: '獎勵設定',
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.all(16),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFF8FAFA),
+                                          border: Border.all(
+                                            color: const Color(0xFFE3E8E6),
+                                          ),
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                        ),
                                         child: Column(
                                           crossAxisAlignment:
-                                              CrossAxisAlignment.start,
+                                              CrossAxisAlignment.stretch,
                                           children: [
-                                            const _ActivityFieldLabel(
-                                              text: '完成後發放兌換券',
-                                            ),
                                             DropdownButtonFormField<String>(
-                                              value: selectedRewardId != null &&
+                                              value: selectedCompletionRewardId !=
+                                                          null &&
                                                       rewardOptions.any(
                                                         (reward) =>
                                                             reward.id ==
-                                                            selectedRewardId,
+                                                            selectedCompletionRewardId,
                                                       )
-                                                  ? selectedRewardId
+                                                  ? selectedCompletionRewardId
                                                   : noRewardValue,
                                               decoration:
                                                   _activityInputDecoration(
-                                                hintText: '請選擇兌換券（選填）',
+                                                labelText: '完成任務獎勵',
+                                                hintText: '不發放兌換券',
                                                 icon: Icons
                                                     .confirmation_number_outlined,
                                                 helperText:
-                                                    '選擇後，會員完成活動即可獲得兌換券。',
+                                                    '會員完成活動或問卷後，發放給會員本人。',
                                               ),
                                               items: [
-                                                DropdownMenuItem(
+                                                const DropdownMenuItem(
                                                   value: noRewardValue,
-                                                  child: Text(
-                                                    activityType ==
-                                                            backend
-                                                                .VeevaActivityType
-                                                                .survey
-                                                        ? '請選擇兌換券（選填）'
-                                                        : '不發放兌換券',
-                                                  ),
+                                                  child: Text('不發放兌換券'),
                                                 ),
                                                 for (final reward
                                                     in rewardOptions)
@@ -1681,7 +1731,8 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                                                 if (value == null) return;
                                                 if (value == noRewardValue) {
                                                   setDialogState(() {
-                                                    selectedRewardId = null;
+                                                    selectedCompletionRewardId =
+                                                        null;
                                                   });
                                                   return;
                                                 }
@@ -1691,12 +1742,83 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                                                       reward.id == value,
                                                 );
                                                 setDialogState(() {
-                                                  selectedRewardId = value;
+                                                  selectedCompletionRewardId =
+                                                      value;
                                                   rewardController.text =
                                                       selectedReward.name;
                                                 });
                                               },
                                             ),
+                                            const SizedBox(height: 14),
+                                            SwitchListTile.adaptive(
+                                              contentPadding: EdgeInsets.zero,
+                                              value: enableReferrerReward,
+                                              activeColor:
+                                                  const Color(0xFF0D7A57),
+                                              title: const Text(
+                                                '啟用邀請者加碼獎勵',
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.w900,
+                                                ),
+                                              ),
+                                              subtitle: const Text(
+                                                '朋友透過邀請連結加入並完成此活動後，發放給原邀請者。',
+                                              ),
+                                              onChanged: (value) {
+                                                setDialogState(() {
+                                                  enableReferrerReward = value;
+                                                  if (!value) {
+                                                    selectedReferrerRewardId =
+                                                        null;
+                                                  }
+                                                });
+                                              },
+                                            ),
+                                            if (enableReferrerReward) ...[
+                                              const SizedBox(height: 10),
+                                              DropdownButtonFormField<String>(
+                                                value: selectedReferrerRewardId !=
+                                                            null &&
+                                                        rewardOptions.any(
+                                                          (reward) =>
+                                                              reward.id ==
+                                                              selectedReferrerRewardId,
+                                                        )
+                                                    ? selectedReferrerRewardId
+                                                    : noRewardValue,
+                                                decoration:
+                                                    _activityInputDecoration(
+                                                  labelText: '邀請者加碼獎勵',
+                                                  hintText: '請選擇兌換券',
+                                                  icon:
+                                                      Icons.group_add_outlined,
+                                                  helperText: '只有啟用二段式獎勵時才會發放。',
+                                                ),
+                                                items: [
+                                                  const DropdownMenuItem(
+                                                    value: noRewardValue,
+                                                    child: Text('請選擇兌換券'),
+                                                  ),
+                                                  for (final reward
+                                                      in rewardOptions)
+                                                    DropdownMenuItem(
+                                                      value: reward.id,
+                                                      child: Text(
+                                                        '${reward.name}（${reward.category}）',
+                                                      ),
+                                                    ),
+                                                ],
+                                                onChanged: (value) {
+                                                  if (value == null) return;
+                                                  setDialogState(() {
+                                                    selectedReferrerRewardId =
+                                                        value == noRewardValue
+                                                            ? null
+                                                            : value;
+                                                  });
+                                                },
+                                              ),
+                                            ],
                                           ],
                                         ),
                                       ),
@@ -2025,6 +2147,12 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
           referredByMemberId: member.referredByMemberId,
           referredByShareCode: member.referredByShareCode,
           referredAt: member.referredAt,
+          referralRewardGrantedActivityId:
+              member.referralRewardGrantedActivityId,
+          referralRewardGrantedRewardId: member.referralRewardGrantedRewardId,
+          referralRewardGrantedReferrerId:
+              member.referralRewardGrantedReferrerId,
+          referralRewardGrantedAt: member.referralRewardGrantedAt,
           isAdmin: isActive,
           adminRole: isActive ? adminUser.role.name : null,
           updatedAt: member.updatedAt,
@@ -2098,6 +2226,10 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
     required AdminRewardItem reward,
     required int quantity,
     String? note,
+    backend.VeevaActivity? activity,
+    backend.VeevaMember? sourceMember,
+    String source = 'manualAdmin',
+    bool preventDuplicate = false,
   }) async {
     if (quantity <= 0) {
       setState(() => backendError = '發送兌換券失敗：數量必須大於 0。');
@@ -2109,6 +2241,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
     }
 
     final previousMembers = [...members];
+    final previousMemberRewards = [...memberRewards];
     final previousRewards = [
       for (final item in rewards)
         item.copyWith(
@@ -2129,6 +2262,34 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       stock: reward.stock - quantity,
       issued: reward.issued + quantity,
     );
+    final now = DateTime.now();
+    final newMemberRewards = [
+      for (var index = 0; index < quantity; index += 1)
+        backend.VeevaMemberReward(
+          id: activity == null && quantity != 1
+              ? '${member.id}-${reward.id}-${now.millisecondsSinceEpoch}-$index'
+              : _rewardGrantDocumentId(
+                  memberId: member.id,
+                  rewardId: reward.id,
+                  activityId:
+                      activity?.id ?? now.millisecondsSinceEpoch.toString(),
+                  source: source,
+                  sourceMemberId: sourceMember?.id,
+                ),
+          memberId: member.id,
+          rewardId: reward.id,
+          rewardName: reward.name,
+          rewardImageUrl: reward.imageUrl,
+          status: 'issued',
+          source: source,
+          activityId: activity?.id,
+          activityTitle: activity?.title,
+          sourceMemberId: sourceMember?.id,
+          sourceMemberName: sourceMember?.name,
+          issuedAt: now,
+          expiresAt: _parseAdminDate(reward.expiresAt),
+        ),
+    ];
 
     setState(() {
       final memberIndex = members.indexWhere((item) => item.id == member.id);
@@ -2139,6 +2300,25 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       if (rewardIndex != -1) {
         rewards[rewardIndex] = updatedReward;
       }
+      memberRewards.removeWhere(
+        (item) => newMemberRewards.any((newItem) => newItem.id == item.id),
+      );
+      memberRewards.addAll(newMemberRewards);
+      if (source == 'referralActivityCompletion' &&
+          sourceMember != null &&
+          activity != null) {
+        final sourceMemberIndex =
+            members.indexWhere((item) => item.id == sourceMember.id);
+        if (sourceMemberIndex != -1) {
+          members[sourceMemberIndex] = _memberWithReferralRewardGranted(
+            members[sourceMemberIndex],
+            activityId: activity.id,
+            rewardId: reward.id,
+            referrerId: member.id,
+            grantedAt: now,
+          );
+        }
+      }
       backendError = null;
     });
 
@@ -2148,6 +2328,10 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
         reward: reward.toBackend(),
         quantity: quantity,
         note: note,
+        activity: activity,
+        sourceMember: sourceMember,
+        source: source,
+        preventDuplicate: preventDuplicate,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2160,6 +2344,9 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
         members
           ..clear()
           ..addAll(previousMembers);
+        memberRewards
+          ..clear()
+          ..addAll(previousMemberRewards);
         rewards
           ..clear()
           ..addAll(previousRewards);
@@ -3780,11 +3967,13 @@ class _ActivityImageEmptyState extends StatelessWidget {
 
 InputDecoration _activityInputDecoration({
   required String hintText,
+  String? labelText,
   IconData? icon,
   Widget? suffixIcon,
   String? helperText,
 }) {
   return InputDecoration(
+    labelText: labelText,
     hintText: hintText,
     helperText: helperText,
     prefixIcon: icon == null ? null : Icon(icon),
@@ -6771,6 +6960,27 @@ String _adminStatusLabel(backend.VeevaAdminStatus status) {
   };
 }
 
+String _rewardGrantDocumentId({
+  required String memberId,
+  required String rewardId,
+  required String activityId,
+  required String source,
+  String? sourceMemberId,
+}) {
+  return [
+    memberId,
+    rewardId,
+    activityId,
+    source,
+    sourceMemberId ?? 'self',
+  ].map(_firestoreDocumentSegment).join('_');
+}
+
+String _firestoreDocumentSegment(String value) {
+  final segment = value.trim().replaceAll(RegExp(r'[/#?\[\]]'), '_');
+  return segment.isEmpty ? 'unknown' : segment;
+}
+
 backend.VeevaMember _memberWithSettings(
   backend.VeevaMember member, {
   required backend.VeevaMemberAccountStatus accountStatus,
@@ -6798,6 +7008,10 @@ backend.VeevaMember _memberWithSettings(
     referredByMemberId: member.referredByMemberId,
     referredByShareCode: member.referredByShareCode,
     referredAt: member.referredAt,
+    referralRewardGrantedActivityId: member.referralRewardGrantedActivityId,
+    referralRewardGrantedRewardId: member.referralRewardGrantedRewardId,
+    referralRewardGrantedReferrerId: member.referralRewardGrantedReferrerId,
+    referralRewardGrantedAt: member.referralRewardGrantedAt,
     isAdmin: isAdmin,
     adminRole: adminRole,
     updatedAt: member.updatedAt,
@@ -6829,6 +7043,48 @@ backend.VeevaMember _memberWithEarnedCoupons(
     referredByMemberId: member.referredByMemberId,
     referredByShareCode: member.referredByShareCode,
     referredAt: member.referredAt,
+    referralRewardGrantedActivityId: member.referralRewardGrantedActivityId,
+    referralRewardGrantedRewardId: member.referralRewardGrantedRewardId,
+    referralRewardGrantedReferrerId: member.referralRewardGrantedReferrerId,
+    referralRewardGrantedAt: member.referralRewardGrantedAt,
+    isAdmin: member.isAdmin,
+    adminRole: member.adminRole,
+    updatedAt: member.updatedAt,
+  );
+}
+
+backend.VeevaMember _memberWithReferralRewardGranted(
+  backend.VeevaMember member, {
+  required String activityId,
+  required String rewardId,
+  required String referrerId,
+  required DateTime grantedAt,
+}) {
+  return backend.VeevaMember(
+    id: member.id,
+    name: member.name,
+    hospital: member.hospital,
+    department: member.department,
+    status: member.status,
+    accountStatus: member.accountStatus,
+    earnedCoupons: member.earnedCoupons,
+    invitedCount: member.invitedCount,
+    shareCode: member.shareCode,
+    lineUserId: member.lineUserId,
+    avatarUrl: member.avatarUrl,
+    email: member.email,
+    lineStatusMessage: member.lineStatusMessage,
+    lineIdToken: member.lineIdToken,
+    lineIdTokenUpdatedAt: member.lineIdTokenUpdatedAt,
+    createdAt: member.createdAt,
+    lastLineLoginAt: member.lastLineLoginAt,
+    referredByMemberId: member.referredByMemberId,
+    referredByShareCode: member.referredByShareCode,
+    referredAt: member.referredAt,
+    referralRewardGrantedActivityId: activityId,
+    referralRewardGrantedRewardId: rewardId,
+    referralRewardGrantedReferrerId: referrerId,
+    referralRewardGrantedAt: grantedAt,
     isAdmin: member.isAdmin,
     adminRole: member.adminRole,
     updatedAt: member.updatedAt,
@@ -7030,20 +7286,51 @@ class _MemberStatusTab extends StatelessWidget {
   }
 }
 
-class _RewardDistributionManagement extends StatelessWidget {
+class _RewardDistributionManagement extends StatefulWidget {
   const _RewardDistributionManagement({
     required this.activities,
     required this.rewards,
+    required this.members,
+    required this.activityRecords,
+    required this.memberRewards,
+    required this.onGrantReward,
   });
 
   final List<backend.VeevaActivity> activities;
   final List<AdminRewardItem> rewards;
+  final List<backend.VeevaMember> members;
+  final List<backend.VeevaActivityRecord> activityRecords;
+  final List<backend.VeevaMemberReward> memberRewards;
+  final Future<void> Function({
+    required backend.VeevaMember member,
+    required AdminRewardItem reward,
+    required int quantity,
+    String? note,
+    backend.VeevaActivity? activity,
+    backend.VeevaMember? sourceMember,
+    String source,
+    bool preventDuplicate,
+  }) onGrantReward;
+
+  @override
+  State<_RewardDistributionManagement> createState() =>
+      _RewardDistributionManagementState();
+}
+
+class _RewardDistributionManagementState
+    extends State<_RewardDistributionManagement> {
+  Set<String> issuingParticipantIds = {};
 
   @override
   Widget build(BuildContext context) {
     final isCompact = MediaQuery.sizeOf(context).width < 760;
-    final rewardActivities =
-        activities.where((activity) => activity.rewardId != null).toList();
+    final rewardActivities = widget.activities
+        .where(
+          (activity) =>
+              activity.completionRewardId != null ||
+              activity.referrerRewardId != null,
+        )
+        .toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -7081,13 +7368,19 @@ class _RewardDistributionManagement extends StatelessWidget {
                       for (final activity in rewardActivities)
                         _DistributionActivityCard(
                           activity: activity,
-                          rewardName: _rewardNameFor(activity.rewardId),
+                          completionRewardName:
+                              _rewardNameFor(activity.completionRewardId),
+                          referrerRewardName:
+                              _rewardNameFor(activity.referrerRewardId),
+                          participantCount: _participantsFor(activity).length,
+                          issuedCount: _issuedCountFor(activity),
+                          onOpen: () => _openDistributionDialog(activity),
                         ),
                     ],
                   )
                 else
                   _FullWidthDataTable(
-                    minWidth: 860,
+                    minWidth: 1120,
                     child: DataTable(
                       horizontalMargin: 16,
                       columnSpacing: 24,
@@ -7096,8 +7389,12 @@ class _RewardDistributionManagement extends StatelessWidget {
                       columns: const [
                         DataColumn(label: Text('活動')),
                         DataColumn(label: Text('類型')),
-                        DataColumn(label: Text('發放兌換券')),
+                        DataColumn(label: Text('完成獎勵')),
+                        DataColumn(label: Text('邀請者獎勵')),
+                        DataColumn(label: Text('參加者')),
+                        DataColumn(label: Text('發放狀態')),
                         DataColumn(label: Text('狀態')),
+                        DataColumn(label: Text('操作')),
                       ],
                       rows: [
                         for (final activity in rewardActivities)
@@ -7105,8 +7402,26 @@ class _RewardDistributionManagement extends StatelessWidget {
                             cells: [
                               DataCell(_ActivityTitleCell(activity: activity)),
                               DataCell(_ActivityTypeChip(type: activity.type)),
-                              DataCell(Text(_rewardNameFor(activity.rewardId))),
+                              DataCell(
+                                Text(_rewardNameFor(
+                                    activity.completionRewardId)),
+                              ),
+                              DataCell(
+                                Text(_rewardNameFor(activity.referrerRewardId)),
+                              ),
+                              DataCell(Text(
+                                  '${_participantsFor(activity).length} 位')),
+                              DataCell(Text(_distributionTextFor(activity))),
                               DataCell(_ActivityStatusChip(activity: activity)),
+                              DataCell(
+                                FilledButton.icon(
+                                  onPressed: () =>
+                                      _openDistributionDialog(activity),
+                                  icon:
+                                      const Icon(Icons.card_giftcard_outlined),
+                                  label: const Text('發放獎勵'),
+                                ),
+                              ),
                             ],
                           ),
                       ],
@@ -7122,21 +7437,405 @@ class _RewardDistributionManagement extends StatelessWidget {
 
   String _rewardNameFor(String? rewardId) {
     if (rewardId == null) return '未設定';
-    for (final reward in rewards) {
+    for (final reward in widget.rewards) {
       if (reward.id == rewardId) return reward.name;
     }
     return rewardId;
+  }
+
+  AdminRewardItem? _rewardFor(String? rewardId) {
+    if (rewardId == null) return null;
+    for (final reward in widget.rewards) {
+      if (reward.id == rewardId) return reward;
+    }
+    return null;
+  }
+
+  List<_DistributionParticipant> _participantsFor(
+    backend.VeevaActivity activity,
+  ) {
+    final byMemberId = <String, backend.VeevaActivityRecord>{};
+    for (final record in widget.activityRecords) {
+      if (record.activityId != activity.id || record.memberId.trim().isEmpty) {
+        continue;
+      }
+      final existing = byMemberId[record.memberId];
+      if (existing == null || record.isCompleted) {
+        byMemberId[record.memberId] = record;
+      }
+    }
+    final participants = [
+      for (final record in byMemberId.values)
+        _DistributionParticipant(
+          record: record,
+          member: _memberForRecord(record),
+        ),
+    ];
+    participants.sort((a, b) {
+      if (a.record.isCompleted != b.record.isCompleted) {
+        return a.record.isCompleted ? -1 : 1;
+      }
+      return a.member.name.compareTo(b.member.name);
+    });
+    return participants;
+  }
+
+  backend.VeevaMember _memberForRecord(backend.VeevaActivityRecord record) {
+    for (final member in widget.members) {
+      if (member.id == record.memberId ||
+          member.lineUserId == record.memberLineUserId) {
+        return member;
+      }
+    }
+    return backend.VeevaMember(
+      id: record.memberId,
+      name: record.memberName,
+      hospital: '',
+      department: '',
+      status: backend.VeevaMemberStatus.loggedIn,
+      earnedCoupons: 0,
+      invitedCount: 0,
+      shareCode: record.memberId.length >= 5
+          ? record.memberId.substring(record.memberId.length - 5)
+          : record.memberId.padRight(5, 'X'),
+      lineUserId: record.memberLineUserId ?? record.memberId,
+      avatarUrl: record.memberAvatarUrl,
+    );
+  }
+
+  backend.VeevaMember _memberForId(String memberId) {
+    for (final member in widget.members) {
+      if (member.id == memberId || member.lineUserId == memberId) {
+        return member;
+      }
+    }
+    return backend.VeevaMember(
+      id: memberId,
+      name: memberId,
+      hospital: '',
+      department: '',
+      status: backend.VeevaMemberStatus.loggedIn,
+      earnedCoupons: 0,
+      invitedCount: 0,
+      shareCode: memberId.length >= 5
+          ? memberId.substring(memberId.length - 5)
+          : memberId.padRight(5, 'X'),
+      lineUserId: memberId,
+    );
+  }
+
+  int _issuedCountFor(backend.VeevaActivity activity) {
+    return _participantsFor(activity)
+        .where((participant) => _hasCompletionReward(activity, participant))
+        .length;
+  }
+
+  String _distributionTextFor(backend.VeevaActivity activity) {
+    final participants = _participantsFor(activity);
+    if (participants.isEmpty) return '尚無參加者';
+    final issued = _issuedCountFor(activity);
+    return '已發放 $issued / 待發放 ${participants.length - issued}';
+  }
+
+  bool _hasCompletionReward(
+    backend.VeevaActivity activity,
+    _DistributionParticipant participant,
+  ) {
+    final rewardId = activity.completionRewardId;
+    if (rewardId == null) return false;
+    return widget.memberRewards.any(
+      (item) =>
+          item.memberId == participant.member.id &&
+          item.rewardId == rewardId &&
+          item.activityId == activity.id &&
+          item.source == 'activityCompletion',
+    );
+  }
+
+  bool _hasReferrerReward(
+    backend.VeevaActivity activity,
+    backend.VeevaMember participant,
+  ) {
+    final rewardId = activity.referrerRewardId;
+    if (rewardId == null) return false;
+    return widget.memberRewards.any(
+      (item) =>
+          item.rewardId == rewardId &&
+          item.activityId == activity.id &&
+          item.source == 'referralActivityCompletion' &&
+          item.sourceMemberId == participant.id,
+    );
+  }
+
+  bool _referralRewardAlreadyUsed(backend.VeevaMember participant) {
+    return participant.referralRewardGrantedAt != null ||
+        participant.referralRewardGrantedActivityId != null ||
+        widget.memberRewards.any(
+          (item) =>
+              item.source == 'referralActivityCompletion' &&
+              item.sourceMemberId == participant.id,
+        );
+  }
+
+  String _referrerRewardStatus(
+    backend.VeevaActivity activity,
+    backend.VeevaMember participant,
+  ) {
+    if (activity.referrerRewardId == null) return '未設定';
+    if (participant.referredByMemberId == null ||
+        participant.referredByMemberId!.trim().isEmpty) {
+      return '無邀請者';
+    }
+    if (_hasReferrerReward(activity, participant)) {
+      return '已發放給邀請者';
+    }
+    final grantedActivityId = participant.referralRewardGrantedActivityId;
+    if (grantedActivityId != null &&
+        grantedActivityId.isNotEmpty &&
+        grantedActivityId != activity.id) {
+      return '已於其他活動觸發';
+    }
+    return '發放完成獎勵時自動處理';
+  }
+
+  Future<void> _openDistributionDialog(backend.VeevaActivity activity) async {
+    final participants = _participantsFor(activity);
+    String? formError;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text('發放獎勵：${activity.title}'),
+              content: SizedBox(
+                width: 920,
+                child: participants.isEmpty
+                    ? const _EmptyListMessage(
+                        message: '目前沒有參加者紀錄。會員報名或完成活動後會出現在這裡。',
+                      )
+                    : SingleChildScrollView(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                _ActivityTypeChip(type: activity.type),
+                                _ActivityStatusChip(activity: activity),
+                                _DistributionInfoChip(
+                                  icon: Icons.groups_outlined,
+                                  label: '${participants.length} 位參加者',
+                                ),
+                                _DistributionInfoChip(
+                                  icon: Icons.card_giftcard_outlined,
+                                  label: _distributionTextFor(activity),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 14),
+                            _FullWidthDataTable(
+                              minWidth: 860,
+                              child: DataTable(
+                                horizontalMargin: 12,
+                                columnSpacing: 18,
+                                headingRowColor: WidgetStateProperty.all(
+                                  const Color(0xFFF5F7F8),
+                                ),
+                                columns: const [
+                                  DataColumn(label: Text('參加者')),
+                                  DataColumn(label: Text('狀態')),
+                                  DataColumn(label: Text('完成獎勵')),
+                                  DataColumn(label: Text('邀請者獎勵')),
+                                  DataColumn(label: Text('操作')),
+                                ],
+                                rows: [
+                                  for (final participant in participants)
+                                    _participantRow(
+                                      activity: activity,
+                                      participant: participant,
+                                      setDialogState: setDialogState,
+                                      setFormError: (value) {
+                                        formError = value;
+                                      },
+                                    ),
+                                ],
+                              ),
+                            ),
+                            if (formError != null) ...[
+                              const SizedBox(height: 12),
+                              _InlineError(message: formError!),
+                            ],
+                          ],
+                        ),
+                      ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('關閉'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  DataRow _participantRow({
+    required backend.VeevaActivity activity,
+    required _DistributionParticipant participant,
+    required StateSetter setDialogState,
+    required ValueChanged<String?> setFormError,
+  }) {
+    final hasCompletionReward = _hasCompletionReward(activity, participant);
+    final completionReward = _rewardFor(activity.completionRewardId);
+    final isIssuing = issuingParticipantIds.contains(participant.member.id);
+    final canIssue = completionReward != null && !hasCompletionReward;
+    return DataRow(
+      cells: [
+        DataCell(_DistributionMemberCell(member: participant.member)),
+        DataCell(Text(participant.record.isCompleted ? '已完成' : '已參加')),
+        DataCell(
+          Text(
+            activity.completionRewardId == null
+                ? '未設定'
+                : hasCompletionReward
+                    ? '已發放'
+                    : completionReward == null
+                        ? '找不到兌換券'
+                        : completionReward.name,
+          ),
+        ),
+        DataCell(Text(_referrerRewardStatus(activity, participant.member))),
+        DataCell(
+          FilledButton.icon(
+            onPressed: !canIssue || isIssuing
+                ? null
+                : () async {
+                    setDialogState(() {
+                      setFormError(null);
+                      issuingParticipantIds = {
+                        ...issuingParticipantIds,
+                        participant.member.id,
+                      };
+                    });
+                    try {
+                      final bonusText = await _grantActivityReward(
+                        activity,
+                        participant.member,
+                      );
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              '已發放 ${completionReward.name} 給 ${participant.member.name}$bonusText。',
+                            ),
+                          ),
+                        );
+                      }
+                    } catch (_) {
+                      setDialogState(() {
+                        setFormError('發放失敗，請確認庫存、兌換券狀態與 Firestore 設定。');
+                      });
+                    } finally {
+                      if (mounted) {
+                        setState(() {
+                          issuingParticipantIds = {
+                            ...issuingParticipantIds,
+                          }..remove(participant.member.id);
+                        });
+                      }
+                      setDialogState(() {});
+                    }
+                  },
+            icon: isIssuing
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(
+                    hasCompletionReward
+                        ? Icons.check_circle_outline
+                        : Icons.card_giftcard_outlined,
+                  ),
+            label: Text(
+              hasCompletionReward
+                  ? '已發放'
+                  : isIssuing
+                      ? '發放中'
+                      : '發放',
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<String> _grantActivityReward(
+    backend.VeevaActivity activity,
+    backend.VeevaMember participant,
+  ) async {
+    final completionReward = _rewardFor(activity.completionRewardId);
+    if (completionReward == null) {
+      throw StateError('completion reward missing');
+    }
+    await widget.onGrantReward(
+      member: participant,
+      reward: completionReward,
+      quantity: 1,
+      note: '活動完成獎勵',
+      activity: activity,
+      source: 'activityCompletion',
+      preventDuplicate: true,
+    );
+
+    final referrerReward = _rewardFor(activity.referrerRewardId);
+    final referrerId = participant.referredByMemberId?.trim();
+    if (referrerReward == null ||
+        referrerId == null ||
+        referrerId.isEmpty ||
+        _referralRewardAlreadyUsed(participant) ||
+        _hasReferrerReward(activity, participant)) {
+      return '';
+    }
+
+    final referrer = _memberForId(referrerId);
+    await widget.onGrantReward(
+      member: referrer,
+      reward: referrerReward,
+      quantity: 1,
+      note: '邀請者加碼獎勵',
+      activity: activity,
+      sourceMember: participant,
+      source: 'referralActivityCompletion',
+      preventDuplicate: true,
+    );
+    return '，並已自動發放邀請者加碼';
   }
 }
 
 class _DistributionActivityCard extends StatelessWidget {
   const _DistributionActivityCard({
     required this.activity,
-    required this.rewardName,
+    required this.completionRewardName,
+    required this.referrerRewardName,
+    required this.participantCount,
+    required this.issuedCount,
+    required this.onOpen,
   });
 
   final backend.VeevaActivity activity;
-  final String rewardName;
+  final String completionRewardName;
+  final String referrerRewardName;
+  final int participantCount;
+  final int issuedCount;
+  final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) {
@@ -7166,9 +7865,98 @@ class _DistributionActivityCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          Text('發放兌換券：$rewardName'),
+          Text('完成獎勵：$completionRewardName'),
+          const SizedBox(height: 4),
+          Text('邀請者獎勵：$referrerRewardName'),
+          const SizedBox(height: 4),
+          Text('參加者：$participantCount 位，已發放 $issuedCount 張'),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton.icon(
+              onPressed: onOpen,
+              icon: const Icon(Icons.card_giftcard_outlined),
+              label: const Text('發放獎勵'),
+            ),
+          ),
         ],
       ),
+    );
+  }
+}
+
+class _DistributionParticipant {
+  const _DistributionParticipant({
+    required this.record,
+    required this.member,
+  });
+
+  final backend.VeevaActivityRecord record;
+  final backend.VeevaMember member;
+}
+
+class _DistributionInfoChip extends StatelessWidget {
+  const _DistributionInfoChip({
+    required this.icon,
+    required this.label,
+  });
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEAF3EA),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: const Color(0xFF216B57)),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFF216B57),
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DistributionMemberCell extends StatelessWidget {
+  const _DistributionMemberCell({required this.member});
+
+  final backend.VeevaMember member;
+
+  @override
+  Widget build(BuildContext context) {
+    final avatarUrl = member.avatarUrl;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        CircleAvatar(
+          radius: 18,
+          backgroundImage: avatarUrl == null ? null : NetworkImage(avatarUrl),
+          child: avatarUrl == null && member.name.isNotEmpty
+              ? Text(member.name.characters.first)
+              : null,
+        ),
+        const SizedBox(width: 10),
+        Flexible(
+          child: Text(
+            member.name,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w800),
+          ),
+        ),
+      ],
     );
   }
 }

@@ -48,6 +48,10 @@ abstract class VeevaRepository {
     required VeevaReward reward,
     required int quantity,
     String? note,
+    VeevaActivity? activity,
+    VeevaMember? sourceMember,
+    String source = 'manualAdmin',
+    bool preventDuplicate = false,
   });
 
   Future<String> uploadImage({
@@ -81,6 +85,10 @@ class FirestoreVeevaRepository implements VeevaRepository {
       firestore.collection('adminUsers');
   CollectionReference<Map<String, dynamic>> get _memberRewards =>
       firestore.collection('memberRewards');
+  CollectionReference<Map<String, dynamic>> get _activityRegistrations =>
+      firestore.collection('activityRegistrations');
+  CollectionReference<Map<String, dynamic>> get _activityCompletions =>
+      firestore.collection('activityCompletions');
 
   @override
   Future<VeevaBootstrap> loadBootstrap() async {
@@ -91,6 +99,9 @@ class FirestoreVeevaRepository implements VeevaRepository {
       _reviews.orderBy('completedAt', descending: true).limit(50).get(),
       _members.limit(300).get(),
       _admins.limit(100).get(),
+      _activityRegistrations.limit(300).get(),
+      _activityCompletions.limit(300).get(),
+      _memberRewards.limit(500).get(),
     ]);
 
     return VeevaBootstrap(
@@ -117,6 +128,26 @@ class FirestoreVeevaRepository implements VeevaRepository {
       adminUsers: results[5]
           .docs
           .map((doc) => VeevaAdminUser.fromMap(doc.id, doc.data()))
+          .toList(),
+      activityRecords: [
+        ...results[6].docs.map(
+              (doc) => VeevaActivityRecord.fromMap(
+                doc.id,
+                doc.data(),
+                fallbackStatus: 'registered',
+              ),
+            ),
+        ...results[7].docs.map(
+              (doc) => VeevaActivityRecord.fromMap(
+                doc.id,
+                doc.data(),
+                fallbackStatus: 'completed',
+              ),
+            ),
+      ],
+      memberRewards: results[8]
+          .docs
+          .map((doc) => VeevaMemberReward.fromMap(doc.id, doc.data()))
           .toList(),
     );
   }
@@ -196,6 +227,17 @@ class FirestoreVeevaRepository implements VeevaRepository {
           : DateTime.now(),
       createdAt: existing?.createdAt ?? DateTime.now(),
       lastLineLoginAt: DateTime.now(),
+      referredByMemberId: existing?.referredByMemberId,
+      referredByShareCode: existing?.referredByShareCode,
+      referredAt: existing?.referredAt,
+      referralRewardGrantedActivityId:
+          existing?.referralRewardGrantedActivityId,
+      referralRewardGrantedRewardId: existing?.referralRewardGrantedRewardId,
+      referralRewardGrantedReferrerId:
+          existing?.referralRewardGrantedReferrerId,
+      referralRewardGrantedAt: existing?.referralRewardGrantedAt,
+      isAdmin: existing?.isAdmin ?? false,
+      adminRole: existing?.adminRole,
     );
     final payload = member.toMap()
       ..['lastLineLoginAt'] = FieldValue.serverTimestamp()
@@ -331,6 +373,10 @@ class FirestoreVeevaRepository implements VeevaRepository {
     required VeevaReward reward,
     required int quantity,
     String? note,
+    VeevaActivity? activity,
+    VeevaMember? sourceMember,
+    String source = 'manualAdmin',
+    bool preventDuplicate = false,
   }) async {
     if (quantity <= 0) {
       throw ArgumentError.value(quantity, 'quantity', 'must be positive');
@@ -340,10 +386,41 @@ class FirestoreVeevaRepository implements VeevaRepository {
     final memberRef = _members.doc(member.id);
     final cleanNote = note?.trim();
     final issuedBatchId = DateTime.now().millisecondsSinceEpoch;
+    final normalizedSource = source.trim().isEmpty ? 'manualAdmin' : source;
+    final shouldMarkReferralReward =
+        normalizedSource == 'referralActivityCompletion' &&
+            sourceMember != null &&
+            activity != null;
+    final sourceMemberRef =
+        shouldMarkReferralReward ? _members.doc(sourceMember.id) : null;
+    final deterministicGrantId = activity == null
+        ? null
+        : _rewardGrantDocumentId(
+            memberId: member.id,
+            rewardId: reward.id,
+            activityId: activity.id,
+            source: normalizedSource,
+            sourceMemberId: sourceMember?.id,
+          );
 
     await firestore.runTransaction((transaction) async {
       final rewardSnapshot = await transaction.get(rewardRef);
       final rewardData = rewardSnapshot.data();
+      final existingGrantSnapshot =
+          preventDuplicate && deterministicGrantId != null
+              ? await transaction.get(_memberRewards.doc(deterministicGrantId))
+              : null;
+      if (existingGrantSnapshot?.exists == true) {
+        throw StateError('reward already issued');
+      }
+      final sourceMemberSnapshot = sourceMemberRef == null
+          ? null
+          : await transaction.get(sourceMemberRef);
+      final sourceMemberData = sourceMemberSnapshot?.data();
+      if (sourceMemberData?['referralRewardGrantedAt'] != null ||
+          sourceMemberData?['referralRewardGrantedActivityId'] != null) {
+        throw StateError('referral reward already granted');
+      }
       final liveStock =
           rewardData == null ? reward.stock : _readIntLike(rewardData['stock']);
       final liveStatus =
@@ -358,7 +435,9 @@ class FirestoreVeevaRepository implements VeevaRepository {
 
       for (var index = 0; index < quantity; index += 1) {
         final grantRef = _memberRewards.doc(
-          '${member.id}-${reward.id}-$issuedBatchId-$index',
+          deterministicGrantId != null && quantity == 1
+              ? deterministicGrantId
+              : '${member.id}-${reward.id}-$issuedBatchId-$index',
         );
         transaction.set(grantRef, {
           'memberId': member.id,
@@ -369,7 +448,11 @@ class FirestoreVeevaRepository implements VeevaRepository {
           'rewardCategory': reward.category,
           'rewardImageUrl': reward.imageUrl,
           'status': 'issued',
-          'source': 'manualAdmin',
+          'source': normalizedSource,
+          'activityId': activity?.id,
+          'activityTitle': activity?.title,
+          'sourceMemberId': sourceMember?.id,
+          'sourceMemberName': sourceMember?.name,
           'note': cleanNote == null || cleanNote.isEmpty ? null : cleanNote,
           'issuedAt': FieldValue.serverTimestamp(),
           'expiresAt': Timestamp.fromDate(reward.expiresAt),
@@ -393,6 +476,18 @@ class FirestoreVeevaRepository implements VeevaRepository {
             'updatedAt': FieldValue.serverTimestamp(),
           },
           SetOptions(merge: true));
+      if (sourceMemberRef != null) {
+        transaction.set(
+            sourceMemberRef,
+            {
+              'referralRewardGrantedActivityId': activity!.id,
+              'referralRewardGrantedRewardId': reward.id,
+              'referralRewardGrantedReferrerId': member.id,
+              'referralRewardGrantedAt': FieldValue.serverTimestamp(),
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true));
+      }
     });
   }
 
@@ -418,6 +513,8 @@ class DemoVeevaRepository implements VeevaRepository {
       reviews: [],
       members: [],
       adminUsers: [],
+      activityRecords: [],
+      memberRewards: [],
     );
   }
 
@@ -505,6 +602,10 @@ class DemoVeevaRepository implements VeevaRepository {
     required VeevaReward reward,
     required int quantity,
     String? note,
+    VeevaActivity? activity,
+    VeevaMember? sourceMember,
+    String source = 'manualAdmin',
+    bool preventDuplicate = false,
   }) async {}
 
   @override
@@ -535,6 +636,27 @@ int _readIntLike(Object? value) {
   return int.tryParse(value?.toString() ?? '') ?? 0;
 }
 
+String _rewardGrantDocumentId({
+  required String memberId,
+  required String rewardId,
+  required String activityId,
+  required String source,
+  String? sourceMemberId,
+}) {
+  return [
+    memberId,
+    rewardId,
+    activityId,
+    source,
+    sourceMemberId ?? 'self',
+  ].map(_firestoreDocumentSegment).join('_');
+}
+
+String _firestoreDocumentSegment(String value) {
+  final segment = value.trim().replaceAll(RegExp(r'[/#?\[\]]'), '_');
+  return segment.isEmpty ? 'unknown' : segment;
+}
+
 final defaultActivities = <VeevaActivity>[
   const VeevaActivity(
     id: 'survey-coffee',
@@ -543,7 +665,8 @@ final defaultActivities = <VeevaActivity>[
     title: '填問卷，拿咖啡券',
     description: '完成問卷並通過資格確認後，即可獲得咖啡兌換券。分享給朋友，朋友完成後你再得 1 張。',
     reward: '咖啡兌換券',
-    rewardId: 'COFFEE-8X2L',
+    completionRewardId: 'COFFEE-8X2L',
+    referrerRewardId: 'COFFEE-8X2L',
     surveyUrl: defaultVeevaSurveyUrl,
     status: VeevaContentStatus.published,
     active: true,

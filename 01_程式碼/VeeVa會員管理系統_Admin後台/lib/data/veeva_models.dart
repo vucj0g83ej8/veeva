@@ -84,6 +84,8 @@ class VeevaBootstrap {
     required this.reviews,
     required this.members,
     required this.adminUsers,
+    required this.activityRecords,
+    required this.memberRewards,
   });
 
   final List<VeevaActivity> activities;
@@ -92,6 +94,8 @@ class VeevaBootstrap {
   final List<VeevaReview> reviews;
   final List<VeevaMember> members;
   final List<VeevaAdminUser> adminUsers;
+  final List<VeevaActivityRecord> activityRecords;
+  final List<VeevaMemberReward> memberRewards;
 }
 
 class VeevaMember {
@@ -116,6 +120,10 @@ class VeevaMember {
     this.referredByMemberId,
     this.referredByShareCode,
     this.referredAt,
+    this.referralRewardGrantedActivityId,
+    this.referralRewardGrantedRewardId,
+    this.referralRewardGrantedReferrerId,
+    this.referralRewardGrantedAt,
     this.isAdmin = false,
     this.adminRole,
     this.updatedAt,
@@ -151,6 +159,13 @@ class VeevaMember {
       referredByMemberId: data['referredByMemberId']?.toString(),
       referredByShareCode: data['referredByShareCode']?.toString(),
       referredAt: _readDate(data['referredAt']),
+      referralRewardGrantedActivityId:
+          data['referralRewardGrantedActivityId']?.toString(),
+      referralRewardGrantedRewardId:
+          data['referralRewardGrantedRewardId']?.toString(),
+      referralRewardGrantedReferrerId:
+          data['referralRewardGrantedReferrerId']?.toString(),
+      referralRewardGrantedAt: _readDate(data['referralRewardGrantedAt']),
       isAdmin: data['isAdmin'] == true,
       adminRole: data['adminRole']?.toString(),
       updatedAt: _readDate(data['updatedAt']),
@@ -177,6 +192,10 @@ class VeevaMember {
   final String? referredByMemberId;
   final String? referredByShareCode;
   final DateTime? referredAt;
+  final String? referralRewardGrantedActivityId;
+  final String? referralRewardGrantedRewardId;
+  final String? referralRewardGrantedReferrerId;
+  final DateTime? referralRewardGrantedAt;
   final bool isAdmin;
   final String? adminRole;
   final DateTime? updatedAt;
@@ -205,11 +224,124 @@ class VeevaMember {
       'referredByMemberId': referredByMemberId,
       'referredByShareCode': referredByShareCode,
       'referredAt': referredAt == null ? null : Timestamp.fromDate(referredAt!),
+      'referralRewardGrantedActivityId': referralRewardGrantedActivityId,
+      'referralRewardGrantedRewardId': referralRewardGrantedRewardId,
+      'referralRewardGrantedReferrerId': referralRewardGrantedReferrerId,
+      'referralRewardGrantedAt': referralRewardGrantedAt == null
+          ? null
+          : Timestamp.fromDate(referralRewardGrantedAt!),
       'isAdmin': isAdmin,
       'adminRole': adminRole,
       'updatedAt': FieldValue.serverTimestamp(),
     };
   }
+}
+
+class VeevaActivityRecord {
+  const VeevaActivityRecord({
+    required this.id,
+    required this.activityId,
+    required this.activityTitle,
+    required this.activityType,
+    required this.memberId,
+    required this.memberName,
+    required this.status,
+    this.memberAvatarUrl,
+    this.memberLineUserId,
+    this.registeredAt,
+    this.completedAt,
+    this.updatedAt,
+  });
+
+  factory VeevaActivityRecord.fromMap(
+    String id,
+    Map<String, Object?> data, {
+    required String fallbackStatus,
+  }) {
+    return VeevaActivityRecord(
+      id: id,
+      activityId: data['activityId']?.toString() ?? '',
+      activityTitle: data['activityTitle']?.toString() ?? '未命名活動',
+      activityType: data['activityType']?.toString() ?? '',
+      memberId: data['memberId']?.toString() ?? '',
+      memberName: data['memberName']?.toString() ?? 'LINE 會員',
+      memberAvatarUrl: data['memberAvatarUrl']?.toString(),
+      memberLineUserId: data['memberLineUserId']?.toString(),
+      status: data['status']?.toString() ?? fallbackStatus,
+      registeredAt: _readDate(data['registeredAt']),
+      completedAt: _readDate(data['completedAt']),
+      updatedAt: _readDate(data['updatedAt']),
+    );
+  }
+
+  final String id;
+  final String activityId;
+  final String activityTitle;
+  final String activityType;
+  final String memberId;
+  final String memberName;
+  final String? memberAvatarUrl;
+  final String? memberLineUserId;
+  final String status;
+  final DateTime? registeredAt;
+  final DateTime? completedAt;
+  final DateTime? updatedAt;
+
+  bool get isCompleted => status == 'completed';
+}
+
+class VeevaMemberReward {
+  const VeevaMemberReward({
+    required this.id,
+    required this.memberId,
+    required this.rewardId,
+    required this.rewardName,
+    required this.status,
+    this.rewardImageUrl,
+    this.source,
+    this.activityId,
+    this.activityTitle,
+    this.sourceMemberId,
+    this.sourceMemberName,
+    this.issuedAt,
+    this.redeemedAt,
+    this.expiresAt,
+  });
+
+  factory VeevaMemberReward.fromMap(String id, Map<String, Object?> data) {
+    return VeevaMemberReward(
+      id: id,
+      memberId: data['memberId']?.toString() ?? '',
+      rewardId: data['rewardId']?.toString() ?? '',
+      rewardName: data['rewardName']?.toString() ?? '兌換券',
+      rewardImageUrl:
+          data['rewardImageUrl']?.toString() ?? data['imageUrl']?.toString(),
+      status: data['status']?.toString() ?? 'issued',
+      source: data['source']?.toString(),
+      activityId: data['activityId']?.toString(),
+      activityTitle: data['activityTitle']?.toString(),
+      sourceMemberId: data['sourceMemberId']?.toString(),
+      sourceMemberName: data['sourceMemberName']?.toString(),
+      issuedAt: _readDate(data['issuedAt']),
+      redeemedAt: _readDate(data['redeemedAt']),
+      expiresAt: _readDate(data['expiresAt']),
+    );
+  }
+
+  final String id;
+  final String memberId;
+  final String rewardId;
+  final String rewardName;
+  final String? rewardImageUrl;
+  final String status;
+  final String? source;
+  final String? activityId;
+  final String? activityTitle;
+  final String? sourceMemberId;
+  final String? sourceMemberName;
+  final DateTime? issuedAt;
+  final DateTime? redeemedAt;
+  final DateTime? expiresAt;
 }
 
 class VeevaAdminUser {
@@ -395,6 +527,8 @@ class VeevaActivity {
     required this.status,
     required this.active,
     this.rewardId,
+    this.completionRewardId,
+    this.referrerRewardId,
     this.surveyUrl,
     this.periodText,
     this.note,
@@ -412,6 +546,8 @@ class VeevaActivity {
       description: data['description']?.toString() ?? '',
       reward: data['reward']?.toString() ?? '',
       rewardId: data['rewardId']?.toString(),
+      completionRewardId: data['completionRewardId']?.toString(),
+      referrerRewardId: data['referrerRewardId']?.toString(),
       surveyUrl: data['surveyUrl']?.toString(),
       status: _readEnum(
         VeevaContentStatus.values,
@@ -432,6 +568,8 @@ class VeevaActivity {
   final String description;
   final String reward;
   final String? rewardId;
+  final String? completionRewardId;
+  final String? referrerRewardId;
   final String? surveyUrl;
   final VeevaContentStatus status;
   final bool active;
@@ -446,7 +584,9 @@ class VeevaActivity {
       'title': title,
       'description': description,
       'reward': reward,
-      'rewardId': rewardId,
+      'rewardId': null,
+      'completionRewardId': completionRewardId,
+      'referrerRewardId': referrerRewardId,
       'surveyUrl': surveyUrl,
       'status': status.name,
       'active': active,
