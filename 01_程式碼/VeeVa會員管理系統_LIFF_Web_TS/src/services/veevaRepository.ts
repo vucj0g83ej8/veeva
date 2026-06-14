@@ -6,11 +6,11 @@ import {
   increment,
   limit,
   query,
+  runTransaction,
   serverTimestamp,
   setDoc,
   Timestamp,
   where,
-  writeBatch,
 } from 'firebase/firestore'
 import { firestore } from './firebase'
 import type {
@@ -25,6 +25,21 @@ import type {
   VeevaReward,
 } from '../types/veeva'
 import { shareCodeFromId } from '../utils/shareCode'
+
+type RewardIssueSource =
+  | 'manualAdmin'
+  | 'activityCompletion'
+  | 'referralActivityCompletion'
+
+interface RewardIssueResult {
+  issued: boolean
+  reason?:
+    | 'alreadyIssued'
+    | 'missingReward'
+    | 'inactiveReward'
+    | 'expiredReward'
+    | 'outOfStock'
+}
 
 export async function loadBootstrap(): Promise<BootstrapData> {
   const [activitySnap, newsSnap, rewardSnap] = await Promise.all([
@@ -111,6 +126,34 @@ export async function upsertLineMember(input: {
   return (await loadMember(input.profile.userId)) ?? updatedMember
 }
 
+export async function updateMemberProfile(input: {
+  memberId: string
+  name: string
+  email: string
+}) {
+  const name = input.name.trim()
+  const email = input.email.trim()
+  if (!name) {
+    throw new Error('請輸入姓名')
+  }
+
+  await setDoc(
+    doc(firestore, 'members', input.memberId),
+    {
+      name,
+      email: email || null,
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true },
+  )
+
+  const updatedMember = await loadMember(input.memberId)
+  if (!updatedMember) {
+    throw new Error('會員資料更新失敗')
+  }
+  return updatedMember
+}
+
 export async function loadMemberRewards(memberId: string) {
   const rewardsSnap = await getDocs(
     query(
@@ -123,14 +166,24 @@ export async function loadMemberRewards(memberId: string) {
 }
 
 export async function loadReferralRecords(memberId: string) {
-  const referralSnap = await getDocs(
-    query(
-      collection(firestore, 'referrals'),
-      where('referrerMemberId', '==', memberId),
-      limit(50),
+  const referralCollection = collection(firestore, 'referrals')
+  const [currentSnap, legacySnap] = await Promise.all([
+    getDocs(
+      query(referralCollection, where('referrerMemberId', '==', memberId), limit(50)),
     ),
-  )
-  return referralSnap.docs.map((item) => referralFromData(item.id, item.data()))
+    getDocs(
+      query(referralCollection, where('inviterMemberId', '==', memberId), limit(50)),
+    ),
+  ])
+  const byId = new Map<string, VeevaReferralRecord>()
+  for (const item of [...currentSnap.docs, ...legacySnap.docs]) {
+    byId.set(item.id, referralFromData(item.id, item.data()))
+  }
+  return [...byId.values()].sort((a, b) => {
+    const aTime = a.createdAt?.getTime() ?? 0
+    const bTime = b.createdAt?.getTime() ?? 0
+    return bTime - aTime
+  })
 }
 
 export async function loadMemberActivityRecords(memberId: string) {
@@ -203,6 +256,205 @@ export async function registerActivity(input: {
   )
 }
 
+export async function completeActivity(input: {
+  activity: VeevaActivity
+  member: VeevaMember
+}) {
+  const completionId = firestoreDocumentId([input.member.id, input.activity.id])
+  const completionRef = doc(firestore, 'activityCompletions', completionId)
+
+  await runTransaction(firestore, async (transaction) => {
+    const completionSnapshot = await transaction.get(completionRef)
+    const completionData = completionSnapshot.data()
+    const payload: Record<string, unknown> = {
+      activityId: input.activity.id,
+      activityTitle: input.activity.title,
+      activityType: input.activity.type,
+      memberId: input.member.id,
+      memberName: input.member.name,
+      memberAvatarUrl: input.member.avatarUrl ?? null,
+      memberLineUserId: input.member.lineUserId ?? input.member.id,
+      status: 'completed',
+      surveyUrl: input.activity.surveyUrl ?? null,
+      updatedAt: serverTimestamp(),
+    }
+
+    if (!completionSnapshot.exists() || !completionData?.completedAt) {
+      payload.createdAt = serverTimestamp()
+      payload.completedAt = serverTimestamp()
+    }
+
+    transaction.set(completionRef, payload, { merge: true })
+  })
+
+  const memberReward = await issueMemberRewardForActivityCompletion(
+    input.activity,
+    input.member,
+  )
+  const referrerReward = await issueReferrerRewardForActivityCompletion(
+    input.activity,
+    input.member,
+  )
+
+  return {
+    completionId,
+    memberRewardIssued: memberReward.issued,
+    memberRewardReason: memberReward.reason,
+    referrerRewardIssued: referrerReward.issued,
+    referrerRewardReason: referrerReward.reason,
+  }
+}
+
+async function issueMemberRewardForActivityCompletion(
+  activity: VeevaActivity,
+  member: VeevaMember,
+) {
+  const rewardId = participantRewardIdFor(activity)
+  if (!rewardId) {
+    return { issued: false, reason: 'missingReward' } satisfies RewardIssueResult
+  }
+
+  return issueMemberRewardIfNeeded({
+    activity,
+    member,
+    rewardId,
+    source: 'activityCompletion',
+  })
+}
+
+async function issueReferrerRewardForActivityCompletion(
+  activity: VeevaActivity,
+  completedBy: VeevaMember,
+) {
+  const rewardId = referrerRewardIdFor(activity)
+  if (!rewardId) {
+    return { issued: false, reason: 'missingReward' } satisfies RewardIssueResult
+  }
+  if (!completedBy.referredByMemberId) {
+    return { issued: false, reason: 'missingReward' } satisfies RewardIssueResult
+  }
+
+  const referrer = await loadMember(completedBy.referredByMemberId)
+  if (!referrer) {
+    return { issued: false, reason: 'missingReward' } satisfies RewardIssueResult
+  }
+
+  const result = await issueMemberRewardIfNeeded({
+    activity,
+    member: referrer,
+    rewardId,
+    source: 'referralActivityCompletion',
+    sourceMember: completedBy,
+  })
+
+  if (result.issued) {
+    await setDoc(
+      doc(firestore, 'referrals', `${referrer.id}_${completedBy.id}`),
+      {
+        lastCompletedActivityId: activity.id,
+        lastCompletedActivityTitle: activity.title,
+        lastCompletedAt: serverTimestamp(),
+        rewardedActivityCount: increment(1),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    )
+  }
+
+  return result
+}
+
+async function issueMemberRewardIfNeeded(input: {
+  activity: VeevaActivity
+  member: VeevaMember
+  rewardId: string
+  source: RewardIssueSource
+  sourceMember?: VeevaMember
+}): Promise<RewardIssueResult> {
+  const rewardId = input.rewardId.trim()
+  if (!rewardId) {
+    return { issued: false, reason: 'missingReward' }
+  }
+
+  const rewardRef = doc(firestore, 'rewards', rewardId)
+  const memberRef = doc(firestore, 'members', input.member.id)
+  const grantRef = doc(
+    firestore,
+    'memberRewards',
+    rewardGrantDocumentId({
+      memberId: input.member.id,
+      rewardId,
+      activityId: input.activity.id,
+      source: input.source,
+      sourceMemberId: input.sourceMember?.id,
+    }),
+  )
+
+  return runTransaction(firestore, async (transaction) => {
+    const existingGrant = await transaction.get(grantRef)
+    if (existingGrant.exists()) {
+      return { issued: false, reason: 'alreadyIssued' } satisfies RewardIssueResult
+    }
+
+    const rewardSnapshot = await transaction.get(rewardRef)
+    const rewardData = rewardSnapshot.data()
+    if (!rewardSnapshot.exists() || !rewardData) {
+      return { issued: false, reason: 'missingReward' } satisfies RewardIssueResult
+    }
+
+    const reward = rewardFromData(rewardSnapshot.id, rewardData)
+    if (reward.status !== 'active') {
+      return { issued: false, reason: 'inactiveReward' } satisfies RewardIssueResult
+    }
+    if (reward.expiresAt && reward.expiresAt.getTime() < Date.now()) {
+      return { issued: false, reason: 'expiredReward' } satisfies RewardIssueResult
+    }
+    if (reward.stock <= 0) {
+      return { issued: false, reason: 'outOfStock' } satisfies RewardIssueResult
+    }
+
+    transaction.set(grantRef, {
+      memberId: input.member.id,
+      memberName: input.member.name,
+      memberLineUserId: input.member.lineUserId ?? input.member.id,
+      rewardId: reward.id,
+      rewardName: reward.name,
+      rewardCategory: reward.category,
+      rewardImageUrl: reward.imageUrl ?? null,
+      status: 'issued',
+      source: input.source,
+      activityId: input.activity.id,
+      activityTitle: input.activity.title,
+      sourceMemberId: input.sourceMember?.id ?? null,
+      sourceMemberName: input.sourceMember?.name ?? null,
+      issuedAt: serverTimestamp(),
+      expiresAt: reward.expiresAt ? Timestamp.fromDate(reward.expiresAt) : null,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    })
+
+    transaction.set(
+      memberRef,
+      {
+        earnedCoupons: increment(1),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    )
+    transaction.set(
+      rewardRef,
+      {
+        stock: increment(-1),
+        issued: increment(1),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    )
+
+    return { issued: true } satisfies RewardIssueResult
+  })
+}
+
 async function createReferralIfNeeded(member: VeevaMember, referralCode: string) {
   if (member.referredByMemberId || member.referredByShareCode) {
     return
@@ -226,42 +478,61 @@ async function createReferralIfNeeded(member: VeevaMember, referralCode: string)
   const referrer = memberFromData(referrerDoc.id, referrerDoc.data())
   const referralId = `${referrer.id}_${member.id}`
   const referralRef = doc(firestore, 'referrals', referralId)
-  const existingReferral = await getDoc(referralRef)
-  if (existingReferral.exists()) {
-    return
-  }
+  const memberRef = doc(firestore, 'members', member.id)
+  const referrerRef = doc(firestore, 'members', referrer.id)
 
-  const batch = writeBatch(firestore)
-  batch.set(
-    referralRef,
-    {
-      referrerMemberId: referrer.id,
-      referredMemberId: member.id,
-      referrerShareCode: referrer.shareCode,
-      referredName: member.name,
-      referredAvatarUrl: member.avatarUrl ?? null,
-      createdAt: serverTimestamp(),
-    },
-    { merge: true },
-  )
-  batch.set(
-    doc(firestore, 'members', member.id),
-    {
-      referredByMemberId: referrer.id,
-      referredByShareCode: referrer.shareCode,
-      referredAt: serverTimestamp(),
-    },
-    { merge: true },
-  )
-  batch.set(
-    doc(firestore, 'members', referrer.id),
-    {
-      invitedCount: increment(1),
-      updatedAt: serverTimestamp(),
-    },
-    { merge: true },
-  )
-  await batch.commit()
+  await runTransaction(firestore, async (transaction) => {
+    const [liveMemberSnapshot, existingReferral] = await Promise.all([
+      transaction.get(memberRef),
+      transaction.get(referralRef),
+    ])
+    const liveMember = liveMemberSnapshot.data()
+    if (
+      existingReferral.exists() ||
+      liveMember?.referredByMemberId ||
+      liveMember?.referredByShareCode
+    ) {
+      return
+    }
+
+    transaction.set(
+      referralRef,
+      {
+        referrerMemberId: referrer.id,
+        referredMemberId: member.id,
+        referrerShareCode: referrer.shareCode,
+        referredName: member.name,
+        referredAvatarUrl: member.avatarUrl ?? null,
+        inviterMemberId: referrer.id,
+        inviteeMemberId: member.id,
+        inviterShareCode: referrer.shareCode,
+        inviteeLineUserId: member.lineUserId ?? member.id,
+        inviteeName: member.name,
+        inviteeAvatarUrl: member.avatarUrl ?? null,
+        status: 'linked',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    )
+    transaction.set(
+      memberRef,
+      {
+        referredByMemberId: referrer.id,
+        referredByShareCode: referrer.shareCode,
+        referredAt: serverTimestamp(),
+      },
+      { merge: true },
+    )
+    transaction.set(
+      referrerRef,
+      {
+        invitedCount: increment(1),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    )
+  })
 }
 
 function memberFromData(id: string, data: Record<string, unknown>): VeevaMember {
@@ -303,6 +574,13 @@ function activityFromData(
     description: stringValue(data.description),
     reward: stringValue(data.reward, '會員獎勵'),
     rewardId: optionalString(data.rewardId),
+    participantRewardId:
+      optionalString(data.participantRewardId) ??
+      optionalString(data.completionRewardId),
+    referrerRewardId:
+      optionalString(data.referrerRewardId) ??
+      optionalString(data.referralRewardId) ??
+      optionalString(data.inviterRewardId),
     status: enumValue(data.status, 'published'),
     active: data.active === true,
     periodText: optionalString(data.periodText),
@@ -359,6 +637,14 @@ function memberRewardFromData(
     rewardImageUrl:
       optionalString(data.rewardImageUrl) ?? optionalString(data.imageUrl),
     status: enumValue(data.status, 'issued'),
+    source: enumValue<NonNullable<VeevaMemberReward['source']>>(
+      data.source,
+      'manualAdmin',
+    ),
+    activityId: optionalString(data.activityId),
+    activityTitle: optionalString(data.activityTitle),
+    sourceMemberId: optionalString(data.sourceMemberId),
+    sourceMemberName: optionalString(data.sourceMemberName),
     issuedAt: dateValue(data.issuedAt),
     redeemedAt: dateValue(data.redeemedAt),
     expiresAt: dateValue(data.expiresAt),
@@ -371,11 +657,29 @@ function referralFromData(
 ): VeevaReferralRecord {
   return {
     id,
-    referrerMemberId: stringValue(data.referrerMemberId),
-    referredMemberId: stringValue(data.referredMemberId),
-    referrerShareCode: stringValue(data.referrerShareCode),
-    referredName: stringValue(data.referredName, 'LINE 會員'),
-    referredAvatarUrl: optionalString(data.referredAvatarUrl),
+    referrerMemberId: stringValue(
+      data.referrerMemberId,
+      stringValue(data.inviterMemberId),
+    ),
+    referredMemberId: stringValue(
+      data.referredMemberId,
+      stringValue(data.inviteeMemberId),
+    ),
+    referrerShareCode: stringValue(
+      data.referrerShareCode,
+      stringValue(data.inviterShareCode),
+    ),
+    referredName: stringValue(
+      data.referredName,
+      stringValue(data.inviteeName, 'LINE 會員'),
+    ),
+    referredAvatarUrl:
+      optionalString(data.referredAvatarUrl) ??
+      optionalString(data.inviteeAvatarUrl),
+    lastCompletedActivityId: optionalString(data.lastCompletedActivityId),
+    lastCompletedActivityTitle: optionalString(data.lastCompletedActivityTitle),
+    lastCompletedAt: dateValue(data.lastCompletedAt),
+    rewardedActivityCount: numberValue(data.rewardedActivityCount),
     createdAt: dateValue(data.createdAt),
   }
 }
@@ -398,6 +702,39 @@ function activityRecordFromData(
     registeredAt: dateValue(data.registeredAt),
     completedAt: dateValue(data.completedAt),
   }
+}
+
+function participantRewardIdFor(activity: VeevaActivity) {
+  return activity.participantRewardId ?? activity.rewardId
+}
+
+function referrerRewardIdFor(activity: VeevaActivity) {
+  return activity.referrerRewardId
+}
+
+function rewardGrantDocumentId(input: {
+  memberId: string
+  rewardId: string
+  activityId: string
+  source: RewardIssueSource
+  sourceMemberId?: string
+}) {
+  return firestoreDocumentId([
+    input.memberId,
+    input.rewardId,
+    input.activityId,
+    input.source,
+    input.sourceMemberId ?? 'self',
+  ])
+}
+
+function firestoreDocumentId(parts: string[]) {
+  return parts.map(firestoreDocumentSegment).join('_')
+}
+
+function firestoreDocumentSegment(value: string) {
+  const segment = value.trim().replace(/[\/#?\[\]]/g, '_')
+  return segment || 'unknown'
 }
 
 function stringValue(value: unknown, fallback = '') {

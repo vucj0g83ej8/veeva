@@ -66,6 +66,6 @@ export function AppShell({ app, children }: AppShellProps) {
 function titleForPath(pathname: string) {
   if (pathname.startsWith('/news')) return '最新資訊'
   if (pathname.startsWith('/coupons')) return '兌換券'
-  if (pathname.startsWith('/member') || pathname.startsWith('/r/')) return '會員'
+  if (pathname.startsWith('/member') || pathname.startsWith('/r/')) return '會員中心'
   return '活動'
 }

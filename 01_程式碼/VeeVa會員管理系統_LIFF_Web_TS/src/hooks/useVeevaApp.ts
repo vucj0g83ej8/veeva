@@ -183,6 +183,41 @@ export function useVeevaApp() {
     await refreshMemberDetails(state.member)
   }, [refreshMemberDetails, state.member])
 
+  const updateMemberProfile = useCallback(
+    async (input: { name: string; email: string }) => {
+      if (!state.member) {
+        throw new Error('請先登入會員')
+      }
+      setState((current) => ({ ...current, busy: true, error: undefined }))
+      try {
+        const { updateMemberProfile: updateProfile } = await import(
+          '../services/veevaRepository'
+        )
+        const member = await updateProfile({
+          memberId: state.member.id,
+          name: input.name,
+          email: input.email,
+        })
+        setState((current) => ({
+          ...current,
+          busy: false,
+          member,
+        }))
+        await refreshMemberDetails(member)
+        return member
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        setState((current) => ({
+          ...current,
+          busy: false,
+          error: message,
+        }))
+        throw new Error(message)
+      }
+    },
+    [refreshMemberDetails, state.member],
+  )
+
   const shareInvite = useCallback(async () => {
     if (!state.member) {
       await login()
@@ -213,8 +248,18 @@ export function useVeevaApp() {
       refresh: initialize,
       refreshMemberData,
       shareInvite,
+      updateMemberProfile,
     }),
-    [disabled, initialize, login, logout, refreshMemberData, shareInvite, state],
+    [
+      disabled,
+      initialize,
+      login,
+      logout,
+      refreshMemberData,
+      shareInvite,
+      state,
+      updateMemberProfile,
+    ],
   )
 }
 

@@ -8,6 +8,7 @@ import { CouponsPage } from '../pages/CouponsPage'
 import { NewsDetailPage } from '../pages/NewsDetailPage'
 import { MemberPage } from '../pages/MemberPage'
 import { NewsPage } from '../pages/NewsPage'
+import { SurveyPage } from '../pages/SurveyPage'
 
 export function App() {
   const app = useVeevaApp()
@@ -19,6 +20,10 @@ export function App() {
         <Route path="/" element={<Navigate to="/activities" replace />} />
         <Route path="/r/:shareCode" element={<Navigate to="/member" replace />} />
         <Route path="/activities" element={<ActivitiesPage app={app} />} />
+        <Route
+          path="/activities/:activityId/survey"
+          element={<SurveyPage app={app} />}
+        />
         <Route
           path="/activities/:activityId"
           element={<ActivityDetailPage app={app} />}

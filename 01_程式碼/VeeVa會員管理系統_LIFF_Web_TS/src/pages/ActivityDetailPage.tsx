@@ -17,7 +17,7 @@ import {
   UsersRound,
 } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { VeevaAppState } from '../hooks/useVeevaApp'
 import type { VeevaActivity } from '../types/veeva'
 import { activityFlowFor } from '../utils/activityFlow'
@@ -58,8 +58,10 @@ function ActivityDetailContent({
   app: VeevaAppState
 }) {
   const flow = useMemo(() => activityFlowFor(activity), [activity])
+  const navigate = useNavigate()
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
+  const [shareBusy, setShareBusy] = useState(false)
   const statusLabel = activityStatusLabel(activity)
   const location = activity.location ?? fallbackLocation(activity)
 
@@ -71,7 +73,11 @@ function ActivityDetailContent({
         setMessage('這個問卷活動尚未設定問卷連結。')
         return
       }
-      window.open(activity.surveyUrl, '_blank', 'noopener,noreferrer')
+      if (!app.member) {
+        await app.login()
+        return
+      }
+      navigate(`/activities/${encodeURIComponent(activity.id)}/survey`)
       return
     }
 
@@ -115,37 +121,60 @@ function ActivityDetailContent({
   }
 
   async function handleShareAction() {
+    if (shareBusy) return
+
     setMessage('')
+    setShareBusy(true)
     const shareUrl = new URL(
       `/activities/${encodeURIComponent(activity.id)}`,
       window.location.origin,
     ).toString()
-    const shareData = {
-      title: activity.title,
-      text: activity.description,
-      url: shareUrl,
-    }
-    const browserNavigator = window.navigator as Navigator & {
-      clipboard?: Clipboard
-      share?: (data: ShareData) => Promise<void>
-    }
 
     try {
-      if (typeof browserNavigator.share === 'function') {
-        await browserNavigator.share(shareData)
+      setMessage('正在開啟 LINE 分享視窗...')
+      const liffShare = await import('../services/liff')
+      const shared = await liffShare.shareActivityCard(activity)
+      if (!shared) {
+        setMessage('已取消分享。')
         return
       }
-      if (!browserNavigator.clipboard) {
-        setMessage('目前無法開啟分享功能，請手動複製網址分享。')
-        return
-      }
-      await browserNavigator.clipboard.writeText(shareUrl)
-      setMessage('已複製活動連結，可以貼給朋友分享。')
+      setMessage('已開啟 LINE 分享視窗。')
+      return
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
+      if (
+        error instanceof Error &&
+        error.message === 'LINE_CARD_SHARE_UNSUPPORTED'
+      ) {
+        try {
+          await copyTextToClipboard(shareUrl)
+          setMessage(
+            '目前不是 LINE 卡片分享環境，已先複製活動連結。請在 LINE 內開啟活動頁即可分享圖文卡片。',
+          )
+        } catch {
+          setMessage(
+            `目前不是 LINE 卡片分享環境，請在 LINE 內開啟活動頁分享圖文卡片，或手動複製連結：${shareUrl}`,
+          )
+        }
         return
       }
-      setMessage('目前無法開啟分享功能，請稍後再試。')
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        setMessage('已取消分享。')
+        return
+      }
+      try {
+        await copyTextToClipboard(shareUrl)
+        setMessage(
+          error instanceof Error
+            ? `${error.message} 已先複製活動連結。`
+            : '目前無法開啟 LINE 分享功能，已先複製活動連結。',
+        )
+      } catch {
+        setMessage(
+          error instanceof Error ? error.message : '目前無法開啟 LINE 分享功能。',
+        )
+      }
+    } finally {
+      setShareBusy(false)
     }
   }
 
@@ -200,11 +229,12 @@ function ActivityDetailContent({
           </button>
           <button
             className="activity-detail-secondary-button"
+            disabled={shareBusy}
             type="button"
             onClick={() => void handleShareAction()}
           >
             <Share2 size={20} />
-            分享
+            {shareBusy ? '開啟中' : '分享'}
           </button>
         </div>
 
@@ -345,6 +375,33 @@ function noticeItemsFor(activity: VeevaActivity) {
     '活動紀錄將以系統實際完成狀態為準。',
     '如有任何問題，請聯繫主辦單位。',
   ]
+}
+
+async function copyTextToClipboard(text: string) {
+  if (window.navigator.clipboard?.writeText) {
+    try {
+      await window.navigator.clipboard.writeText(text)
+      return
+    } catch {
+      // Fall back to the legacy copy path for LINE and mobile browsers.
+    }
+  }
+
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', 'true')
+  textarea.style.position = 'fixed'
+  textarea.style.left = '-9999px'
+  textarea.style.top = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  textarea.setSelectionRange(0, textarea.value.length)
+  const copied = document.execCommand('copy')
+  textarea.remove()
+
+  if (!copied) {
+    throw new Error('目前無法複製活動連結，請手動複製網址分享。')
+  }
 }
 
 function safeDecode(value: string) {

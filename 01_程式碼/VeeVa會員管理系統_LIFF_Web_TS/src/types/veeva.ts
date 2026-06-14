@@ -55,6 +55,8 @@ export interface VeevaActivity {
   description: string
   reward: string
   rewardId?: string
+  participantRewardId?: string
+  referrerRewardId?: string
   status: VeevaContentStatus
   active: boolean
   periodText?: string
@@ -112,6 +114,11 @@ export interface VeevaMemberReward {
   rewardName: string
   rewardImageUrl?: string
   status: 'issued' | 'redeemed' | 'expired'
+  source?: 'manualAdmin' | 'activityCompletion' | 'referralActivityCompletion'
+  activityId?: string
+  activityTitle?: string
+  sourceMemberId?: string
+  sourceMemberName?: string
   issuedAt?: Date
   redeemedAt?: Date
   expiresAt?: Date
@@ -124,6 +131,10 @@ export interface VeevaReferralRecord {
   referrerShareCode: string
   referredName: string
   referredAvatarUrl?: string
+  lastCompletedActivityId?: string
+  lastCompletedActivityTitle?: string
+  lastCompletedAt?: Date
+  rewardedActivityCount?: number
   createdAt?: Date
 }
 

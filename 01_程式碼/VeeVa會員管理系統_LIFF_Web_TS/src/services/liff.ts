@@ -1,6 +1,10 @@
 import liff from '@line/liff'
-import type { LiffProfile, LiffSession } from '../types/veeva'
-import { inviteUrlForShareCode, liffId } from '../utils/inviteUrl'
+import type { LiffProfile, LiffSession, VeevaActivity } from '../types/veeva'
+import {
+  inviteUrlForShareCode,
+  liffId,
+  liffUrlForPath,
+} from '../utils/inviteUrl'
 
 const beforeLoginUrlKey = 'veeva_liff_before_login_url'
 const loginTokenKey = 'veeva_line_login_token'
@@ -12,6 +16,7 @@ const loginInfoKey = 'veeva_line_login_info'
 const tokenLifetimeMs = 60 * 60 * 1000
 const inviteImageUrl =
   'https://vevva.web.app/assets/share/coffee-member-gift-v1.png'
+export const lineCardShareUnsupportedError = 'LINE_CARD_SHARE_UNSUPPORTED'
 
 let initPromise: Promise<LiffSession> | undefined
 
@@ -114,6 +119,7 @@ export async function shareInviteCard(memberName: string, shareCode: string) {
       altText: `${memberName} 邀請你加入會員，加入送咖啡`,
       contents: {
         type: 'bubble',
+        size: 'giga',
         hero: {
           type: 'image',
           url: inviteImageUrl,
@@ -129,35 +135,52 @@ export async function shareInviteCard(memberName: string, shareCode: string) {
         body: {
           type: 'box',
           layout: 'vertical',
-          spacing: 'sm',
+          spacing: 'lg',
+          paddingAll: '24px',
+          backgroundColor: '#FFFFFF',
           contents: [
             {
               type: 'text',
               text: '加入會員送咖啡',
               weight: 'bold',
-              size: 'xl',
-              color: '#2B211A',
+              size: 'xxl',
+              color: '#5B321E',
             },
             {
               type: 'text',
-              text: `${memberName} 邀請你一起加入會員`,
+              text: `${memberName} 邀請你加入 VeeVa 會員，完成加入即可獲得咖啡好禮。`,
               wrap: true,
-              color: '#6B5A4D',
-              size: 'sm',
+              color: '#6B4A38',
+              size: 'md',
+              lineSpacing: '8px',
+            },
+            {
+              type: 'text',
+              text: '簡單加入，好禮立即送！',
+              wrap: true,
+              size: 'lg',
+              weight: 'bold',
+              color: '#98531F',
             },
           ],
         },
         footer: {
           type: 'box',
           layout: 'vertical',
+          paddingTop: '0px',
+          paddingBottom: '24px',
+          paddingStart: '24px',
+          paddingEnd: '24px',
+          backgroundColor: '#FFFFFF',
           contents: [
             {
               type: 'button',
               style: 'primary',
-              color: '#216B57',
+              height: 'md',
+              color: '#98531F',
               action: {
                 type: 'uri',
-                label: '立即加入',
+                label: '立即加入領咖啡',
                 uri: inviteUrl,
               },
             },
@@ -166,6 +189,186 @@ export async function shareInviteCard(memberName: string, shareCode: string) {
       },
     },
   ])
+}
+
+export async function shareActivityCard(activity: VeevaActivity) {
+  const session = await initializeLiff()
+  if (!session.inClient) {
+    throw new Error(lineCardShareUnsupportedError)
+  }
+  if (!session.loggedIn) {
+    throw new Error('請先使用 LINE 登入後再分享活動。')
+  }
+  if (!liff.isApiAvailable('shareTargetPicker')) {
+    throw new Error(lineCardShareUnsupportedError)
+  }
+
+  const actionLabel = activityShareButtonLabel(activity)
+  const activityUrl = liffUrlForPath(
+    `/activities/${encodeURIComponent(activity.id)}?shareTemplate=activity-card-v3`,
+  )
+  const imageUrl = activityShareImageUrl(activity)
+  const result = await liff.shareTargetPicker([
+    {
+      type: 'flex',
+      altText: `分享活動：${activity.title}`,
+      contents: {
+        type: 'bubble',
+        size: 'giga',
+        hero: {
+          type: 'image',
+          url: imageUrl,
+          size: 'full',
+          aspectRatio: '1:1',
+          aspectMode: 'cover',
+          action: {
+            type: 'uri',
+            label: actionLabel,
+            uri: activityUrl,
+          },
+        },
+        body: {
+          type: 'box',
+          layout: 'vertical',
+          spacing: 'lg',
+          paddingAll: '24px',
+          backgroundColor: '#FFFFFF',
+          contents: [
+            {
+              type: 'text',
+              text: truncateForLine(activity.title, 46),
+              wrap: true,
+              weight: 'bold',
+              size: 'xxl',
+              color: '#5B321E',
+            },
+            {
+              type: 'text',
+              text: activityShareIntro(activity),
+              wrap: true,
+              size: 'md',
+              color: '#6B4A38',
+              lineSpacing: '8px',
+            },
+            {
+              type: 'text',
+              text: activityShareHighlight(activity),
+              wrap: true,
+              size: 'lg',
+              weight: 'bold',
+              color: '#98531F',
+            },
+          ],
+        },
+        footer: {
+          type: 'box',
+          layout: 'vertical',
+          paddingTop: '0px',
+          paddingBottom: '24px',
+          paddingStart: '24px',
+          paddingEnd: '24px',
+          backgroundColor: '#FFFFFF',
+          contents: [
+            {
+              type: 'button',
+              style: 'primary',
+              height: 'md',
+              color: '#98531F',
+              action: {
+                type: 'uri',
+                label: actionLabel,
+                uri: activityUrl,
+              },
+            },
+          ],
+        },
+      },
+    },
+  ])
+  return Boolean(result)
+}
+
+function activityShareImageUrl(activity: VeevaActivity) {
+  const key = [
+    activity.id,
+    activity.type,
+    activity.title,
+    activity.description,
+    activity.imageUrl ?? '',
+  ]
+    .join(' ')
+    .toLowerCase()
+  if (key.includes('research') || key.includes('clinical')) {
+    return absoluteAssetUrl('/assets/share/activity-research.png')
+  }
+  if (
+    key.includes('education') ||
+    key.includes('workshop') ||
+    key.includes('hospital') ||
+    key.includes('checkin')
+  ) {
+    return absoluteAssetUrl('/assets/share/activity-education.png')
+  }
+  if (key.includes('safety')) {
+    return absoluteAssetUrl('/assets/share/activity-safety.png')
+  }
+  if (
+    key.includes('webinar') ||
+    key.includes('cme') ||
+    activity.type === 'survey' ||
+    activity.type === 'task' ||
+    activity.type === 'external'
+  ) {
+    return absoluteAssetUrl('/assets/share/activity-webinar.png')
+  }
+  return absoluteAssetUrl('/assets/share/activity-seminar.png')
+}
+
+function absoluteAssetUrl(path: string) {
+  return new URL(path, window.location.origin).toString()
+}
+
+function activityShareStatusText(activity: VeevaActivity) {
+  if (activity.status === 'archived' || !activity.active) return '已結束'
+  if (activity.label.includes('即將')) return '即將開始'
+  if (activity.label.includes('報名')) return '報名中'
+  if (activity.type === 'registration') return '報名中'
+  if (activity.type === 'survey') return '進行中'
+  return activity.label || '進行中'
+}
+
+function activityShareLocation(activity: VeevaActivity) {
+  if (activity.type === 'survey') return '線上問卷'
+  if (activity.type === 'external' || activity.type === 'task') return '線上活動'
+  return '活動地點待通知'
+}
+
+function activityShareIntro(activity: VeevaActivity) {
+  const status = activityShareStatusText(activity)
+  const period = activity.periodText ?? '活動時間依公告為準'
+  const location = activity.location ?? activityShareLocation(activity)
+  const description = truncateForLine(activity.description, 70)
+  return `${status}｜${period}\n${description}\n活動地點：${location}`
+}
+
+function activityShareHighlight(activity: VeevaActivity) {
+  if (activity.type === 'survey') return '完成問卷，即可依活動規則取得獎勵！'
+  if (activity.type === 'registration') return '名額有限，立即報名保留席次！'
+  if (activity.type === 'referral') return '邀請好友一起加入，享受會員好禮！'
+  return '點擊下方按鈕，立即查看活動！'
+}
+
+function activityShareButtonLabel(activity: VeevaActivity) {
+  if (activity.type === 'survey') return '立即填寫問卷'
+  if (activity.type === 'registration') return '立即報名'
+  if (activity.type === 'referral') return '立即邀請好友'
+  return '立即查看活動'
+}
+
+function truncateForLine(value: string, maxLength: number) {
+  const text = value.trim()
+  if (text.length <= maxLength) return text
+  return `${text.slice(0, maxLength - 1)}…`
 }
 
 async function initLiff(): Promise<LiffSession> {
