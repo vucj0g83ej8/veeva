@@ -177,6 +177,58 @@ export async function loadMemberRewards(memberId: string) {
   );
 }
 
+export async function redeemMemberReward(input: {
+  memberRewardId: string;
+  memberId: string;
+}) {
+  const memberRewardRef = doc(firestore, "memberRewards", input.memberRewardId);
+  await runTransaction(firestore, async (transaction) => {
+    const rewardSnapshot = await transaction.get(memberRewardRef);
+    const rewardData = rewardSnapshot.data();
+    if (!rewardSnapshot.exists() || !rewardData) {
+      throw new Error("找不到兌換券");
+    }
+    if (rewardData.memberId !== input.memberId) {
+      throw new Error("兌換券不屬於目前會員");
+    }
+    if (rewardData.status === "redeemed") {
+      return;
+    }
+    if (rewardData.status !== "issued") {
+      throw new Error("此兌換券目前無法使用");
+    }
+
+    transaction.set(
+      memberRewardRef,
+      {
+        status: "redeemed",
+        redeemedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    );
+
+    const rewardId = optionalString(rewardData.rewardId);
+    if (rewardId) {
+      transaction.set(
+        doc(firestore, "rewards", rewardId),
+        {
+          redeemed: increment(1),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+    }
+  });
+
+  const updatedSnapshot = await getDoc(memberRewardRef);
+  const updatedData = updatedSnapshot.data();
+  if (!updatedSnapshot.exists() || !updatedData) {
+    throw new Error("兌換券狀態更新失敗");
+  }
+  return memberRewardFromData(updatedSnapshot.id, updatedData);
+}
+
 export async function loadReferralRecords(memberId: string) {
   const referralCollection = collection(firestore, "referrals");
   const [currentSnap, legacySnap] = await Promise.all([

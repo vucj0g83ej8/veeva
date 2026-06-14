@@ -1,4 +1,5 @@
 :root {
+  --app-bottom-nav-space: calc(78px + env(safe-area-inset-bottom));
   color: #1f2e28;
   background: #f6f8f7;
   font-family:
@@ -1718,7 +1719,7 @@ button:disabled {
 
 .coupon-detail-overlay {
   position: fixed;
-  inset: 0;
+  inset: 0 0 var(--app-bottom-nav-space);
   z-index: 80;
   overflow-y: auto;
   background:
@@ -1728,10 +1729,9 @@ button:disabled {
 
 .coupon-detail-shell {
   width: min(100%, 520px);
-  min-height: 100svh;
+  min-height: calc(100svh - var(--app-bottom-nav-space));
   margin: 0 auto;
-  padding: max(18px, env(safe-area-inset-top)) 18px
-    max(26px, env(safe-area-inset-bottom));
+  padding: max(18px, env(safe-area-inset-top)) 18px 22px;
 }
 
 .coupon-detail-header {
@@ -1971,12 +1971,108 @@ button:disabled {
   text-align: center;
 }
 
+.coupon-use-confirm-backdrop {
+  position: fixed;
+  inset: 0 0 var(--app-bottom-nav-space);
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  background: rgba(15, 25, 21, 0.42);
+}
+
+.coupon-use-confirm-dialog {
+  width: min(100%, 360px);
+  display: grid;
+  justify-items: center;
+  gap: 13px;
+  padding: 24px 20px 18px;
+  background: #ffffff;
+  border: 1px solid #e0e8e4;
+  border-radius: 8px;
+  box-shadow: 0 18px 42px rgba(18, 33, 27, 0.22);
+  text-align: center;
+}
+
+.coupon-use-confirm-icon {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  color: #216b57;
+  background: #e8f4ef;
+  border-radius: 999px;
+}
+
+.coupon-use-confirm-dialog h3 {
+  margin: 0;
+  color: #17251f;
+  font-size: 21px;
+  line-height: 1.25;
+  font-weight: 950;
+}
+
+.coupon-use-confirm-dialog p {
+  margin: 0;
+  color: #52615c;
+  font-size: 15px;
+  line-height: 1.6;
+  font-weight: 800;
+}
+
+.coupon-use-confirm-error {
+  width: 100%;
+  padding: 9px 10px;
+  color: #9b3c2e !important;
+  background: #fff2ef;
+  border: 1px solid #f0cfc7;
+  border-radius: 8px;
+  font-size: 13px !important;
+  line-height: 1.45 !important;
+}
+
+.coupon-use-confirm-actions {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.coupon-use-confirm-cancel,
+.coupon-use-confirm-submit {
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 950;
+}
+
+.coupon-use-confirm-cancel:disabled,
+.coupon-use-confirm-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.coupon-use-confirm-cancel {
+  color: #52615c;
+  background: #ffffff;
+  border: 1px solid #d9e3df;
+}
+
+.coupon-use-confirm-submit {
+  color: #ffffff;
+  background: #216b57;
+  border: 1px solid #216b57;
+}
+
 .coupon-redemption-overlay {
   position: fixed;
-  inset: 0;
+  inset: 0 0 var(--app-bottom-nav-space);
   z-index: 110;
   width: 100%;
-  min-height: 100svh;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   background: #ffffff;

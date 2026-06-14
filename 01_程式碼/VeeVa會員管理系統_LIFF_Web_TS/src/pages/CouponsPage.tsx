@@ -23,6 +23,21 @@ export function CouponsPage({ app }: PageProps) {
   const [selectedReward, setSelectedReward] = useState<VeevaMemberReward | null>(
     null,
   )
+  const handleRedeemReward = async (reward: VeevaMemberReward) => {
+    if (!app.member) {
+      throw new Error('請先登入會員')
+    }
+    const { redeemMemberReward } = await import('../services/veevaRepository')
+    const redeemedReward = await redeemMemberReward({
+      memberId: app.member.id,
+      memberRewardId: reward.id,
+    })
+    setSelectedReward((current) =>
+      current?.id === redeemedReward.id ? redeemedReward : current,
+    )
+    await app.refreshMemberData()
+    return redeemedReward
+  }
 
   useEffect(() => {
     if (!selectedReward) return undefined
@@ -97,7 +112,11 @@ export function CouponsPage({ app }: PageProps) {
                 <h2>{reward.rewardName}</h2>
                 <div className="detail-row">
                   <CheckCircle2 size={18} />
-                  <span>{reward.status === 'issued' ? '可使用' : '已處理'}</span>
+                  <span>
+                    {reward.status === 'issued'
+                      ? '可使用'
+                      : statusLabel(reward.status)}
+                  </span>
                 </div>
               </div>
               <ChevronRight className="coupon-card-chevron" size={20} />
@@ -119,6 +138,7 @@ export function CouponsPage({ app }: PageProps) {
             selectedReward.rewardId,
           )}
           onClose={() => setSelectedReward(null)}
+          onRedeem={handleRedeemReward}
         />
       ) : null}
     </>
@@ -130,6 +150,7 @@ interface CouponDetailDialogProps {
   rewardDefinition?: VeevaReward
   imageUrl?: string
   onClose: () => void
+  onRedeem: (reward: VeevaMemberReward) => Promise<VeevaMemberReward>
 }
 
 function CouponDetailDialog({
@@ -137,17 +158,38 @@ function CouponDetailDialog({
   rewardDefinition,
   imageUrl,
   onClose,
+  onRedeem,
 }: CouponDetailDialogProps) {
   const [embeddedRedemptionUrl, setEmbeddedRedemptionUrl] = useState<
     string | null
   >(null)
+  const [confirmingRedemptionUrl, setConfirmingRedemptionUrl] = useState<
+    string | null
+  >(null)
   const [iframeLoaded, setIframeLoaded] = useState(false)
+  const [redeeming, setRedeeming] = useState(false)
+  const [redeemError, setRedeemError] = useState<string | null>(null)
   const isUsable = reward.status === 'issued'
   const storeText = eligibleStoreText(reward.rewardName)
   const instructions = couponInstructions(reward.rewardName, rewardDefinition)
   const closeEmbeddedRedemption = () => {
     setEmbeddedRedemptionUrl(null)
     setIframeLoaded(false)
+  }
+  const confirmUseCoupon = async () => {
+    if (!confirmingRedemptionUrl) return
+    setRedeeming(true)
+    setRedeemError(null)
+    try {
+      await onRedeem(reward)
+      setIframeLoaded(false)
+      setEmbeddedRedemptionUrl(confirmingRedemptionUrl)
+      setConfirmingRedemptionUrl(null)
+    } catch (error) {
+      setRedeemError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setRedeeming(false)
+    }
   }
 
   return (
@@ -231,7 +273,9 @@ function CouponDetailDialog({
             <button
               className="coupon-detail-use-button"
               type="button"
-              onClick={() => setEmbeddedRedemptionUrl(reward.redemptionUrl ?? null)}
+              onClick={() =>
+                setConfirmingRedemptionUrl(reward.redemptionUrl ?? null)
+              }
             >
               <Ticket size={22} />
               使用優惠券
@@ -247,6 +291,44 @@ function CouponDetailDialog({
           </p>
         </article>
       </div>
+
+      {confirmingRedemptionUrl ? (
+        <div
+          aria-modal="true"
+          className="coupon-use-confirm-backdrop"
+          role="dialog"
+          aria-labelledby="coupon-use-confirm-title"
+        >
+          <div className="coupon-use-confirm-dialog">
+            <span className="coupon-use-confirm-icon">
+              <Ticket size={26} />
+            </span>
+            <h3 id="coupon-use-confirm-title">確定使用優惠券嗎</h3>
+            <p>點擊後即使用優惠券，確定使用優惠券嗎</p>
+            {redeemError ? (
+              <p className="coupon-use-confirm-error">{redeemError}</p>
+            ) : null}
+            <div className="coupon-use-confirm-actions">
+              <button
+                className="coupon-use-confirm-cancel"
+                type="button"
+                disabled={redeeming}
+                onClick={() => setConfirmingRedemptionUrl(null)}
+              >
+                取消
+              </button>
+              <button
+                className="coupon-use-confirm-submit"
+                type="button"
+                disabled={redeeming}
+                onClick={confirmUseCoupon}
+              >
+                {redeeming ? '處理中' : '確認使用'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {embeddedRedemptionUrl ? (
         <div
@@ -299,7 +381,7 @@ function CouponDetailDialog({
 }
 
 function statusLabel(status: string) {
-  if (status === 'redeemed') return '已兌換'
+  if (status === 'redeemed') return '已使用'
   if (status === 'expired') return '已過期'
   return '可兌換'
 }
