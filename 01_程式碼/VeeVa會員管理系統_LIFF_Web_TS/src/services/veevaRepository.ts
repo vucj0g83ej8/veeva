@@ -356,6 +356,8 @@ function memberRewardFromData(
     memberId: stringValue(data.memberId),
     rewardId: stringValue(data.rewardId),
     rewardName: stringValue(data.rewardName, '兌換券'),
+    rewardImageUrl:
+      optionalString(data.rewardImageUrl) ?? optionalString(data.imageUrl),
     status: enumValue(data.status, 'issued'),
     issuedAt: dateValue(data.issuedAt),
     redeemedAt: dateValue(data.redeemedAt),

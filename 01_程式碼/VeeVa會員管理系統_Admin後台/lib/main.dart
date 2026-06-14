@@ -978,9 +978,11 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       AdminTab.members => _MemberManagement(
           members: members,
           reviews: reviews,
+          rewards: rewards,
           adminUsers: adminUsers,
           onApprove: _approveReview,
           onSaveMemberSettings: _saveMemberSettings,
+          onGrantReward: _grantRewardToMember,
         ),
       AdminTab.activities => _ActivityManagement(
           activities: activities,
@@ -2091,6 +2093,82 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
     }
   }
 
+  Future<void> _grantRewardToMember({
+    required backend.VeevaMember member,
+    required AdminRewardItem reward,
+    required int quantity,
+    String? note,
+  }) async {
+    if (quantity <= 0) {
+      setState(() => backendError = '發送兌換券失敗：數量必須大於 0。');
+      throw StateError('invalid quantity');
+    }
+    if (reward.status != RewardStatus.active || reward.stock < quantity) {
+      setState(() => backendError = '發送兌換券失敗：兌換券未上架或庫存不足。');
+      throw StateError('reward unavailable');
+    }
+
+    final previousMembers = [...members];
+    final previousRewards = [
+      for (final item in rewards)
+        item.copyWith(
+          name: item.name,
+          category: item.category,
+          stock: item.stock,
+          issued: item.issued,
+          redeemed: item.redeemed,
+          expiresAt: item.expiresAt,
+          status: item.status,
+        ),
+    ];
+    final updatedMember = _memberWithEarnedCoupons(
+      member,
+      earnedCoupons: member.earnedCoupons + quantity,
+    );
+    final updatedReward = reward.copyWith(
+      stock: reward.stock - quantity,
+      issued: reward.issued + quantity,
+    );
+
+    setState(() {
+      final memberIndex = members.indexWhere((item) => item.id == member.id);
+      if (memberIndex != -1) {
+        members[memberIndex] = updatedMember;
+      }
+      final rewardIndex = rewards.indexWhere((item) => item.id == reward.id);
+      if (rewardIndex != -1) {
+        rewards[rewardIndex] = updatedReward;
+      }
+      backendError = null;
+    });
+
+    try {
+      await repository.grantRewardToMember(
+        member: member,
+        reward: reward.toBackend(),
+        quantity: quantity,
+        note: note,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text('已發送 ${reward.name} × $quantity 給 ${member.name}。')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        members
+          ..clear()
+          ..addAll(previousMembers);
+        rewards
+          ..clear()
+          ..addAll(previousRewards);
+        backendError = '發送兌換券失敗：請確認 Firestore rules 已部署，且兌換券庫存足夠。';
+      });
+      rethrow;
+    }
+  }
+
   Future<void> _showRewardDialog({AdminRewardItem? reward}) async {
     final isEditing = reward != null;
     final rewardId = reward?.id ?? createVeevaId('reward');
@@ -2126,6 +2204,43 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            void saveReward() {
+              final name = nameController.text.trim();
+              final stock = int.tryParse(stockController.text.trim());
+              final issued = reward?.issued ?? 0;
+              final redeemed = reward?.redeemed ?? 0;
+              final expiresAt = expiryMode == _RewardExpiryMode.unlimited
+                  ? _rewardUnlimitedExpiryLabel
+                  : expiryController.text.trim();
+
+              if (name.isEmpty) {
+                setDialogState(() => formError = '請填寫商品名稱。');
+                return;
+              }
+              if (stock == null || stock < 0) {
+                setDialogState(() => formError = '可用庫存必須是 0 以上的數字。');
+                return;
+              }
+              if (expiryMode == _RewardExpiryMode.limited &&
+                  !_isValidAdminDate(expiresAt)) {
+                setDialogState(() => formError = '兌換期限請使用 YYYY/MM/DD 格式。');
+                return;
+              }
+
+              pendingReward = AdminRewardItem(
+                id: rewardId,
+                name: name,
+                category: category,
+                stock: stock,
+                issued: issued,
+                redeemed: redeemed,
+                expiresAt: expiresAt,
+                status: status,
+                imageUrl: _optionalText(imageController.text),
+              );
+              Navigator.of(dialogContext).pop();
+            }
+
             Future<void> pickExpiryDate() async {
               final initialDate = _parseAdminDate(expiryController.text);
               final picked = await showDatePicker(
@@ -2142,194 +2257,335 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
               });
             }
 
-            return AlertDialog(
-              title: Text(isEditing ? '編輯兌換券' : '新增兌換券'),
-              content: SizedBox(
-                width: 560,
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (formError != null) ...[
-                        _InlineError(message: formError!),
-                        const SizedBox(height: 12),
-                      ],
-                      TextField(
-                        controller: nameController,
-                        decoration: const InputDecoration(
-                          labelText: '商品名稱',
-                          prefixIcon: Icon(Icons.card_giftcard_outlined),
+            final size = MediaQuery.sizeOf(context);
+            final horizontalInset = size.width < 760 ? 10.0 : 36.0;
+            final verticalInset = size.height < 760 ? 10.0 : 24.0;
+            final dialogWidth =
+                (size.width - horizontalInset * 2).clamp(360.0, 980.0);
+            final dialogHeight =
+                (size.height - verticalInset * 2).clamp(560.0, 900.0);
+
+            return Dialog(
+              insetPadding: EdgeInsets.symmetric(
+                horizontal: horizontalInset,
+                vertical: verticalInset,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: SizedBox(
+                width: dialogWidth.toDouble(),
+                height: dialogHeight.toDouble(),
+                child: Column(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(28, 22, 24, 20),
+                      decoration: const BoxDecoration(
+                        color: Colors.white,
+                        border: Border(
+                          bottom: BorderSide(color: Color(0xFFE2E8E6)),
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      Row(
+                      child: Row(
                         children: [
                           Expanded(
-                            child: DropdownButtonFormField<String>(
-                              value: category,
-                              decoration: const InputDecoration(
-                                labelText: '分類',
-                                prefixIcon: Icon(Icons.category_outlined),
-                              ),
-                              items: [
-                                for (final option in categoryOptions)
-                                  DropdownMenuItem(
-                                    value: option,
-                                    child: Text(option),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  isEditing ? '編輯兌換券' : '新增兌換券',
+                                  style: const TextStyle(
+                                    color: Color(0xFF172620),
+                                    fontSize: 28,
+                                    fontWeight: FontWeight.w900,
                                   ),
-                              ],
-                              onChanged: (value) {
-                                if (value == null) return;
-                                setDialogState(() => category = value);
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: DropdownButtonFormField<RewardStatus>(
-                              value: status,
-                              decoration: const InputDecoration(
-                                labelText: '狀態',
-                                prefixIcon:
-                                    Icon(Icons.check_circle_outline_outlined),
-                              ),
-                              items: const [
-                                DropdownMenuItem(
-                                  value: RewardStatus.active,
-                                  child: Text('上架中'),
                                 ),
-                                DropdownMenuItem(
-                                  value: RewardStatus.paused,
-                                  child: Text('已停用'),
-                                ),
-                                DropdownMenuItem(
-                                  value: RewardStatus.expired,
-                                  child: Text('已過期'),
+                                const SizedBox(height: 6),
+                                const Text(
+                                  '設定兌換券內容、庫存、兌換期限與圖片。',
+                                  style: TextStyle(
+                                    color: Color(0xFF6B7671),
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
                               ],
-                              onChanged: (value) {
-                                if (value == null) return;
-                                setDialogState(() => status = value);
-                              },
                             ),
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: stockController,
-                              keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(
-                                labelText: '可用庫存',
-                                prefixIcon: Icon(Icons.inventory_2_outlined),
+                          TextButton(
+                            onPressed: () => Navigator.of(dialogContext).pop(),
+                            child: const Text('取消'),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton.icon(
+                            onPressed: saveReward,
+                            icon: Icon(
+                              isEditing ? Icons.save_outlined : Icons.add,
+                            ),
+                            label: Text(isEditing ? '儲存' : '建立'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF0D7A57),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 24,
+                                vertical: 16,
                               ),
                             ),
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<_RewardExpiryMode>(
-                        value: expiryMode,
-                        decoration: const InputDecoration(
-                          labelText: '兌換期限類型',
-                          prefixIcon: Icon(Icons.schedule_outlined),
-                        ),
-                        items: const [
-                          DropdownMenuItem(
-                            value: _RewardExpiryMode.unlimited,
-                            child: Text(_rewardUnlimitedExpiryLabel),
-                          ),
-                          DropdownMenuItem(
-                            value: _RewardExpiryMode.limited,
-                            child: Text('限時'),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            tooltip: '關閉',
+                            onPressed: () => Navigator.of(dialogContext).pop(),
+                            icon: const Icon(Icons.close),
                           ),
                         ],
-                        onChanged: (value) {
-                          if (value == null) return;
-                          setDialogState(() => expiryMode = value);
-                        },
                       ),
-                      if (expiryMode == _RewardExpiryMode.limited) ...[
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: expiryController,
-                          readOnly: true,
-                          onTap: pickExpiryDate,
-                          decoration: InputDecoration(
-                            labelText: '兌換日期',
-                            hintText: 'YYYY/MM/DD',
-                            prefixIcon:
-                                const Icon(Icons.event_available_outlined),
-                            suffixIcon: IconButton(
-                              tooltip: '選擇日期',
-                              onPressed: pickExpiryDate,
-                              icon: const Icon(Icons.calendar_month_outlined),
-                            ),
+                    ),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(28),
+                        child: _RewardFormSection(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (formError != null) ...[
+                                _InlineError(message: formError!),
+                                const SizedBox(height: 18),
+                              ],
+                              const _ActivityFieldLabel(
+                                text: '商品名稱',
+                                required: true,
+                              ),
+                              TextField(
+                                controller: nameController,
+                                maxLength: 50,
+                                decoration: _rewardInputDecoration(
+                                  hintText: '請輸入商品名稱',
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+                              LayoutBuilder(
+                                builder: (context, constraints) {
+                                  final twoColumns =
+                                      constraints.maxWidth >= 720;
+                                  final categoryField = Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const _ActivityFieldLabel(
+                                        text: '分類',
+                                        required: true,
+                                      ),
+                                      DropdownButtonFormField<String>(
+                                        value: category,
+                                        decoration: _rewardInputDecoration(
+                                          hintText: '請選擇分類',
+                                          icon: Icons.category_outlined,
+                                        ),
+                                        items: [
+                                          for (final option in categoryOptions)
+                                            DropdownMenuItem(
+                                              value: option,
+                                              child: Text(option),
+                                            ),
+                                        ],
+                                        onChanged: (value) {
+                                          if (value == null) return;
+                                          setDialogState(
+                                              () => category = value);
+                                        },
+                                      ),
+                                    ],
+                                  );
+                                  final statusField = Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const _ActivityFieldLabel(
+                                        text: '狀態',
+                                        required: true,
+                                      ),
+                                      DropdownButtonFormField<RewardStatus>(
+                                        value: status,
+                                        decoration: _rewardInputDecoration(
+                                          hintText: '請選擇狀態',
+                                          icon: Icons
+                                              .check_circle_outline_outlined,
+                                          fillColor: const Color(0xFFF0F8F5),
+                                        ),
+                                        items: const [
+                                          DropdownMenuItem(
+                                            value: RewardStatus.active,
+                                            child: Text('上架中'),
+                                          ),
+                                          DropdownMenuItem(
+                                            value: RewardStatus.paused,
+                                            child: Text('已停用'),
+                                          ),
+                                          DropdownMenuItem(
+                                            value: RewardStatus.expired,
+                                            child: Text('已過期'),
+                                          ),
+                                        ],
+                                        onChanged: (value) {
+                                          if (value == null) return;
+                                          setDialogState(() => status = value);
+                                        },
+                                      ),
+                                    ],
+                                  );
+                                  if (!twoColumns) {
+                                    return Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        categoryField,
+                                        const SizedBox(height: 14),
+                                        statusField,
+                                      ],
+                                    );
+                                  }
+                                  return Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Expanded(child: categoryField),
+                                      const SizedBox(width: 28),
+                                      Expanded(child: statusField),
+                                    ],
+                                  );
+                                },
+                              ),
+                              const SizedBox(height: 14),
+                              LayoutBuilder(
+                                builder: (context, constraints) {
+                                  final fieldWidth = constraints.maxWidth >= 720
+                                      ? (constraints.maxWidth - 28) / 2
+                                      : double.infinity;
+                                  return SizedBox(
+                                    width: fieldWidth,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        const _ActivityFieldLabel(
+                                          text: '可用庫存',
+                                          required: true,
+                                        ),
+                                        TextField(
+                                          controller: stockController,
+                                          keyboardType: TextInputType.number,
+                                          decoration: _rewardInputDecoration(
+                                            hintText: '請輸入庫存',
+                                            suffixText: '張',
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+                              const SizedBox(height: 28),
+                              const Divider(height: 1),
+                              const SizedBox(height: 26),
+                              LayoutBuilder(
+                                builder: (context, constraints) {
+                                  final twoColumns =
+                                      constraints.maxWidth >= 720;
+                                  final expiryField = Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const _ActivityFieldLabel(
+                                        text: '兌換期限類型',
+                                        required: true,
+                                      ),
+                                      DropdownButtonFormField<
+                                          _RewardExpiryMode>(
+                                        value: expiryMode,
+                                        decoration: _rewardInputDecoration(
+                                          hintText: '請選擇兌換期限',
+                                          icon: Icons.schedule_outlined,
+                                        ),
+                                        items: const [
+                                          DropdownMenuItem(
+                                            value: _RewardExpiryMode.unlimited,
+                                            child: Text(
+                                                _rewardUnlimitedExpiryLabel),
+                                          ),
+                                          DropdownMenuItem(
+                                            value: _RewardExpiryMode.limited,
+                                            child: Text('限時'),
+                                          ),
+                                        ],
+                                        onChanged: (value) {
+                                          if (value == null) return;
+                                          setDialogState(
+                                              () => expiryMode = value);
+                                        },
+                                      ),
+                                      if (expiryMode ==
+                                          _RewardExpiryMode.limited) ...[
+                                        const SizedBox(height: 14),
+                                        TextField(
+                                          controller: expiryController,
+                                          readOnly: true,
+                                          onTap: pickExpiryDate,
+                                          decoration: _rewardInputDecoration(
+                                            hintText: 'YYYY/MM/DD',
+                                            icon:
+                                                Icons.event_available_outlined,
+                                            suffixIcon: IconButton(
+                                              tooltip: '選擇日期',
+                                              onPressed: pickExpiryDate,
+                                              icon: const Icon(Icons
+                                                  .calendar_month_outlined),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  );
+                                  final infoBox = _RewardExpiryInfoBox(
+                                    expiryMode: expiryMode,
+                                  );
+                                  if (!twoColumns) {
+                                    return Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        expiryField,
+                                        const SizedBox(height: 14),
+                                        infoBox,
+                                      ],
+                                    );
+                                  }
+                                  return Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Expanded(child: expiryField),
+                                      const SizedBox(width: 28),
+                                      Expanded(child: infoBox),
+                                    ],
+                                  );
+                                },
+                              ),
+                              const SizedBox(height: 28),
+                              _RewardImageUploadSection(
+                                controller: imageController,
+                                storageFolder: 'public/rewards/$rewardId/cover',
+                                onUpload: repository.uploadImage,
+                              ),
+                            ],
                           ),
                         ),
-                      ],
-                      const SizedBox(height: 12),
-                      _ImageUploadField(
-                        controller: imageController,
-                        label: '兌換券圖片',
-                        helperText: '上傳後會用於兌換券內容或預覽畫面。',
-                        storageFolder: 'public/rewards/$rewardId/cover',
-                        onUpload: repository.uploadImage,
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('取消'),
-                ),
-                FilledButton.icon(
-                  onPressed: () {
-                    final name = nameController.text.trim();
-                    final stock = int.tryParse(stockController.text.trim());
-                    final issued = reward?.issued ?? 0;
-                    final redeemed = reward?.redeemed ?? 0;
-                    final expiresAt = expiryMode == _RewardExpiryMode.unlimited
-                        ? _rewardUnlimitedExpiryLabel
-                        : expiryController.text.trim();
-
-                    if (name.isEmpty) {
-                      setDialogState(() => formError = '請填寫商品名稱。');
-                      return;
-                    }
-                    if (stock == null || stock < 0) {
-                      setDialogState(() => formError = '可用庫存必須是 0 以上的數字。');
-                      return;
-                    }
-                    if (expiryMode == _RewardExpiryMode.limited &&
-                        !_isValidAdminDate(expiresAt)) {
-                      setDialogState(
-                          () => formError = '兌換期限請使用 YYYY/MM/DD 格式。');
-                      return;
-                    }
-
-                    pendingReward = AdminRewardItem(
-                      id: rewardId,
-                      name: name,
-                      category: category,
-                      stock: stock,
-                      issued: issued,
-                      redeemed: redeemed,
-                      expiresAt: expiresAt,
-                      status: status,
-                      imageUrl: _optionalText(imageController.text),
-                    );
-                    Navigator.of(dialogContext).pop();
-                  },
-                  icon: Icon(isEditing ? Icons.save_outlined : Icons.add),
-                  label: Text(isEditing ? '儲存' : '建立'),
-                ),
-              ],
             );
           },
         );
@@ -2719,6 +2975,482 @@ class _ActivityFieldLabel extends StatelessWidget {
   }
 }
 
+class _RewardFormSection extends StatelessWidget {
+  const _RewardFormSection({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(30),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE2E8E6)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(
+                Icons.card_giftcard_outlined,
+                color: Color(0xFF0D7A57),
+                size: 28,
+              ),
+              SizedBox(width: 12),
+              Text(
+                '基本資訊',
+                style: TextStyle(
+                  color: Color(0xFF0D7A57),
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 28),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _RewardExpiryInfoBox extends StatelessWidget {
+  const _RewardExpiryInfoBox({required this.expiryMode});
+
+  final _RewardExpiryMode expiryMode;
+
+  @override
+  Widget build(BuildContext context) {
+    final message = expiryMode == _RewardExpiryMode.unlimited
+        ? '不限時的兌換券將不會過期，會員可隨時使用。'
+        : '限時兌換券到期後會自動視為過期，會員將無法再使用。';
+    return Container(
+      width: double.infinity,
+      constraints: const BoxConstraints(minHeight: 86),
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0F8F5),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            Icons.info_outline,
+            color: Color(0xFF0D7A57),
+            size: 24,
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                color: Color(0xFF527068),
+                fontSize: 15,
+                height: 1.7,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RewardImageUploadSection extends StatefulWidget {
+  const _RewardImageUploadSection({
+    required this.controller,
+    required this.storageFolder,
+    required this.onUpload,
+  });
+
+  final TextEditingController controller;
+  final String storageFolder;
+  final _AdminImageUploader onUpload;
+
+  @override
+  State<_RewardImageUploadSection> createState() =>
+      _RewardImageUploadSectionState();
+}
+
+class _RewardImageUploadSectionState extends State<_RewardImageUploadSection> {
+  bool _isDragging = false;
+  bool _isUploading = false;
+  String? _error;
+  String? _uploadNote;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onControllerChanged);
+  }
+
+  @override
+  void didUpdateWidget(_RewardImageUploadSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_onControllerChanged);
+      widget.controller.addListener(_onControllerChanged);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onControllerChanged);
+    super.dispose();
+  }
+
+  void _onControllerChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final imageUrl = widget.controller.text.trim();
+    final hasImage = imageUrl.isNotEmpty;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE0E7E4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.image_outlined,
+                color: Color(0xFF0D7A57),
+                size: 28,
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  '兌換券圖片',
+                  style: TextStyle(
+                    color: Color(0xFF263A34),
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              const Text(
+                '建議上傳 JPG / PNG，建議尺寸 1280 × 720px',
+                style: TextStyle(
+                  color: Color(0xFF7A8984),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(width: 14),
+              OutlinedButton(
+                onPressed: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('可上傳橫式兌換券圖，建議比例 16:9。'),
+                    ),
+                  );
+                },
+                child: const Text('範例'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final twoColumns = constraints.maxWidth >= 760 && hasImage;
+              final preview = _buildImageDropTarget(imageUrl: imageUrl);
+              if (!twoColumns) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    preview,
+                    if (hasImage) ...[
+                      const SizedBox(height: 16),
+                      _buildImageInfo(imageUrl),
+                    ],
+                  ],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  SizedBox(width: 360, child: preview),
+                  const SizedBox(width: 34),
+                  Expanded(child: _buildImageInfo(imageUrl)),
+                ],
+              );
+            },
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              _error!,
+              style: const TextStyle(
+                color: Color(0xFFAD3B24),
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildImageDropTarget({required String imageUrl}) {
+    final hasImage = imageUrl.isNotEmpty;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      height: hasImage ? 210 : 220,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: _isDragging ? const Color(0xFFE8F5EF) : const Color(0xFFF8FAFA),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color:
+              _isDragging ? const Color(0xFF0D7A57) : const Color(0xFFD8E1DE),
+          width: _isDragging ? 1.6 : 1,
+        ),
+      ),
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: hasImage
+                ? Image.network(
+                    _imagePreviewUrl(imageUrl),
+                    key: ValueKey(_imagePreviewUrl(imageUrl)),
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => _RewardImageEmptyState(
+                      isDragging: _isDragging,
+                      hasError: true,
+                    ),
+                  )
+                : _RewardImageEmptyState(isDragging: _isDragging),
+          ),
+          Positioned.fill(
+            child: AdminImageDropOverlay(
+              onImage: _uploadImage,
+              onHoverChanged: (value) {
+                if (mounted) {
+                  setState(() => _isDragging = value);
+                }
+              },
+            ),
+          ),
+          if (_isUploading)
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.82),
+                ),
+                child: const Center(
+                  child: SizedBox(
+                    width: 34,
+                    height: 34,
+                    child: CircularProgressIndicator(strokeWidth: 3),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildImageInfo(String imageUrl) {
+    final fileName = _imageFileNameFromUrl(imageUrl);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Row(
+          children: [
+            Icon(Icons.check_circle, color: Color(0xFF0D7A57), size: 28),
+            SizedBox(width: 10),
+            Text(
+              '已上傳圖片',
+              style: TextStyle(
+                color: Color(0xFF0D7A57),
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Text(
+          '檔案名稱：$fileName',
+          style: const TextStyle(
+            color: Color(0xFF4C5F58),
+            fontSize: 14,
+            height: 1.5,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          _uploadNote ?? '圖片連結已儲存。拖曳新圖片到左側可直接替換。',
+          style: const TextStyle(
+            color: Color(0xFF4C5F58),
+            fontSize: 14,
+            height: 1.5,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 22),
+        Wrap(
+          spacing: 14,
+          runSpacing: 10,
+          children: [
+            OutlinedButton.icon(
+              onPressed: _isUploading ? null : _pickAndUpload,
+              icon: const Icon(Icons.category_outlined),
+              label: const Text('更換圖片'),
+            ),
+            OutlinedButton.icon(
+              onPressed: _isUploading
+                  ? null
+                  : () {
+                      widget.controller.clear();
+                      setState(() {
+                        _error = null;
+                        _uploadNote = null;
+                      });
+                    },
+              icon: const Icon(Icons.delete_outline),
+              label: const Text('移除圖片'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFFE0463E),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Future<void> _pickAndUpload() async {
+    final image = await pickAdminImage();
+    if (image == null) {
+      return;
+    }
+    await _uploadImage(image);
+  }
+
+  Future<void> _uploadImage(PickedAdminImage image) async {
+    final validationError = _adminImageValidationError(image);
+    if (validationError != null) {
+      setState(() {
+        _error = validationError;
+        _uploadNote = null;
+      });
+      return;
+    }
+
+    setState(() {
+      _isUploading = true;
+      _error = null;
+    });
+
+    try {
+      final url = await widget.onUpload(
+        path: _imageStoragePath(
+          folder: widget.storageFolder,
+          fileName: image.name,
+          contentType: image.contentType,
+        ),
+        bytes: image.bytes,
+        contentType: image.contentType,
+      );
+      if (url.trim().isEmpty) {
+        throw StateError('empty download url');
+      }
+      if (!mounted) return;
+      widget.controller.text = url;
+      setState(() {
+        _isUploading = false;
+        _error = null;
+        _uploadNote = _compressionSummary(image);
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isUploading = false;
+        _error = '圖片上傳失敗，請確認 Firebase Storage bucket 已建立並部署 rules。';
+      });
+    }
+  }
+}
+
+class _RewardImageEmptyState extends StatelessWidget {
+  const _RewardImageEmptyState({
+    required this.isDragging,
+    this.hasError = false,
+  });
+
+  final bool isDragging;
+  final bool hasError;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              hasError
+                  ? Icons.broken_image_outlined
+                  : Icons.cloud_upload_outlined,
+              size: 42,
+              color:
+                  hasError ? const Color(0xFFAD3B24) : const Color(0xFF0D7A57),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              hasError
+                  ? '圖片無法預覽，請重新上傳'
+                  : isDragging
+                      ? '放開即可上傳圖片'
+                      : '拖曳圖片到這裡，或點擊選擇圖片',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Color(0xFF30443D),
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              '上傳後會用於兌換券內容或預覽畫面。',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Color(0xFF71817A),
+                fontSize: 12,
+                height: 1.4,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _ActivityImageUploadSection extends StatefulWidget {
   const _ActivityImageUploadSection({
     required this.controller,
@@ -2797,7 +3529,8 @@ class _ActivityImageUploadSectionState
               Positioned.fill(
                 child: hasImage
                     ? Image.network(
-                        imageUrl,
+                        _imagePreviewUrl(imageUrl),
+                        key: ValueKey(_imagePreviewUrl(imageUrl)),
                         fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => _ActivityImageEmptyState(
                           isDragging: _isDragging,
@@ -3074,6 +3807,36 @@ InputDecoration _activityInputDecoration({
   );
 }
 
+InputDecoration _rewardInputDecoration({
+  required String hintText,
+  IconData? icon,
+  Widget? suffixIcon,
+  String? suffixText,
+  Color fillColor = Colors.white,
+}) {
+  return InputDecoration(
+    hintText: hintText,
+    prefixIcon: icon == null ? null : Icon(icon),
+    suffixIcon: suffixIcon,
+    suffixText: suffixText,
+    filled: true,
+    fillColor: fillColor,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(8),
+      borderSide: const BorderSide(color: Color(0xFFD8E1DE)),
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(8),
+      borderSide: const BorderSide(color: Color(0xFFD8E1DE)),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(8),
+      borderSide: const BorderSide(color: Color(0xFF0D7A57), width: 1.4),
+    ),
+  );
+}
+
 typedef _AdminImageUploader = Future<String> Function({
   required String path,
   required Uint8List bytes,
@@ -3185,7 +3948,8 @@ class _ImageUploadFieldState extends State<_ImageUploadField> {
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: Image.network(
-                imageUrl,
+                _imagePreviewUrl(imageUrl),
+                key: ValueKey(_imagePreviewUrl(imageUrl)),
                 height: 150,
                 width: double.infinity,
                 fit: BoxFit.cover,
@@ -4120,19 +4884,28 @@ class _MemberManagement extends StatefulWidget {
   const _MemberManagement({
     required this.members,
     required this.reviews,
+    required this.rewards,
     required this.adminUsers,
     required this.onApprove,
     required this.onSaveMemberSettings,
+    required this.onGrantReward,
   });
 
   final List<backend.VeevaMember> members;
   final List<AdminReviewItem> reviews;
+  final List<AdminRewardItem> rewards;
   final List<backend.VeevaAdminUser> adminUsers;
   final ValueChanged<AdminReviewItem> onApprove;
   final Future<void> Function({
     required backend.VeevaMember member,
     backend.VeevaAdminUser? adminUser,
   }) onSaveMemberSettings;
+  final Future<void> Function({
+    required backend.VeevaMember member,
+    required AdminRewardItem reward,
+    required int quantity,
+    String? note,
+  }) onGrantReward;
 
   @override
   State<_MemberManagement> createState() => _MemberManagementState();
@@ -4305,7 +5078,8 @@ class _MemberManagementState extends State<_MemberManagement> {
                     emptyMessage: normalizedQuery.isEmpty
                         ? '尚無已登入會員。會員從 LIFF 完成 LINE 登入後會出現在這裡。'
                         : '查無符合條件的已登入會員。',
-                    onSettingChanged: _changeMemberSetting,
+                    onEditSettings: _openMemberSettingsDialog,
+                    onGrantReward: _openGrantRewardDialog,
                   )
                 else
                   _ReviewListBody(
@@ -4424,6 +5198,264 @@ class _MemberManagementState extends State<_MemberManagement> {
     );
   }
 
+  Future<void> _openMemberSettingsDialog(backend.VeevaMember member) async {
+    final existing = _adminFor(member);
+    var selection = _selectionForMemberSetting(member, existing);
+    var isSaving = false;
+    String? formError;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('編輯會員設定'),
+              content: SizedBox(
+                width: 560,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _MemberPermissionHeader(member: member),
+                      const SizedBox(height: 18),
+                      const Text(
+                        '會員設定',
+                        style: TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                      const SizedBox(height: 8),
+                      for (final item in _memberSettingSelections)
+                        RadioListTile<_MemberSettingSelection>(
+                          value: item,
+                          groupValue: selection,
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(_memberSettingSelectionLabel(item)),
+                          subtitle:
+                              Text(_memberSettingSelectionDescription(item)),
+                          onChanged: isSaving
+                              ? null
+                              : (value) {
+                                  if (value == null) return;
+                                  setDialogState(() {
+                                    selection = value;
+                                    formError = null;
+                                  });
+                                },
+                        ),
+                      if (formError != null) ...[
+                        const SizedBox(height: 8),
+                        _InlineError(message: formError!),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed:
+                      isSaving ? null : () => Navigator.of(dialogContext).pop(),
+                  child: const Text('取消'),
+                ),
+                FilledButton.icon(
+                  onPressed: isSaving
+                      ? null
+                      : () async {
+                          setDialogState(() {
+                            isSaving = true;
+                            formError = null;
+                          });
+                          try {
+                            await _changeMemberSetting(member, selection);
+                            if (dialogContext.mounted) {
+                              Navigator.of(dialogContext).pop();
+                            }
+                          } catch (_) {
+                            if (!dialogContext.mounted) return;
+                            setDialogState(() {
+                              isSaving = false;
+                              formError = '會員設定儲存失敗，請稍後再試。';
+                            });
+                          }
+                        },
+                  icon: isSaving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.save_outlined),
+                  label: Text(isSaving ? '儲存中' : '儲存設定'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _openGrantRewardDialog(backend.VeevaMember member) async {
+    final availableRewards = widget.rewards
+        .where(
+          (reward) => reward.status == RewardStatus.active && reward.stock > 0,
+        )
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+    AdminRewardItem? selectedReward =
+        availableRewards.isEmpty ? null : availableRewards.first;
+    final quantityController = TextEditingController(text: '1');
+    final noteController = TextEditingController();
+    var isSending = false;
+    String? formError;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final reward = selectedReward;
+            return AlertDialog(
+              title: const Text('發送兌換券'),
+              content: SizedBox(
+                width: 560,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _MemberPermissionHeader(member: member),
+                      const SizedBox(height: 18),
+                      if (availableRewards.isEmpty)
+                        const _EmptyListMessage(
+                          message: '目前沒有可發送的兌換券。請先到兌換券管理新增並上架兌換券。',
+                        )
+                      else ...[
+                        DropdownButtonFormField<AdminRewardItem>(
+                          value: selectedReward,
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            labelText: '選擇兌換券',
+                            prefixIcon:
+                                Icon(Icons.confirmation_number_outlined),
+                          ),
+                          items: [
+                            for (final item in availableRewards)
+                              DropdownMenuItem(
+                                value: item,
+                                child: Text('${item.name}（庫存 ${item.stock}）'),
+                              ),
+                          ],
+                          onChanged: isSending
+                              ? null
+                              : (value) {
+                                  setDialogState(() {
+                                    selectedReward = value;
+                                    formError = null;
+                                  });
+                                },
+                        ),
+                        if (reward != null) ...[
+                          const SizedBox(height: 12),
+                          _RewardGrantSummary(reward: reward),
+                        ],
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: quantityController,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            labelText: '發送數量',
+                            prefixIcon: Icon(Icons.format_list_numbered),
+                            suffixText: '張',
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: noteController,
+                          maxLines: 3,
+                          decoration: const InputDecoration(
+                            labelText: '備註（選填）',
+                            prefixIcon: Icon(Icons.notes_outlined),
+                          ),
+                        ),
+                      ],
+                      if (formError != null) ...[
+                        const SizedBox(height: 12),
+                        _InlineError(message: formError!),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSending
+                      ? null
+                      : () => Navigator.of(dialogContext).pop(),
+                  child: const Text('取消'),
+                ),
+                FilledButton.icon(
+                  onPressed: isSending || selectedReward == null
+                      ? null
+                      : () async {
+                          final reward = selectedReward;
+                          final quantity =
+                              int.tryParse(quantityController.text.trim());
+                          if (reward == null) return;
+                          if (quantity == null || quantity <= 0) {
+                            setDialogState(() => formError = '請輸入正確的發送數量。');
+                            return;
+                          }
+                          if (quantity > reward.stock) {
+                            setDialogState(
+                              () =>
+                                  formError = '發送數量不可超過目前庫存 ${reward.stock} 張。',
+                            );
+                            return;
+                          }
+
+                          setDialogState(() {
+                            isSending = true;
+                            formError = null;
+                          });
+                          try {
+                            await widget.onGrantReward(
+                              member: member,
+                              reward: reward,
+                              quantity: quantity,
+                              note: noteController.text,
+                            );
+                            if (dialogContext.mounted) {
+                              Navigator.of(dialogContext).pop();
+                            }
+                          } catch (_) {
+                            if (!dialogContext.mounted) return;
+                            setDialogState(() {
+                              isSending = false;
+                              formError = '兌換券發送失敗，請確認庫存與 Firestore 設定。';
+                            });
+                          }
+                        },
+                  icon: isSending
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.card_giftcard_outlined),
+                  label: Text(isSending ? '發送中' : '發送兌換券'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    quantityController.dispose();
+    noteController.dispose();
+  }
+
   backend.VeevaAdminUser? _adminFor(backend.VeevaMember member) {
     for (final admin in widget.adminUsers) {
       if (admin.memberId == member.id ||
@@ -4441,17 +5473,16 @@ class _LoggedInMemberListBody extends StatelessWidget {
     required this.adminUsers,
     required this.compact,
     required this.emptyMessage,
-    required this.onSettingChanged,
+    required this.onEditSettings,
+    required this.onGrantReward,
   });
 
   final List<backend.VeevaMember> members;
   final List<backend.VeevaAdminUser> adminUsers;
   final bool compact;
   final String emptyMessage;
-  final Future<void> Function(
-    backend.VeevaMember member,
-    _MemberSettingSelection selection,
-  ) onSettingChanged;
+  final ValueChanged<backend.VeevaMember> onEditSettings;
+  final ValueChanged<backend.VeevaMember> onGrantReward;
 
   @override
   Widget build(BuildContext context) {
@@ -4466,8 +5497,8 @@ class _LoggedInMemberListBody extends StatelessWidget {
             _LoggedInMemberCard(
               member: member,
               adminUser: _adminFor(member),
-              onSettingChanged: (selection) =>
-                  onSettingChanged(member, selection),
+              onEditSettings: () => onEditSettings(member),
+              onGrantReward: () => onGrantReward(member),
             ),
         ],
       );
@@ -4477,13 +5508,11 @@ class _LoggedInMemberListBody extends StatelessWidget {
       builder: (context, constraints) {
         final availableWidth =
             constraints.maxWidth.isFinite ? constraints.maxWidth : 920.0;
-        final tableWidth = availableWidth < 772 ? 772.0 : availableWidth;
+        final tableWidth = availableWidth < 780 ? 780.0 : availableWidth;
         final contentWidth = tableWidth - 32 - 60;
-        final nameWidth = contentWidth * .30;
-        final firstLoginWidth = contentWidth * .22;
-        final lastLoginWidth = contentWidth * .22;
-        final settingWidth =
-            contentWidth - nameWidth - firstLoginWidth - lastLoginWidth;
+        final nameWidth = contentWidth * .42;
+        final lastLoginWidth = contentWidth * .24;
+        final settingWidth = contentWidth - nameWidth - lastLoginWidth;
 
         return SingleChildScrollView(
           scrollDirection: Axis.horizontal,
@@ -4498,13 +5527,10 @@ class _LoggedInMemberListBody extends StatelessWidget {
               columns: [
                 DataColumn(label: _TableHeaderLabel('會員名稱', width: nameWidth)),
                 DataColumn(
-                  label: _TableHeaderLabel('第一次登入時間', width: firstLoginWidth),
-                ),
-                DataColumn(
                   label: _TableHeaderLabel('最後一次登入時間', width: lastLoginWidth),
                 ),
                 DataColumn(
-                  label: _TableHeaderLabel('會員設定', width: settingWidth),
+                  label: _TableHeaderLabel('操作', width: settingWidth),
                 ),
               ],
               rows: [
@@ -4514,14 +5540,9 @@ class _LoggedInMemberListBody extends StatelessWidget {
                       DataCell(
                         SizedBox(
                           width: nameWidth,
-                          child: _MemberNameOnly(member: member),
-                        ),
-                      ),
-                      DataCell(
-                        SizedBox(
-                          width: firstLoginWidth,
-                          child: Text(
-                            _memberDateTimeLabel(_memberFirstLoginAt(member)),
+                          child: _MemberNameOnly(
+                            member: member,
+                            adminUser: _adminFor(member),
                           ),
                         ),
                       ),
@@ -4536,12 +5557,11 @@ class _LoggedInMemberListBody extends StatelessWidget {
                       DataCell(
                         SizedBox(
                           width: settingWidth,
-                          child: _MemberSettingDropdown(
-                            width: settingWidth,
+                          child: _MemberRowActions(
                             member: member,
                             adminUser: _adminFor(member),
-                            onChanged: (selection) =>
-                                onSettingChanged(member, selection),
+                            onEditSettings: () => onEditSettings(member),
+                            onGrantReward: () => onGrantReward(member),
                           ),
                         ),
                       ),
@@ -4570,12 +5590,14 @@ class _LoggedInMemberCard extends StatelessWidget {
   const _LoggedInMemberCard({
     required this.member,
     required this.adminUser,
-    required this.onSettingChanged,
+    required this.onEditSettings,
+    required this.onGrantReward,
   });
 
   final backend.VeevaMember member;
   final backend.VeevaAdminUser? adminUser;
-  final ValueChanged<_MemberSettingSelection> onSettingChanged;
+  final VoidCallback onEditSettings;
+  final VoidCallback onGrantReward;
 
   @override
   Widget build(BuildContext context) {
@@ -4591,23 +5613,18 @@ class _LoggedInMemberCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _MemberNameOnly(member: member),
-          const SizedBox(height: 10),
-          _MemberTimeLine(
-            label: '第一次登入',
-            value: _memberDateTimeLabel(_memberFirstLoginAt(member)),
-          ),
-          const SizedBox(height: 6),
+          _MemberNameOnly(member: member, adminUser: adminUser),
+          const SizedBox(height: 12),
           _MemberTimeLine(
             label: '最後一次登入',
             value: _memberDateTimeLabel(member.lastLineLoginAt),
           ),
           const SizedBox(height: 12),
-          _MemberSettingDropdown(
-            width: double.infinity,
+          _MemberRowActions(
             member: member,
             adminUser: adminUser,
-            onChanged: onSettingChanged,
+            onEditSettings: onEditSettings,
+            onGrantReward: onGrantReward,
           ),
         ],
       ),
@@ -4677,9 +5694,13 @@ enum _MemberSettingSelection {
 }
 
 class _MemberNameOnly extends StatelessWidget {
-  const _MemberNameOnly({required this.member});
+  const _MemberNameOnly({
+    required this.member,
+    required this.adminUser,
+  });
 
   final backend.VeevaMember member;
+  final backend.VeevaAdminUser? adminUser;
 
   @override
   Widget build(BuildContext context) {
@@ -4695,12 +5716,24 @@ class _MemberNameOnly extends StatelessWidget {
               : null,
         ),
         const SizedBox(width: 10),
-        Flexible(
-          child: Text(
-            member.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontWeight: FontWeight.w900),
+        Expanded(
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(
+                  member.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ),
+              const SizedBox(width: 8),
+              _MemberSettingChip(
+                selection: _selectionForMemberSetting(member, adminUser),
+                compact: true,
+              ),
+            ],
           ),
         ),
       ],
@@ -4741,42 +5774,97 @@ class _FullWidthDataTable extends StatelessWidget {
   }
 }
 
-class _MemberSettingDropdown extends StatelessWidget {
-  const _MemberSettingDropdown({
+class _MemberRowActions extends StatelessWidget {
+  const _MemberRowActions({
     required this.member,
     required this.adminUser,
-    required this.onChanged,
-    this.width = 176,
+    required this.onEditSettings,
+    required this.onGrantReward,
   });
 
   final backend.VeevaMember member;
   final backend.VeevaAdminUser? adminUser;
-  final ValueChanged<_MemberSettingSelection> onChanged;
-  final double width;
+  final VoidCallback onEditSettings;
+  final VoidCallback onGrantReward;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: width,
-      child: DropdownButtonFormField<_MemberSettingSelection>(
-        value: _selectionForMemberSetting(member, adminUser),
-        isExpanded: true,
-        decoration: const InputDecoration(
-          isDense: true,
-          border: OutlineInputBorder(),
-          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        OutlinedButton.icon(
+          onPressed: onEditSettings,
+          icon: const Icon(Icons.edit_outlined),
+          label: const Text('編輯'),
         ),
-        items: [
-          for (final selection in _memberSettingSelections)
-            DropdownMenuItem(
-              value: selection,
-              child: Text(_memberSettingSelectionLabel(selection)),
-            ),
+        FilledButton.tonalIcon(
+          onPressed: onGrantReward,
+          icon: const Icon(Icons.card_giftcard_outlined),
+          label: const Text('發券'),
+        ),
+      ],
+    );
+  }
+}
+
+class _MemberSettingChip extends StatelessWidget {
+  const _MemberSettingChip({
+    required this.selection,
+    this.compact = false,
+  });
+
+  final _MemberSettingSelection selection;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final disabled = selection == _MemberSettingSelection.disabledAccount;
+    return Chip(
+      avatar: Icon(
+        disabled ? Icons.block_outlined : Icons.person_outline,
+        size: compact ? 15 : 18,
+        color: disabled ? const Color(0xFFAD3B24) : const Color(0xFF216B57),
+      ),
+      label: Text(_memberSettingSelectionLabel(selection)),
+      labelStyle: TextStyle(
+        fontSize: compact ? 12 : null,
+        fontWeight: FontWeight.w800,
+      ),
+      visualDensity: compact ? VisualDensity.compact : null,
+      materialTapTargetSize: compact ? MaterialTapTargetSize.shrinkWrap : null,
+      backgroundColor:
+          disabled ? const Color(0xFFFFF4EF) : const Color(0xFFEAF3EA),
+      side: BorderSide.none,
+    );
+  }
+}
+
+class _RewardGrantSummary extends StatelessWidget {
+  const _RewardGrantSummary({required this.reward});
+
+  final AdminRewardItem reward;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFA),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE4E8EA)),
+      ),
+      child: Wrap(
+        spacing: 18,
+        runSpacing: 8,
+        children: [
+          _MiniInfo(label: '分類', value: reward.category),
+          _MiniInfo(label: '庫存', value: '${reward.stock}'),
+          _MiniInfo(label: '已發放', value: '${reward.issued}'),
+          _MiniInfo(label: '期限', value: reward.expiresAt),
         ],
-        onChanged: (selection) {
-          if (selection == null) return;
-          onChanged(selection);
-        },
       ),
     );
   }
@@ -5649,6 +6737,17 @@ String _memberSettingSelectionLabel(_MemberSettingSelection selection) {
   };
 }
 
+String _memberSettingSelectionDescription(_MemberSettingSelection selection) {
+  return switch (selection) {
+    _MemberSettingSelection.regular => '可正常使用會員功能，不開放後台管理權限。',
+    _MemberSettingSelection.owner => '完整後台權限，適合系統主要負責人。',
+    _MemberSettingSelection.manager => '可管理會員、活動、最新資訊與兌換券。',
+    _MemberSettingSelection.editor => '可編輯活動、最新資訊與兌換券內容。',
+    _MemberSettingSelection.viewer => '僅可檢視會員資料，不可修改內容。',
+    _MemberSettingSelection.disabledAccount => '停用會員帳號，之後可用於限制登入與使用功能。',
+  };
+}
+
 String _permissionLabel(String id) {
   for (final option in _adminPermissionOptions) {
     if (option.id == id) return option.label;
@@ -5701,6 +6800,37 @@ backend.VeevaMember _memberWithSettings(
     referredAt: member.referredAt,
     isAdmin: isAdmin,
     adminRole: adminRole,
+    updatedAt: member.updatedAt,
+  );
+}
+
+backend.VeevaMember _memberWithEarnedCoupons(
+  backend.VeevaMember member, {
+  required int earnedCoupons,
+}) {
+  return backend.VeevaMember(
+    id: member.id,
+    name: member.name,
+    hospital: member.hospital,
+    department: member.department,
+    status: member.status,
+    accountStatus: member.accountStatus,
+    earnedCoupons: earnedCoupons,
+    invitedCount: member.invitedCount,
+    shareCode: member.shareCode,
+    lineUserId: member.lineUserId,
+    avatarUrl: member.avatarUrl,
+    email: member.email,
+    lineStatusMessage: member.lineStatusMessage,
+    lineIdToken: member.lineIdToken,
+    lineIdTokenUpdatedAt: member.lineIdTokenUpdatedAt,
+    createdAt: member.createdAt,
+    lastLineLoginAt: member.lastLineLoginAt,
+    referredByMemberId: member.referredByMemberId,
+    referredByShareCode: member.referredByShareCode,
+    referredAt: member.referredAt,
+    isAdmin: member.isAdmin,
+    adminRole: member.adminRole,
     updatedAt: member.updatedAt,
   );
 }
@@ -7784,6 +8914,33 @@ String _compressionSummary(PickedAdminImage image) {
   final qualityText =
       image.quality == null ? '' : '，品質 ${(image.quality! * 100).round()}%';
   return '已壓縮成 WebP：$sizeText$dimensionText$qualityText';
+}
+
+String _imageFileNameFromUrl(String value) {
+  final uri = Uri.tryParse(value.trim());
+  final rawFileName = uri?.pathSegments
+      .where((segment) => segment.trim().isNotEmpty)
+      .lastOrNull;
+  final decodedPath = Uri.decodeComponent(rawFileName ?? '');
+  final fileName = decodedPath
+      .split(RegExp(r'[/\\]'))
+      .where((segment) => segment.trim().isNotEmpty)
+      .lastOrNull;
+  if (fileName == null || fileName.isEmpty) {
+    return '已上傳圖片';
+  }
+  return fileName;
+}
+
+String _imagePreviewUrl(String value) {
+  final trimmed = value.trim();
+  final uri = Uri.tryParse(trimmed);
+  if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
+    return trimmed;
+  }
+  final query = Map<String, String>.from(uri.queryParameters);
+  query['veevaPreview'] = 'storage-cors-v1';
+  return uri.replace(queryParameters: query).toString();
 }
 
 class _NewsEditorDialog extends StatefulWidget {

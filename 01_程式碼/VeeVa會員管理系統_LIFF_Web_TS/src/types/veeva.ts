@@ -110,6 +110,7 @@ export interface VeevaMemberReward {
   memberId: string
   rewardId: string
   rewardName: string
+  rewardImageUrl?: string
   status: 'issued' | 'redeemed' | 'expired'
   issuedAt?: Date
   redeemedAt?: Date

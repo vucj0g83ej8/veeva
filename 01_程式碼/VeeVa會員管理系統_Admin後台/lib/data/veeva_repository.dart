@@ -43,6 +43,13 @@ abstract class VeevaRepository {
     VeevaAdminUser? adminUser,
   });
 
+  Future<void> grantRewardToMember({
+    required VeevaMember member,
+    required VeevaReward reward,
+    required int quantity,
+    String? note,
+  });
+
   Future<String> uploadImage({
     required String path,
     required Uint8List bytes,
@@ -72,6 +79,8 @@ class FirestoreVeevaRepository implements VeevaRepository {
       firestore.collection('rewards');
   CollectionReference<Map<String, dynamic>> get _admins =>
       firestore.collection('adminUsers');
+  CollectionReference<Map<String, dynamic>> get _memberRewards =>
+      firestore.collection('memberRewards');
 
   @override
   Future<VeevaBootstrap> loadBootstrap() async {
@@ -317,6 +326,77 @@ class FirestoreVeevaRepository implements VeevaRepository {
   }
 
   @override
+  Future<void> grantRewardToMember({
+    required VeevaMember member,
+    required VeevaReward reward,
+    required int quantity,
+    String? note,
+  }) async {
+    if (quantity <= 0) {
+      throw ArgumentError.value(quantity, 'quantity', 'must be positive');
+    }
+
+    final rewardRef = _rewards.doc(reward.id);
+    final memberRef = _members.doc(member.id);
+    final cleanNote = note?.trim();
+    final issuedBatchId = DateTime.now().millisecondsSinceEpoch;
+
+    await firestore.runTransaction((transaction) async {
+      final rewardSnapshot = await transaction.get(rewardRef);
+      final rewardData = rewardSnapshot.data();
+      final liveStock =
+          rewardData == null ? reward.stock : _readIntLike(rewardData['stock']);
+      final liveStatus =
+          rewardData?['status']?.toString() ?? reward.status.name;
+
+      if (liveStatus != VeevaRewardStatus.active.name) {
+        throw StateError('reward is not active');
+      }
+      if (liveStock < quantity) {
+        throw StateError('insufficient reward stock');
+      }
+
+      for (var index = 0; index < quantity; index += 1) {
+        final grantRef = _memberRewards.doc(
+          '${member.id}-${reward.id}-$issuedBatchId-$index',
+        );
+        transaction.set(grantRef, {
+          'memberId': member.id,
+          'memberName': member.name,
+          'memberLineUserId': member.lineUserId,
+          'rewardId': reward.id,
+          'rewardName': reward.name,
+          'rewardCategory': reward.category,
+          'rewardImageUrl': reward.imageUrl,
+          'status': 'issued',
+          'source': 'manualAdmin',
+          'note': cleanNote == null || cleanNote.isEmpty ? null : cleanNote,
+          'issuedAt': FieldValue.serverTimestamp(),
+          'expiresAt': Timestamp.fromDate(reward.expiresAt),
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+
+      transaction.set(
+          memberRef,
+          {
+            'earnedCoupons': FieldValue.increment(quantity),
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true));
+      transaction.set(
+          rewardRef,
+          {
+            'stock': FieldValue.increment(-quantity),
+            'issued': FieldValue.increment(quantity),
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true));
+    });
+  }
+
+  @override
   Future<String> uploadImage({
     required String path,
     required Uint8List bytes,
@@ -420,6 +500,14 @@ class DemoVeevaRepository implements VeevaRepository {
   }) async {}
 
   @override
+  Future<void> grantRewardToMember({
+    required VeevaMember member,
+    required VeevaReward reward,
+    required int quantity,
+    String? note,
+  }) async {}
+
+  @override
   Future<String> uploadImage({
     required String path,
     required Uint8List bytes,
@@ -439,6 +527,12 @@ String _shareCodeFromId(String id) {
     return compact.substring(compact.length - 5);
   }
   return compact.padRight(5, 'X');
+}
+
+int _readIntLike(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.round();
+  return int.tryParse(value?.toString() ?? '') ?? 0;
 }
 
 final defaultActivities = <VeevaActivity>[

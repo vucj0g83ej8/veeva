@@ -31,24 +31,37 @@ export function CouponsPage({ app }: PageProps) {
 
   return (
     <section className="stack">
-      {app.memberRewards.map((reward) => (
-        <article className="coupon-card" key={reward.id}>
-          <div className="coupon-icon">
-            <Ticket size={24} />
-          </div>
-          <div>
-            <div className="card-topline">
-              <span className="soft-tag">{statusLabel(reward.status)}</span>
-              <span className="muted">期限 {formatDate(reward.expiresAt)}</span>
+      {app.memberRewards.map((reward) => {
+        const imageUrl =
+          reward.rewardImageUrl ??
+          app.bootstrap.rewards.find((item) => item.id === reward.rewardId)
+            ?.imageUrl
+
+        return (
+          <article className="coupon-card" key={reward.id}>
+            <div className="coupon-media">
+              {imageUrl ? (
+                <img src={imageUrl} alt={reward.rewardName} loading="lazy" />
+              ) : (
+                <div className="coupon-icon">
+                  <Ticket size={24} />
+                </div>
+              )}
             </div>
-            <h2>{reward.rewardName}</h2>
-            <div className="detail-row">
-              <CheckCircle2 size={18} />
-              <span>{reward.status === 'issued' ? '可使用' : '已處理'}</span>
+            <div>
+              <div className="card-topline">
+                <span className="soft-tag">{statusLabel(reward.status)}</span>
+                <span className="muted">期限 {formatDate(reward.expiresAt)}</span>
+              </div>
+              <h2>{reward.rewardName}</h2>
+              <div className="detail-row">
+                <CheckCircle2 size={18} />
+                <span>{reward.status === 'issued' ? '可使用' : '已處理'}</span>
+              </div>
             </div>
-          </div>
-        </article>
-      ))}
+          </article>
+        )
+      })}
     </section>
   )
 }
@@ -58,4 +71,3 @@ function statusLabel(status: string) {
   if (status === 'expired') return '已過期'
   return '可兌換'
 }
-

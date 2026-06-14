@@ -6,7 +6,7 @@ import 'veeva_repository.dart';
 
 const veevaAdminImageStorageBucket = String.fromEnvironment(
   'VEEVA_STORAGE_BUCKET',
-  defaultValue: 'gs://veeva-8d30c-us-images',
+  defaultValue: 'gs://veeva-8d30c.firebasestorage.app',
 );
 
 Future<VeevaRepository> createVeevaRepository() async {
