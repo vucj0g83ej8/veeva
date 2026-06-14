@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import 'data/firebase_bootstrap.dart';
@@ -6,6 +8,12 @@ import 'data/veeva_repository.dart';
 import 'services/admin_line_auth_base.dart';
 import 'services/admin_line_auth_stub.dart'
     if (dart.library.html) 'services/admin_line_auth_web.dart';
+import 'services/admin_image_picker_stub.dart'
+    if (dart.library.html) 'services/admin_image_picker_web.dart';
+import 'widgets/admin_image_drop_overlay_stub.dart'
+    if (dart.library.html) 'widgets/admin_image_drop_overlay_web.dart';
+import 'widgets/rich_article_editor_stub.dart'
+    if (dart.library.html) 'widgets/rich_article_editor_web.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -74,6 +82,9 @@ class VeevaAdminApp extends StatelessWidget {
     return switch (Uri.base.queryParameters['adminTab']) {
       'members' || 'pending' || 'approved' => AdminTab.members,
       'activities' => AdminTab.activities,
+      'reward-distribution' ||
+      'rewardDistribution' =>
+        AdminTab.rewardDistribution,
       'news' => AdminTab.news,
       'rewards' => AdminTab.rewards,
       'permissions' => AdminTab.permissions,
@@ -87,6 +98,7 @@ enum AdminTab {
   dashboard,
   members,
   activities,
+  rewardDistribution,
   news,
   rewards,
   permissions,
@@ -945,6 +957,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       AdminTab.dashboard => '儀表板',
       AdminTab.members => '會員管理',
       AdminTab.activities => '活動管理',
+      AdminTab.rewardDistribution => '獎勵發放',
       AdminTab.news => '最新資訊管理',
       AdminTab.rewards => '兌換券管理',
       AdminTab.permissions => '權限管理',
@@ -975,6 +988,10 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
           onEdit: (activity) => _showActivityDialog(activity: activity),
           onToggleActive: _toggleActivityActive,
           onArchive: _archiveActivity,
+        ),
+      AdminTab.rewardDistribution => _RewardDistributionManagement(
+          activities: activities,
+          rewards: rewards,
         ),
       AdminTab.news => _NewsManagement(
           news: news,
@@ -1096,9 +1113,24 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
 
   Future<void> _showActivityDialog({backend.VeevaActivity? activity}) async {
     final isEditing = activity != null;
+    final activityId = activity?.id ?? createVeevaId('activity');
     const noRewardValue = '__no_reward__';
-    final labelController =
-        TextEditingController(text: activity?.label ?? '限時活動');
+    final labelOptions = <String>[
+      '限時活動',
+      '即將開始',
+      '報名中',
+      '會員限定',
+      '問卷活動',
+      '活動報名',
+    ];
+    final currentLabel = activity?.label.trim();
+    if (currentLabel != null &&
+        currentLabel.isNotEmpty &&
+        !labelOptions.contains(currentLabel)) {
+      labelOptions.insert(0, currentLabel);
+    }
+    var selectedLabel =
+        currentLabel?.isNotEmpty == true ? currentLabel! : labelOptions.first;
     final titleController = TextEditingController(text: activity?.title ?? '');
     final descriptionController =
         TextEditingController(text: activity?.description ?? '');
@@ -1130,298 +1162,577 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            return AlertDialog(
-              title: Text(isEditing ? '編輯活動' : '新增活動'),
-              content: SizedBox(
-                width: 560,
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (formError != null) ...[
-                        _InlineError(message: formError!),
-                        const SizedBox(height: 12),
-                      ],
-                      DropdownButtonFormField<backend.VeevaActivityType>(
-                        value: activityType,
-                        decoration: const InputDecoration(
-                          labelText: '活動類型',
-                          prefixIcon: Icon(Icons.category_outlined),
-                        ),
-                        items: [
-                          for (final type in backend.VeevaActivityType.values)
-                            DropdownMenuItem(
-                              value: type,
-                              child: Text(_activityTypeLabel(type)),
-                            ),
-                        ],
-                        onChanged: (value) {
-                          if (value == null) return;
-                          setDialogState(() {
-                            activityType = value;
-                            if (value ==
-                                    backend.VeevaActivityType.registration &&
-                                rewardController.text.trim() == '咖啡券') {
-                              rewardController.text = '活動報名';
-                            }
-                            if (value ==
-                                backend.VeevaActivityType.registration) {
-                              selectedRewardId = null;
-                            } else if (selectedRewardId == null &&
-                                rewardOptions.isNotEmpty) {
-                              selectedRewardId = rewardOptions.first.id;
-                              rewardController.text = rewardOptions.first.name;
-                              if (surveyUrlController.text.trim().isEmpty) {
-                                surveyUrlController.text =
-                                    defaultVeevaSurveyUrl;
-                              }
-                            }
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      if (activityType == backend.VeevaActivityType.survey) ...[
-                        TextField(
-                          controller: surveyUrlController,
-                          keyboardType: TextInputType.url,
-                          decoration: const InputDecoration(
-                            labelText: '問卷網址',
-                            prefixIcon: Icon(Icons.link_outlined),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-                      TextField(
-                        controller: titleController,
-                        decoration: const InputDecoration(
-                          labelText: '活動名稱',
-                          prefixIcon: Icon(Icons.campaign_outlined),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: labelController,
-                        decoration: const InputDecoration(
-                          labelText: '活動標籤',
-                          prefixIcon: Icon(Icons.label_outline),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: descriptionController,
-                        minLines: 3,
-                        maxLines: 5,
-                        decoration: const InputDecoration(
-                          labelText: '活動說明',
-                          alignLabelWithHint: true,
-                          prefixIcon: Icon(Icons.notes_outlined),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: rewardController,
-                              decoration: const InputDecoration(
-                                labelText: '獎勵內容',
-                                prefixIcon: Icon(Icons.redeem_outlined),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: TextField(
-                              controller: periodController,
-                              decoration: const InputDecoration(
-                                labelText: '活動期間',
-                                prefixIcon: Icon(Icons.date_range_outlined),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        value: selectedRewardId != null &&
-                                rewardOptions.any(
-                                  (reward) => reward.id == selectedRewardId,
-                                )
-                            ? selectedRewardId
-                            : noRewardValue,
-                        decoration: const InputDecoration(
-                          labelText: '完成後發放兌換券',
-                          prefixIcon: Icon(Icons.confirmation_number_outlined),
-                        ),
-                        items: [
-                          DropdownMenuItem(
-                            value: noRewardValue,
-                            child: Text(
-                              activityType == backend.VeevaActivityType.survey
-                                  ? '請選擇兌換券'
-                                  : '不發放兌換券',
-                            ),
-                          ),
-                          for (final reward in rewardOptions)
-                            DropdownMenuItem(
-                              value: reward.id,
-                              child: Text('${reward.name}（${reward.category}）'),
-                            ),
-                        ],
-                        onChanged: (value) {
-                          if (value == null) return;
-                          if (value == noRewardValue) {
-                            setDialogState(() {
-                              selectedRewardId = null;
-                            });
-                            return;
-                          }
-                          final selectedReward = rewardOptions.firstWhere(
-                            (reward) => reward.id == value,
-                          );
-                          setDialogState(() {
-                            selectedRewardId = value;
-                            rewardController.text = selectedReward.name;
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: noteController,
-                        decoration: const InputDecoration(
-                          labelText: '備註',
-                          prefixIcon: Icon(Icons.sticky_note_2_outlined),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: imageController,
-                        decoration: const InputDecoration(
-                          labelText: '圖片網址',
-                          prefixIcon: Icon(Icons.image_outlined),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: DropdownButtonFormField<
-                                backend.VeevaContentStatus>(
-                              value: status,
-                              decoration: const InputDecoration(
-                                labelText: '發布狀態',
-                                prefixIcon: Icon(Icons.flag_outlined),
-                              ),
-                              items: [
-                                for (final item
-                                    in backend.VeevaContentStatus.values)
-                                  DropdownMenuItem(
-                                    value: item,
-                                    child: Text(_contentStatusLabel(item)),
+            backend.VeevaActivity buildActivity({required bool draft}) {
+              final isDraft = draft && !isEditing;
+              final title = _fallbackText(
+                titleController.text,
+                isDraft ? '未命名活動' : '',
+              );
+              final description = _fallbackText(
+                descriptionController.text,
+                isDraft ? '尚未填寫活動說明。' : '',
+              );
+              final reward = _fallbackText(
+                rewardController.text,
+                activityType == backend.VeevaActivityType.registration
+                    ? '活動報名'
+                    : '兌換券',
+              );
+              final surveyUrl = _optionalText(surveyUrlController.text);
+              final savedStatus =
+                  isDraft ? backend.VeevaContentStatus.draft : status;
+              return backend.VeevaActivity(
+                id: activityId,
+                type: activityType,
+                label: selectedLabel,
+                title: title,
+                description: description,
+                reward: reward,
+                rewardId: selectedRewardId,
+                status: active && !isDraft
+                    ? backend.VeevaContentStatus.published
+                    : savedStatus,
+                active: active && !isDraft,
+                periodText: _optionalText(periodController.text),
+                note: _optionalText(noteController.text),
+                imageUrl: _optionalText(imageController.text),
+                surveyUrl: activityType == backend.VeevaActivityType.survey
+                    ? surveyUrl
+                    : null,
+              );
+            }
+
+            bool validate({required bool draft}) {
+              final title = titleController.text.trim();
+              final description = descriptionController.text.trim();
+              final surveyUrl = _optionalText(surveyUrlController.text);
+              if (!draft && (title.isEmpty || description.isEmpty)) {
+                setDialogState(() => formError = '請至少填寫活動名稱與活動說明。');
+                return false;
+              }
+              if (!draft &&
+                  activityType == backend.VeevaActivityType.survey &&
+                  (selectedRewardId == null ||
+                      selectedRewardId!.isEmpty ||
+                      !rewardOptions
+                          .any((reward) => reward.id == selectedRewardId))) {
+                setDialogState(() => formError = '問卷活動需要選擇完成後要發放的兌換券。');
+                return false;
+              }
+              if (!draft &&
+                  activityType == backend.VeevaActivityType.survey &&
+                  !_isHttpUrl(surveyUrl)) {
+                setDialogState(() => formError = '問卷活動請填入正確的活動網址。');
+                return false;
+              }
+              setDialogState(() => formError = null);
+              return true;
+            }
+
+            void previewActivity() {
+              final preview = buildActivity(draft: true);
+              showDialog<void>(
+                context: dialogContext,
+                builder: (previewContext) {
+                  return AlertDialog(
+                    title: const Text('活動預覽'),
+                    content: SizedBox(
+                      width: 520,
+                      child: SingleChildScrollView(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Row(
+                              children: [
+                                _ActivityStatusChip(activity: preview),
+                                const SizedBox(width: 8),
+                                Text(
+                                  preview.label,
+                                  style: const TextStyle(
+                                    color: Color(0xFF61706A),
+                                    fontWeight: FontWeight.w800,
                                   ),
+                                ),
                               ],
-                              onChanged: (value) {
-                                if (value == null) return;
-                                setDialogState(() {
-                                  status = value;
-                                  if (value ==
-                                      backend.VeevaContentStatus.archived) {
-                                    active = false;
-                                  }
-                                });
-                              },
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: SwitchListTile(
-                              value: active,
-                              contentPadding: EdgeInsets.zero,
-                              title: const Text('前台顯示'),
-                              subtitle: const Text('啟用後活動會出現在會員端'),
-                              onChanged: (value) {
-                                setDialogState(() {
-                                  active = value;
-                                  if (value) {
-                                    status =
-                                        backend.VeevaContentStatus.published;
-                                  }
-                                });
-                              },
+                            const SizedBox(height: 14),
+                            Text(
+                              preview.title,
+                              style: const TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w900,
+                              ),
                             ),
-                          ),
-                        ],
+                            const SizedBox(height: 10),
+                            Text(
+                              preview.description,
+                              style: const TextStyle(height: 1.5),
+                            ),
+                            const SizedBox(height: 14),
+                            _ActivityDetailLine(
+                              icon: Icons.redeem_outlined,
+                              label: '獎勵',
+                              value: preview.reward,
+                            ),
+                            _ActivityDetailLine(
+                              icon: _activityTypeIcon(preview.type),
+                              label: '類型',
+                              value: _activityTypeLabel(preview.type),
+                            ),
+                            _ActivityDetailLine(
+                              icon: Icons.date_range_outlined,
+                              label: '期間',
+                              value: preview.periodText ?? '未設定',
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(previewContext).pop(),
+                        child: const Text('關閉'),
                       ),
                     ],
-                  ),
+                  );
+                },
+              );
+            }
+
+            void saveActivity({required bool draft}) {
+              if (!validate(draft: draft)) {
+                return;
+              }
+              pendingActivity = buildActivity(draft: draft);
+              Navigator.of(dialogContext).pop();
+            }
+
+            final size = MediaQuery.sizeOf(context);
+            final horizontalInset = size.width < 760 ? 10.0 : 36.0;
+            final verticalInset = size.height < 760 ? 10.0 : 24.0;
+            final dialogWidth =
+                (size.width - horizontalInset * 2).clamp(360.0, 1060.0);
+            final dialogHeight =
+                (size.height - verticalInset * 2).clamp(560.0, 920.0);
+
+            return Dialog(
+              insetPadding: EdgeInsets.symmetric(
+                horizontal: horizontalInset,
+                vertical: verticalInset,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: SizedBox(
+                width: dialogWidth.toDouble(),
+                height: dialogHeight.toDouble(),
+                child: Column(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(28, 22, 28, 20),
+                      decoration: const BoxDecoration(
+                        color: Colors.white,
+                        border: Border(
+                          bottom: BorderSide(color: Color(0xFFE2E8E6)),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  isEditing ? '編輯活動' : '新增活動',
+                                  style: const TextStyle(
+                                    color: Color(0xFF172620),
+                                    fontSize: 28,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                const Text(
+                                  '新增一個活動並設定相關資訊，帶給會員更好的活動體驗。',
+                                  style: TextStyle(
+                                    color: Color(0xFF6B7671),
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: previewActivity,
+                            icon: const Icon(Icons.visibility_outlined),
+                            label: const Text('預覽'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF30443D),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 22,
+                                vertical: 16,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          FilledButton.icon(
+                            onPressed: () => saveActivity(draft: !isEditing),
+                            icon: Icon(
+                              isEditing
+                                  ? Icons.save_outlined
+                                  : Icons.edit_note_outlined,
+                            ),
+                            label: Text(isEditing ? '儲存' : '儲存草稿'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF0D7A57),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 24,
+                                vertical: 16,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            tooltip: '關閉',
+                            onPressed: () => Navigator.of(dialogContext).pop(),
+                            icon: const Icon(Icons.close),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(28),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (formError != null) ...[
+                              _InlineError(message: formError!),
+                              const SizedBox(height: 14),
+                            ],
+                            _ActivityFormSection(
+                              number: 1,
+                              title: '基本資訊',
+                              child: LayoutBuilder(
+                                builder: (context, constraints) {
+                                  final twoColumns =
+                                      constraints.maxWidth >= 760;
+                                  final typeField = Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const _ActivityFieldLabel(
+                                        text: '活動類型',
+                                        required: true,
+                                      ),
+                                      DropdownButtonFormField<
+                                          backend.VeevaActivityType>(
+                                        value: activityType,
+                                        decoration: _activityInputDecoration(
+                                          hintText: '請選擇活動類型',
+                                          icon: Icons.category_outlined,
+                                        ),
+                                        items: [
+                                          for (final type in backend
+                                              .VeevaActivityType.values)
+                                            DropdownMenuItem(
+                                              value: type,
+                                              child: Text(
+                                                  _activityTypeLabel(type)),
+                                            ),
+                                        ],
+                                        onChanged: (value) {
+                                          if (value == null) return;
+                                          setDialogState(() {
+                                            activityType = value;
+                                            if (value ==
+                                                    backend.VeevaActivityType
+                                                        .registration &&
+                                                rewardController.text.trim() ==
+                                                    '咖啡券') {
+                                              rewardController.text = '活動報名';
+                                            }
+                                            if (value ==
+                                                backend.VeevaActivityType
+                                                    .registration) {
+                                              selectedRewardId = null;
+                                            } else if (selectedRewardId ==
+                                                    null &&
+                                                rewardOptions.isNotEmpty) {
+                                              selectedRewardId =
+                                                  rewardOptions.first.id;
+                                              rewardController.text =
+                                                  rewardOptions.first.name;
+                                              if (surveyUrlController.text
+                                                  .trim()
+                                                  .isEmpty) {
+                                                surveyUrlController.text =
+                                                    defaultVeevaSurveyUrl;
+                                              }
+                                            }
+                                          });
+                                        },
+                                      ),
+                                    ],
+                                  );
+                                  final labelField = Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const _ActivityFieldLabel(
+                                        text: '活動標籤',
+                                        required: true,
+                                      ),
+                                      DropdownButtonFormField<String>(
+                                        value: selectedLabel,
+                                        decoration: _activityInputDecoration(
+                                          hintText: '請選擇活動標籤',
+                                          icon: Icons.label_outline,
+                                        ),
+                                        items: [
+                                          for (final option in labelOptions)
+                                            DropdownMenuItem(
+                                              value: option,
+                                              child: Text(option),
+                                            ),
+                                        ],
+                                        onChanged: (value) {
+                                          if (value == null) return;
+                                          setDialogState(
+                                              () => selectedLabel = value);
+                                        },
+                                      ),
+                                    ],
+                                  );
+                                  return Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      if (twoColumns)
+                                        Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Expanded(child: typeField),
+                                            const SizedBox(width: 26),
+                                            Expanded(child: labelField),
+                                          ],
+                                        )
+                                      else ...[
+                                        typeField,
+                                        const SizedBox(height: 16),
+                                        labelField,
+                                      ],
+                                      const SizedBox(height: 16),
+                                      const _ActivityFieldLabel(
+                                        text: '活動名稱',
+                                        required: true,
+                                      ),
+                                      TextField(
+                                        controller: titleController,
+                                        maxLength: 100,
+                                        decoration: _activityInputDecoration(
+                                          hintText: '請輸入活動名稱',
+                                          icon: Icons.campaign_outlined,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 10),
+                                      const _ActivityFieldLabel(text: '活動網址'),
+                                      TextField(
+                                        controller: surveyUrlController,
+                                        keyboardType: TextInputType.url,
+                                        decoration: _activityInputDecoration(
+                                          hintText: 'https://',
+                                          icon: Icons.link_outlined,
+                                          helperText:
+                                              '可輸入活動詳情頁面或外部連結；問卷活動請填問卷網址。',
+                                        ),
+                                      ),
+                                      const SizedBox(height: 16),
+                                      const _ActivityFieldLabel(text: '活動說明'),
+                                      TextField(
+                                        controller: descriptionController,
+                                        minLines: 3,
+                                        maxLines: 5,
+                                        maxLength: 500,
+                                        decoration: _activityInputDecoration(
+                                          hintText: '請輸入活動說明，讓會員了解活動內容...',
+                                          icon: Icons.notes_outlined,
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ),
+                            _ActivityFormSection(
+                              number: 2,
+                              title: '活動資訊',
+                              child: LayoutBuilder(
+                                builder: (context, constraints) {
+                                  final twoColumns =
+                                      constraints.maxWidth >= 760;
+                                  final rewardField = Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const _ActivityFieldLabel(text: '獎勵內容'),
+                                      TextField(
+                                        controller: rewardController,
+                                        decoration: _activityInputDecoration(
+                                          hintText: '例如：星巴克美式冰咖啡',
+                                          icon: Icons.card_giftcard_outlined,
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                  final periodField = Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const _ActivityFieldLabel(text: '活動期間'),
+                                      TextField(
+                                        controller: periodController,
+                                        decoration: _activityInputDecoration(
+                                          hintText: '開始日期  ~  結束日期',
+                                          icon: Icons.calendar_month_outlined,
+                                          suffixIcon: const Icon(
+                                            Icons.event_outlined,
+                                            size: 20,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                  return Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      if (twoColumns)
+                                        Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Expanded(child: rewardField),
+                                            const SizedBox(width: 26),
+                                            Expanded(child: periodField),
+                                          ],
+                                        )
+                                      else ...[
+                                        rewardField,
+                                        const SizedBox(height: 16),
+                                        periodField,
+                                      ],
+                                      const SizedBox(height: 16),
+                                      SizedBox(
+                                        width: twoColumns
+                                            ? constraints.maxWidth / 2 - 13
+                                            : double.infinity,
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            const _ActivityFieldLabel(
+                                              text: '完成後發放兌換券',
+                                            ),
+                                            DropdownButtonFormField<String>(
+                                              value: selectedRewardId != null &&
+                                                      rewardOptions.any(
+                                                        (reward) =>
+                                                            reward.id ==
+                                                            selectedRewardId,
+                                                      )
+                                                  ? selectedRewardId
+                                                  : noRewardValue,
+                                              decoration:
+                                                  _activityInputDecoration(
+                                                hintText: '請選擇兌換券（選填）',
+                                                icon: Icons
+                                                    .confirmation_number_outlined,
+                                                helperText:
+                                                    '選擇後，會員完成活動即可獲得兌換券。',
+                                              ),
+                                              items: [
+                                                DropdownMenuItem(
+                                                  value: noRewardValue,
+                                                  child: Text(
+                                                    activityType ==
+                                                            backend
+                                                                .VeevaActivityType
+                                                                .survey
+                                                        ? '請選擇兌換券（選填）'
+                                                        : '不發放兌換券',
+                                                  ),
+                                                ),
+                                                for (final reward
+                                                    in rewardOptions)
+                                                  DropdownMenuItem(
+                                                    value: reward.id,
+                                                    child: Text(
+                                                      '${reward.name}（${reward.category}）',
+                                                    ),
+                                                  ),
+                                              ],
+                                              onChanged: (value) {
+                                                if (value == null) return;
+                                                if (value == noRewardValue) {
+                                                  setDialogState(() {
+                                                    selectedRewardId = null;
+                                                  });
+                                                  return;
+                                                }
+                                                final selectedReward =
+                                                    rewardOptions.firstWhere(
+                                                  (reward) =>
+                                                      reward.id == value,
+                                                );
+                                                setDialogState(() {
+                                                  selectedRewardId = value;
+                                                  rewardController.text =
+                                                      selectedReward.name;
+                                                });
+                                              },
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ),
+                            _ActivityFormSection(
+                              number: 3,
+                              title: '活動圖片',
+                              child: _ActivityImageUploadSection(
+                                controller: imageController,
+                                storageFolder:
+                                    'public/activities/$activityId/cover',
+                                onUpload: repository.uploadImage,
+                              ),
+                            ),
+                            _ActivityFormSection(
+                              number: 4,
+                              title: '備註',
+                              child: TextField(
+                                controller: noteController,
+                                minLines: 3,
+                                maxLines: 4,
+                                maxLength: 200,
+                                decoration: _activityInputDecoration(
+                                  hintText: '請輸入備註（選填）',
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('取消'),
-                ),
-                FilledButton.icon(
-                  onPressed: () async {
-                    final title = titleController.text.trim();
-                    final description = descriptionController.text.trim();
-                    final reward = _fallbackText(
-                      rewardController.text,
-                      activityType == backend.VeevaActivityType.registration
-                          ? '活動報名'
-                          : '兌換券',
-                    );
-                    if (title.isEmpty || description.isEmpty) {
-                      setDialogState(() {
-                        formError = '請至少填寫活動名稱與活動說明。';
-                      });
-                      return;
-                    }
-                    if (activityType == backend.VeevaActivityType.survey &&
-                        (selectedRewardId == null ||
-                            selectedRewardId!.isEmpty ||
-                            !rewardOptions.any(
-                                (reward) => reward.id == selectedRewardId))) {
-                      setDialogState(() {
-                        formError = '問卷活動需要選擇完成後要發放的兌換券。';
-                      });
-                      return;
-                    }
-                    final surveyUrl = _optionalText(surveyUrlController.text);
-                    if (activityType == backend.VeevaActivityType.survey &&
-                        !_isHttpUrl(surveyUrl)) {
-                      setDialogState(() {
-                        formError = '請填入正確的問卷網址。';
-                      });
-                      return;
-                    }
-
-                    pendingActivity = backend.VeevaActivity(
-                      id: activity?.id ?? createVeevaId('activity'),
-                      type: activityType,
-                      label: _fallbackText(labelController.text, '活動'),
-                      title: title,
-                      description: description,
-                      reward: reward,
-                      rewardId: selectedRewardId,
-                      status: active
-                          ? backend.VeevaContentStatus.published
-                          : status,
-                      active: active,
-                      periodText: _optionalText(periodController.text),
-                      note: _optionalText(noteController.text),
-                      imageUrl: _optionalText(imageController.text),
-                      surveyUrl:
-                          activityType == backend.VeevaActivityType.survey
-                              ? surveyUrl
-                              : null,
-                    );
-                    Navigator.of(dialogContext).pop();
-                  },
-                  icon: Icon(isEditing ? Icons.save_outlined : Icons.add),
-                  label: Text(isEditing ? '儲存' : '建立'),
-                ),
-              ],
             );
           },
         );
@@ -1434,7 +1745,6 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
     }
 
     await Future<void>.delayed(const Duration(milliseconds: 250));
-    labelController.dispose();
     titleController.dispose();
     descriptionController.dispose();
     rewardController.dispose();
@@ -1487,7 +1797,10 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       category: newsItem.category,
       imageUrl: newsItem.imageUrl,
       content: newsItem.content,
+      detailContent: newsItem.detailContent,
+      keyPoints: newsItem.keyPoints,
       externalUrl: newsItem.externalUrl,
+      helpfulCount: newsItem.helpfulCount,
     );
     await _saveNews(
       updated,
@@ -1497,11 +1810,12 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
 
   Future<void> _showNewsDialog({backend.VeevaNews? newsItem}) async {
     final isEditing = newsItem != null;
+    final newsId = newsItem?.id ?? createVeevaId('news');
     final titleController = TextEditingController(text: newsItem?.title ?? '');
     final summaryController =
         TextEditingController(text: newsItem?.summary ?? '');
     final contentController = TextEditingController(
-      text: newsItem?.content ?? newsItem?.summary ?? '',
+      text: newsItem?.detailContent ?? newsItem?.content ?? '',
     );
     final sourceController =
         TextEditingController(text: newsItem?.source ?? 'Veeva');
@@ -1513,6 +1827,9 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
         TextEditingController(text: newsItem?.imageUrl ?? '');
     final externalUrlController =
         TextEditingController(text: newsItem?.externalUrl ?? '');
+    final helpfulCountController = TextEditingController(
+      text: '${newsItem?.helpfulCount ?? 12}',
+    );
     final initialStatus =
         newsItem?.status ?? backend.VeevaContentStatus.published;
 
@@ -1521,6 +1838,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       builder: (dialogContext) {
         return _NewsEditorDialog(
           newsItem: newsItem,
+          newsId: newsId,
           isEditing: isEditing,
           titleController: titleController,
           summaryController: summaryController,
@@ -1530,7 +1848,11 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
           dateController: dateController,
           imageController: imageController,
           externalUrlController: externalUrlController,
+          helpfulCountController: helpfulCountController,
           initialStatus: initialStatus,
+          coverImageStorageFolder: 'public/news/$newsId/cover',
+          articleImageStorageFolder: 'public/news/$newsId/content',
+          onUploadImage: repository.uploadImage,
         );
       },
     );
@@ -1548,6 +1870,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
     dateController.dispose();
     imageController.dispose();
     externalUrlController.dispose();
+    helpfulCountController.dispose();
   }
 
   Future<void> _saveReward(
@@ -1770,6 +2093,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
 
   Future<void> _showRewardDialog({AdminRewardItem? reward}) async {
     final isEditing = reward != null;
+    final rewardId = reward?.id ?? createVeevaId('reward');
     final nameController = TextEditingController(text: reward?.name ?? '');
     final categoryOptions = [..._rewardCategoryOptions];
     final existingCategory = reward?.category.trim();
@@ -1948,12 +2272,12 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                         ),
                       ],
                       const SizedBox(height: 12),
-                      TextField(
+                      _ImageUploadField(
                         controller: imageController,
-                        decoration: const InputDecoration(
-                          labelText: '圖片網址',
-                          prefixIcon: Icon(Icons.image_outlined),
-                        ),
+                        label: '兌換券圖片',
+                        helperText: '上傳後會用於兌換券內容或預覽畫面。',
+                        storageFolder: 'public/rewards/$rewardId/cover',
+                        onUpload: repository.uploadImage,
                       ),
                     ],
                   ),
@@ -1990,7 +2314,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                     }
 
                     pendingReward = AdminRewardItem(
-                      id: reward?.id ?? createVeevaId('reward'),
+                      id: rewardId,
                       name: name,
                       category: category,
                       stock: stock,
@@ -2298,6 +2622,694 @@ class _InlineError extends StatelessWidget {
   }
 }
 
+class _ActivityFormSection extends StatelessWidget {
+  const _ActivityFormSection({
+    required this.number,
+    required this.title,
+    required this.child,
+  });
+
+  final int number;
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE2E8E6)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 24,
+                height: 24,
+                alignment: Alignment.center,
+                decoration: const BoxDecoration(
+                  color: Color(0xFF0D7A57),
+                  shape: BoxShape.circle,
+                ),
+                child: Text(
+                  '$number',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                title,
+                style: const TextStyle(
+                  color: Color(0xFF1C3028),
+                  fontSize: 17,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _ActivityFieldLabel extends StatelessWidget {
+  const _ActivityFieldLabel({
+    required this.text,
+    this.required = false,
+  });
+
+  final String text;
+  final bool required;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: RichText(
+        text: TextSpan(
+          style: const TextStyle(
+            color: Color(0xFF4C5F58),
+            fontSize: 13,
+            fontWeight: FontWeight.w800,
+          ),
+          children: [
+            TextSpan(text: text),
+            if (required)
+              const TextSpan(
+                text: ' *',
+                style: TextStyle(color: Color(0xFFD14332)),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ActivityImageUploadSection extends StatefulWidget {
+  const _ActivityImageUploadSection({
+    required this.controller,
+    required this.storageFolder,
+    required this.onUpload,
+  });
+
+  final TextEditingController controller;
+  final String storageFolder;
+  final _AdminImageUploader onUpload;
+
+  @override
+  State<_ActivityImageUploadSection> createState() =>
+      _ActivityImageUploadSectionState();
+}
+
+class _ActivityImageUploadSectionState
+    extends State<_ActivityImageUploadSection> {
+  bool _isDragging = false;
+  bool _isUploading = false;
+  String? _error;
+  String? _uploadNote;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onControllerChanged);
+  }
+
+  @override
+  void didUpdateWidget(_ActivityImageUploadSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_onControllerChanged);
+      widget.controller.addListener(_onControllerChanged);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onControllerChanged);
+    super.dispose();
+  }
+
+  void _onControllerChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final imageUrl = widget.controller.text.trim();
+    final hasImage = imageUrl.isNotEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          height: hasImage ? 236 : 210,
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color:
+                _isDragging ? const Color(0xFFE8F5EF) : const Color(0xFFFAFBFB),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: _isDragging
+                  ? const Color(0xFF0D7A57)
+                  : const Color(0xFFD8E1DE),
+              width: _isDragging ? 1.6 : 1,
+            ),
+          ),
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: hasImage
+                    ? Image.network(
+                        imageUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => _ActivityImageEmptyState(
+                          isDragging: _isDragging,
+                          hasError: true,
+                        ),
+                      )
+                    : _ActivityImageEmptyState(isDragging: _isDragging),
+              ),
+              if (hasImage)
+                Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.black.withOpacity(0.02),
+                          Colors.black.withOpacity(0.52),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              Positioned.fill(
+                child: AdminImageDropOverlay(
+                  onImage: _uploadImage,
+                  onHoverChanged: (value) {
+                    if (mounted) {
+                      setState(() => _isDragging = value);
+                    }
+                  },
+                ),
+              ),
+              if (hasImage)
+                Positioned(
+                  left: 18,
+                  right: 18,
+                  bottom: 16,
+                  child: IgnorePointer(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          '活動圖片',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _uploadNote ?? '拖曳新圖片到這裡，或點擊更換圖片。',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              if (hasImage)
+                Positioned(
+                  top: 12,
+                  right: 12,
+                  child: Material(
+                    color: Colors.white.withOpacity(0.94),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: IconButton(
+                      tooltip: '移除圖片',
+                      onPressed: _isUploading
+                          ? null
+                          : () {
+                              widget.controller.clear();
+                              setState(() {
+                                _error = null;
+                                _uploadNote = null;
+                              });
+                            },
+                      icon: const Icon(Icons.delete_outline),
+                      color: const Color(0xFFAD3B24),
+                    ),
+                  ),
+                ),
+              if (_isUploading)
+                Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.82),
+                    ),
+                    child: const Center(
+                      child: SizedBox(
+                        width: 34,
+                        height: 34,
+                        child: CircularProgressIndicator(strokeWidth: 3),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          '支援 JPG、PNG、WebP、GIF。原圖上限 10MB，會自動壓縮成 WebP，最長邊 1280px，目標約 200KB。',
+          style: TextStyle(
+            color: Color(0xFF71817A),
+            fontSize: 12,
+            height: 1.4,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        if (_error != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            _error!,
+            style: const TextStyle(
+              color: Color(0xFFAD3B24),
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+        if (_uploadNote != null && !hasImage) ...[
+          const SizedBox(height: 8),
+          Text(
+            _uploadNote!,
+            style: const TextStyle(
+              color: Color(0xFF216B57),
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Future<void> _uploadImage(PickedAdminImage image) async {
+    final validationError = _adminImageValidationError(image);
+    if (validationError != null) {
+      setState(() {
+        _error = validationError;
+        _uploadNote = null;
+      });
+      return;
+    }
+
+    setState(() {
+      _isUploading = true;
+      _error = null;
+    });
+
+    try {
+      final url = await widget.onUpload(
+        path: _imageStoragePath(
+          folder: widget.storageFolder,
+          fileName: image.name,
+          contentType: image.contentType,
+        ),
+        bytes: image.bytes,
+        contentType: image.contentType,
+      );
+      if (url.trim().isEmpty) {
+        throw StateError('empty download url');
+      }
+      if (!mounted) return;
+      widget.controller.text = url;
+      setState(() {
+        _isUploading = false;
+        _error = null;
+        _uploadNote = _compressionSummary(image);
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isUploading = false;
+        _error = '圖片上傳失敗，請確認 Firebase Storage bucket 已建立並部署 rules。';
+      });
+    }
+  }
+}
+
+class _ActivityImageEmptyState extends StatelessWidget {
+  const _ActivityImageEmptyState({
+    required this.isDragging,
+    this.hasError = false,
+  });
+
+  final bool isDragging;
+  final bool hasError;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              hasError
+                  ? Icons.broken_image_outlined
+                  : Icons.cloud_upload_outlined,
+              size: 42,
+              color:
+                  hasError ? const Color(0xFFAD3B24) : const Color(0xFF0D7A57),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              hasError
+                  ? '圖片無法預覽，請重新上傳'
+                  : isDragging
+                      ? '放開即可上傳圖片'
+                      : '拖曳圖片到這裡，或點擊選擇圖片',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Color(0xFF30443D),
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              '建議使用橫式圖片，前台活動列表與活動詳情會自動套用。',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Color(0xFF71817A),
+                fontSize: 12,
+                height: 1.4,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+InputDecoration _activityInputDecoration({
+  required String hintText,
+  IconData? icon,
+  Widget? suffixIcon,
+  String? helperText,
+}) {
+  return InputDecoration(
+    hintText: hintText,
+    helperText: helperText,
+    prefixIcon: icon == null ? null : Icon(icon),
+    suffixIcon: suffixIcon,
+    filled: true,
+    fillColor: Colors.white,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(8),
+      borderSide: const BorderSide(color: Color(0xFFD8E1DE)),
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(8),
+      borderSide: const BorderSide(color: Color(0xFFD8E1DE)),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(8),
+      borderSide: const BorderSide(color: Color(0xFF0D7A57), width: 1.4),
+    ),
+  );
+}
+
+typedef _AdminImageUploader = Future<String> Function({
+  required String path,
+  required Uint8List bytes,
+  required String contentType,
+});
+
+class _ImageUploadField extends StatefulWidget {
+  const _ImageUploadField({
+    required this.controller,
+    required this.label,
+    required this.storageFolder,
+    required this.onUpload,
+    this.helperText,
+  });
+
+  final TextEditingController controller;
+  final String label;
+  final String storageFolder;
+  final _AdminImageUploader onUpload;
+  final String? helperText;
+
+  @override
+  State<_ImageUploadField> createState() => _ImageUploadFieldState();
+}
+
+class _ImageUploadFieldState extends State<_ImageUploadField> {
+  bool _isUploading = false;
+  String? _error;
+  String? _uploadNote;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onControllerChanged);
+  }
+
+  @override
+  void didUpdateWidget(_ImageUploadField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_onControllerChanged);
+      widget.controller.addListener(_onControllerChanged);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onControllerChanged);
+    super.dispose();
+  }
+
+  void _onControllerChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final imageUrl = widget.controller.text.trim();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFAFBFB),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFDCE4E1)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.image_outlined, color: Color(0xFF216B57)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  widget.label,
+                  style: const TextStyle(
+                    color: Color(0xFF30443D),
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              Text(
+                '原圖上限 ${_formatBytes(adminImageSourceMaxBytes)}',
+                style: const TextStyle(
+                  color: Color(0xFF71817A),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          if (widget.helperText?.isNotEmpty == true) ...[
+            const SizedBox(height: 6),
+            Text(
+              '${widget.helperText!}\n會自動壓縮成 WebP，最長邊 1280px，目標約 ${_formatBytes(adminImageTargetBytes)}。',
+              style: const TextStyle(
+                color: Color(0xFF71817A),
+                fontSize: 12,
+                height: 1.35,
+              ),
+            ),
+          ],
+          const SizedBox(height: 10),
+          if (imageUrl.isNotEmpty) ...[
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.network(
+                imageUrl,
+                height: 150,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) {
+                  return Container(
+                    height: 110,
+                    alignment: Alignment.center,
+                    color: const Color(0xFFF1F4F3),
+                    child: const Text('圖片無法預覽'),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
+          Row(
+            children: [
+              FilledButton.icon(
+                onPressed: _isUploading ? null : _pickAndUpload,
+                icon: _isUploading
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.cloud_upload_outlined),
+                label: Text(_isUploading ? '上傳中' : '上傳圖片'),
+              ),
+              if (imageUrl.isNotEmpty) ...[
+                const SizedBox(width: 8),
+                TextButton.icon(
+                  onPressed: _isUploading
+                      ? null
+                      : () {
+                          widget.controller.clear();
+                          setState(() {
+                            _error = null;
+                            _uploadNote = null;
+                          });
+                        },
+                  icon: const Icon(Icons.delete_outline),
+                  label: const Text('移除'),
+                ),
+              ],
+            ],
+          ),
+          if (_isUploading) ...[
+            const SizedBox(height: 10),
+            const LinearProgressIndicator(minHeight: 2),
+          ],
+          if (_error != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              _error!,
+              style: const TextStyle(
+                color: Color(0xFFAD3B24),
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+          if (_uploadNote != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              _uploadNote!,
+              style: const TextStyle(
+                color: Color(0xFF216B57),
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _pickAndUpload() async {
+    final image = await pickAdminImage();
+    if (image == null) {
+      return;
+    }
+    final validationError = _adminImageValidationError(image);
+    if (validationError != null) {
+      setState(() => _error = validationError);
+      return;
+    }
+
+    setState(() {
+      _isUploading = true;
+      _error = null;
+    });
+
+    try {
+      final path = _imageStoragePath(
+        folder: widget.storageFolder,
+        fileName: image.name,
+        contentType: image.contentType,
+      );
+      final url = await widget.onUpload(
+        path: path,
+        bytes: image.bytes,
+        contentType: image.contentType,
+      );
+      if (url.trim().isEmpty) {
+        throw StateError('empty download url');
+      }
+      if (!mounted) return;
+      widget.controller.text = url;
+      setState(() {
+        _isUploading = false;
+        _error = null;
+        _uploadNote = _compressionSummary(image);
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isUploading = false;
+        _error = '圖片上傳失敗，請確認 Firebase Storage bucket 已建立並部署 rules。';
+      });
+    }
+  }
+}
+
 class _AdminSidebar extends StatelessWidget {
   const _AdminSidebar({
     required this.selected,
@@ -2309,15 +3321,8 @@ class _AdminSidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final items = [
-      (AdminTab.dashboard, Icons.dashboard_outlined, '儀表板'),
-      (AdminTab.permissions, Icons.verified_user_outlined, '權限管理'),
-      (AdminTab.members, Icons.groups_outlined, '會員管理'),
-      (AdminTab.activities, Icons.campaign_outlined, '活動管理'),
-      (AdminTab.news, Icons.newspaper_outlined, '最新資訊'),
-      (AdminTab.rewards, Icons.confirmation_number_outlined, '兌換券管理'),
-      (AdminTab.settings, Icons.settings_outlined, '設定'),
-    ];
+    final activityGroupSelected = selected == AdminTab.activities ||
+        selected == AdminTab.rewardDistribution;
     return Container(
       width: 232,
       color: const Color(0xFF16241F),
@@ -2337,19 +3342,168 @@ class _AdminSidebar extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 20),
-          for (final item in items)
-            _SidebarItem(
-              icon: item.$2,
-              label: item.$3,
-              selected: selected == item.$1,
-              onTap: () => onSelected(item.$1),
-            ),
+          _SidebarItem(
+            icon: Icons.dashboard_outlined,
+            label: '儀表板',
+            selected: selected == AdminTab.dashboard,
+            onTap: () => onSelected(AdminTab.dashboard),
+          ),
+          _SidebarItem(
+            icon: Icons.verified_user_outlined,
+            label: '權限管理',
+            selected: selected == AdminTab.permissions,
+            onTap: () => onSelected(AdminTab.permissions),
+          ),
+          _SidebarItem(
+            icon: Icons.groups_outlined,
+            label: '會員管理',
+            selected: selected == AdminTab.members,
+            onTap: () => onSelected(AdminTab.members),
+          ),
+          _SidebarGroupHeader(
+            icon: Icons.campaign_outlined,
+            label: '活動管理',
+            selected: activityGroupSelected,
+            onTap: () => onSelected(AdminTab.activities),
+          ),
+          _SidebarSubItem(
+            label: '活動',
+            selected: selected == AdminTab.activities,
+            onTap: () => onSelected(AdminTab.activities),
+          ),
+          _SidebarSubItem(
+            label: '獎勵發放',
+            selected: selected == AdminTab.rewardDistribution,
+            onTap: () => onSelected(AdminTab.rewardDistribution),
+          ),
+          _SidebarItem(
+            icon: Icons.newspaper_outlined,
+            label: '最新資訊',
+            selected: selected == AdminTab.news,
+            onTap: () => onSelected(AdminTab.news),
+          ),
+          _SidebarItem(
+            icon: Icons.confirmation_number_outlined,
+            label: '兌換券管理',
+            selected: selected == AdminTab.rewards,
+            onTap: () => onSelected(AdminTab.rewards),
+          ),
+          _SidebarItem(
+            icon: Icons.settings_outlined,
+            label: '設定',
+            selected: selected == AdminTab.settings,
+            onTap: () => onSelected(AdminTab.settings),
+          ),
           const Spacer(),
           const Text(
             '活動問卷管理系統',
             style: TextStyle(color: Color(0xFF93A09A), fontSize: 12),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SidebarGroupHeader extends StatelessWidget {
+  const _SidebarGroupHeader({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Material(
+        color: selected ? const Color(0xFF1D3B31) : Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            child: Row(
+              children: [
+                Icon(icon, color: const Color(0xFFC4CEC9)),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: const TextStyle(
+                      color: Color(0xFFE7EFEC),
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                const Icon(
+                  Icons.expand_more,
+                  color: Color(0xFF93A09A),
+                  size: 18,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SidebarSubItem extends StatelessWidget {
+  const _SidebarSubItem({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 28, bottom: 8),
+      child: Material(
+        color: selected ? const Color(0xFF216B57) : Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              children: [
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: selected ? Colors.white : const Color(0xFF93A09A),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      color: selected ? Colors.white : const Color(0xFFC4CEC9),
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -2802,38 +3956,35 @@ class _ReviewListBody extends StatelessWidget {
       );
     }
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: DataTable(
-          headingRowColor: WidgetStateProperty.all(const Color(0xFFF5F7F8)),
-          columns: [
-            const DataColumn(label: Text('姓名')),
-            const DataColumn(label: Text('院所 / 科別')),
-            if (!compact) const DataColumn(label: Text('完成時間')),
-            const DataColumn(label: Text('狀態')),
-            if (onApprove != null) const DataColumn(label: Text('操作')),
-          ],
-          rows: [
-            for (final item in rows)
-              DataRow(
-                cells: [
-                  DataCell(Text(item.name)),
-                  DataCell(Text('${item.hospital} / ${item.department}')),
-                  if (!compact) DataCell(Text(item.completedAt)),
-                  DataCell(_StatusChip(status: item.status)),
-                  if (onApprove != null)
-                    DataCell(
-                      FilledButton(
-                        onPressed: () => onApprove!(item),
-                        child: const Text('通過'),
-                      ),
+    return _FullWidthDataTable(
+      minWidth: compact ? 620 : 760,
+      child: DataTable(
+        headingRowColor: WidgetStateProperty.all(const Color(0xFFF5F7F8)),
+        columns: [
+          const DataColumn(label: Text('姓名')),
+          const DataColumn(label: Text('院所 / 科別')),
+          if (!compact) const DataColumn(label: Text('完成時間')),
+          const DataColumn(label: Text('狀態')),
+          if (onApprove != null) const DataColumn(label: Text('操作')),
+        ],
+        rows: [
+          for (final item in rows)
+            DataRow(
+              cells: [
+                DataCell(Text(item.name)),
+                DataCell(Text('${item.hospital} / ${item.department}')),
+                if (!compact) DataCell(Text(item.completedAt)),
+                DataCell(_StatusChip(status: item.status)),
+                if (onApprove != null)
+                  DataCell(
+                    FilledButton(
+                      onPressed: () => onApprove!(item),
+                      child: const Text('通過'),
                     ),
-                ],
-              ),
-          ],
-        ),
+                  ),
+              ],
+            ),
+        ],
       ),
     );
   }
@@ -3557,6 +4708,39 @@ class _MemberNameOnly extends StatelessWidget {
   }
 }
 
+class _FullWidthDataTable extends StatelessWidget {
+  const _FullWidthDataTable({
+    required this.child,
+    required this.minWidth,
+  });
+
+  final Widget child;
+  final double minWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availableWidth =
+            constraints.maxWidth.isFinite ? constraints.maxWidth : minWidth;
+        final tableWidth =
+            availableWidth < minWidth ? minWidth : availableWidth;
+
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minWidth: tableWidth),
+              child: child,
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _MemberSettingDropdown extends StatelessWidget {
   const _MemberSettingDropdown({
     required this.member,
@@ -4129,8 +5313,8 @@ class _LineMemberAdminPanel extends StatelessWidget {
                 ],
               )
             else
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
+              _FullWidthDataTable(
+                minWidth: 820,
                 child: DataTable(
                   headingRowColor:
                       WidgetStateProperty.all(const Color(0xFFF1F4F3)),
@@ -4274,10 +5458,6 @@ class _MemberIdentity extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final identifier = member.email?.isNotEmpty == true
-        ? member.email!
-        : member.lineUserId ?? member.id;
-
     return Row(
       mainAxisSize: MainAxisSize.max,
       children: [
@@ -4301,21 +5481,6 @@ class _MemberIdentity extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontWeight: FontWeight.w900),
               ),
-              Text(
-                identifier,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 12, color: Color(0xFF6B7671)),
-              ),
-              if (member.lineUserId?.isNotEmpty == true &&
-                  identifier != member.lineUserId)
-                Text(
-                  'LINE ID：${member.lineUserId}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style:
-                      const TextStyle(fontSize: 12, color: Color(0xFF6B7671)),
-                ),
             ],
           ),
         ),
@@ -4730,6 +5895,149 @@ class _MemberStatusTab extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _RewardDistributionManagement extends StatelessWidget {
+  const _RewardDistributionManagement({
+    required this.activities,
+    required this.rewards,
+  });
+
+  final List<backend.VeevaActivity> activities;
+  final List<AdminRewardItem> rewards;
+
+  @override
+  Widget build(BuildContext context) {
+    final isCompact = MediaQuery.sizeOf(context).width < 760;
+    final rewardActivities =
+        activities.where((activity) => activity.rewardId != null).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  children: [
+                    Icon(
+                      Icons.card_giftcard_outlined,
+                      color: Color(0xFF216B57),
+                    ),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        '獎勵發放',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                if (rewardActivities.isEmpty)
+                  const _EmptyListMessage(message: '目前沒有活動設定完成後發放兌換券。')
+                else if (isCompact)
+                  Column(
+                    children: [
+                      for (final activity in rewardActivities)
+                        _DistributionActivityCard(
+                          activity: activity,
+                          rewardName: _rewardNameFor(activity.rewardId),
+                        ),
+                    ],
+                  )
+                else
+                  _FullWidthDataTable(
+                    minWidth: 860,
+                    child: DataTable(
+                      horizontalMargin: 16,
+                      columnSpacing: 24,
+                      headingRowColor:
+                          WidgetStateProperty.all(const Color(0xFFF5F7F8)),
+                      columns: const [
+                        DataColumn(label: Text('活動')),
+                        DataColumn(label: Text('類型')),
+                        DataColumn(label: Text('發放兌換券')),
+                        DataColumn(label: Text('狀態')),
+                      ],
+                      rows: [
+                        for (final activity in rewardActivities)
+                          DataRow(
+                            cells: [
+                              DataCell(_ActivityTitleCell(activity: activity)),
+                              DataCell(_ActivityTypeChip(type: activity.type)),
+                              DataCell(Text(_rewardNameFor(activity.rewardId))),
+                              DataCell(_ActivityStatusChip(activity: activity)),
+                            ],
+                          ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _rewardNameFor(String? rewardId) {
+    if (rewardId == null) return '未設定';
+    for (final reward in rewards) {
+      if (reward.id == rewardId) return reward.name;
+    }
+    return rewardId;
+  }
+}
+
+class _DistributionActivityCard extends StatelessWidget {
+  const _DistributionActivityCard({
+    required this.activity,
+    required this.rewardName,
+  });
+
+  final backend.VeevaActivity activity;
+  final String rewardName;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFA),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE4E8EA)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            activity.title,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _ActivityTypeChip(type: activity.type),
+              _ActivityStatusChip(activity: activity),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text('發放兌換券：$rewardName'),
+        ],
       ),
     );
   }
@@ -5317,57 +6625,54 @@ class _ActivityDataTable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: DataTable(
-          headingRowColor: WidgetStateProperty.all(const Color(0xFFF5F7F8)),
-          horizontalMargin: 16,
-          columnSpacing: 18,
-          dataRowMinHeight: 72,
-          dataRowMaxHeight: 96,
-          columns: const [
-            DataColumn(label: Text('活動名稱')),
-            DataColumn(label: Text('類型')),
-            DataColumn(label: Text('狀態')),
-            DataColumn(label: Text('獎勵')),
-            DataColumn(label: Text('活動期間')),
-            DataColumn(label: Text('備註')),
-            DataColumn(label: Text('操作')),
-          ],
-          rows: [
-            for (final activity in activities)
-              DataRow(
-                cells: [
-                  DataCell(_ActivityTitleCell(activity: activity)),
-                  DataCell(_ActivityTypeChip(type: activity.type)),
-                  DataCell(_ActivityStatusChip(activity: activity)),
-                  DataCell(Text(activity.reward)),
-                  DataCell(Text(activity.periodText ?? '未設定')),
-                  DataCell(
-                    SizedBox(
-                      width: 180,
-                      child: Text(
-                        activity.note ?? '-',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+    return _FullWidthDataTable(
+      minWidth: 1120,
+      child: DataTable(
+        headingRowColor: WidgetStateProperty.all(const Color(0xFFF5F7F8)),
+        horizontalMargin: 16,
+        columnSpacing: 18,
+        dataRowMinHeight: 72,
+        dataRowMaxHeight: 96,
+        columns: const [
+          DataColumn(label: Text('活動名稱')),
+          DataColumn(label: Text('類型')),
+          DataColumn(label: Text('狀態')),
+          DataColumn(label: Text('獎勵')),
+          DataColumn(label: Text('活動期間')),
+          DataColumn(label: Text('備註')),
+          DataColumn(label: Text('操作')),
+        ],
+        rows: [
+          for (final activity in activities)
+            DataRow(
+              cells: [
+                DataCell(_ActivityTitleCell(activity: activity)),
+                DataCell(_ActivityTypeChip(type: activity.type)),
+                DataCell(_ActivityStatusChip(activity: activity)),
+                DataCell(Text(activity.reward)),
+                DataCell(Text(activity.periodText ?? '未設定')),
+                DataCell(
+                  SizedBox(
+                    width: 180,
+                    child: Text(
+                      activity.note ?? '-',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  DataCell(
-                    _ActivityActions(
-                      activity: activity,
-                      onEdit: onEdit,
-                      onPreview: onPreview,
-                      onToggleActive: onToggleActive,
-                      onArchive: onArchive,
-                    ),
+                ),
+                DataCell(
+                  _ActivityActions(
+                    activity: activity,
+                    onEdit: onEdit,
+                    onPreview: onPreview,
+                    onToggleActive: onToggleActive,
+                    onArchive: onArchive,
                   ),
-                ],
-              ),
-          ],
-        ),
+                ),
+              ],
+            ),
+        ],
       ),
     );
   }
@@ -5807,6 +7112,8 @@ class _NewsManagementState extends State<_NewsManagement> {
           item.title,
           item.summary,
           item.content,
+          item.detailContent,
+          item.keyPoints.join(' '),
           item.source,
           item.category,
           item.date,
@@ -5888,10 +7195,46 @@ class _NewsManagementState extends State<_NewsManagement> {
                       height: 1.5,
                     ),
                   ),
+                  if (item.keyPoints.isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEFF8F4),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFFDDEAE5)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            '重點內容',
+                            style: TextStyle(
+                              color: Color(0xFF0B835F),
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          for (final point in item.keyPoints)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 6),
+                              child: Text('• $point'),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   Text(
                     _newsBody(item),
                     style: const TextStyle(height: 1.55),
+                  ),
+                  const SizedBox(height: 12),
+                  _ActivityDetailLine(
+                    icon: Icons.thumb_up_alt_outlined,
+                    label: '有幫助人數',
+                    value: '${item.helpfulCount}',
                   ),
                   if (item.externalUrl?.isNotEmpty == true) ...[
                     const SizedBox(height: 14),
@@ -6047,45 +7390,42 @@ class _NewsDataTable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: DataTable(
-          headingRowColor: WidgetStateProperty.all(const Color(0xFFF5F7F8)),
-          horizontalMargin: 16,
-          columnSpacing: 18,
-          dataRowMinHeight: 76,
-          dataRowMaxHeight: 104,
-          columns: const [
-            DataColumn(label: Text('文章')),
-            DataColumn(label: Text('狀態')),
-            DataColumn(label: Text('發布日期')),
-            DataColumn(label: Text('來源')),
-            DataColumn(label: Text('分類')),
-            DataColumn(label: Text('操作')),
-          ],
-          rows: [
-            for (final item in news)
-              DataRow(
-                cells: [
-                  DataCell(_NewsTitleCell(item: item)),
-                  DataCell(_NewsStatusChip(status: item.status)),
-                  DataCell(Text(item.date)),
-                  DataCell(Text(item.source)),
-                  DataCell(Text(item.category ?? '-')),
-                  DataCell(
-                    _NewsActions(
-                      item: item,
-                      onEdit: onEdit,
-                      onPreview: onPreview,
-                      onStatusChanged: onStatusChanged,
-                    ),
+    return _FullWidthDataTable(
+      minWidth: 1060,
+      child: DataTable(
+        headingRowColor: WidgetStateProperty.all(const Color(0xFFF5F7F8)),
+        horizontalMargin: 16,
+        columnSpacing: 18,
+        dataRowMinHeight: 76,
+        dataRowMaxHeight: 104,
+        columns: const [
+          DataColumn(label: Text('文章')),
+          DataColumn(label: Text('狀態')),
+          DataColumn(label: Text('發布日期')),
+          DataColumn(label: Text('來源')),
+          DataColumn(label: Text('分類')),
+          DataColumn(label: Text('操作')),
+        ],
+        rows: [
+          for (final item in news)
+            DataRow(
+              cells: [
+                DataCell(_NewsTitleCell(item: item)),
+                DataCell(_NewsStatusChip(status: item.status)),
+                DataCell(Text(item.date)),
+                DataCell(Text(item.source)),
+                DataCell(Text(item.category ?? '-')),
+                DataCell(
+                  _NewsActions(
+                    item: item,
+                    onEdit: onEdit,
+                    onPreview: onPreview,
+                    onStatusChanged: onStatusChanged,
                   ),
-                ],
-              ),
-          ],
-        ),
+                ),
+              ],
+            ),
+        ],
       ),
     );
   }
@@ -6281,6 +7621,10 @@ class _NewsStatusChip extends StatelessWidget {
 }
 
 String _newsBody(backend.VeevaNews item) {
+  final detailContent = item.detailContent?.trim();
+  if (detailContent != null && detailContent.isNotEmpty) {
+    return detailContent;
+  }
   final content = item.content?.trim();
   return content == null || content.isEmpty ? item.summary : content;
 }
@@ -6361,9 +7705,91 @@ bool _isHttpUrl(String? value) {
       (uri.scheme == 'https' || uri.scheme == 'http');
 }
 
+bool _isAllowedAdminImageContentType(String contentType) {
+  return const {
+    'image/png',
+    'image/jpeg',
+    'image/webp',
+    'image/gif',
+  }.contains(contentType.toLowerCase());
+}
+
+String? _adminImageValidationError(PickedAdminImage image) {
+  if (!_isAllowedAdminImageContentType(image.contentType)) {
+    return '請選擇 PNG、JPG、WebP 或 GIF 圖片。';
+  }
+  if (image.originalSizeBytes > adminImageSourceMaxBytes) {
+    return '原圖過大，目前上限是 ${_formatBytes(adminImageSourceMaxBytes)}，'
+        '你選擇的是 ${_formatBytes(image.originalSizeBytes)}。';
+  }
+  if (image.sizeBytes > adminImageUploadMaxBytes) {
+    return '壓縮後圖片仍超過 ${_formatBytes(adminImageUploadMaxBytes)}，'
+        '請換一張尺寸較小或內容較單純的圖片。';
+  }
+  return null;
+}
+
+String _imageStoragePath({
+  required String folder,
+  required String fileName,
+  required String contentType,
+}) {
+  final cleanFolder = folder.replaceAll(RegExp(r'/+$'), '');
+  final timestamp = DateTime.now().millisecondsSinceEpoch;
+  return '$cleanFolder/$timestamp-${_safeStorageFileName(fileName, contentType)}';
+}
+
+String _safeStorageFileName(String fileName, String contentType) {
+  final fallbackExtension = _imageExtensionForContentType(contentType);
+  final baseName = fileName
+      .split(RegExp(r'[/\\]'))
+      .last
+      .toLowerCase()
+      .replaceAll(RegExp(r'\.(png|jpe?g|webp|gif)$'), '')
+      .replaceAll(RegExp(r'[^a-z0-9._-]+'), '-')
+      .replaceAll(RegExp(r'-+'), '-')
+      .replaceAll(RegExp(r'^[-.]+|[-.]+$'), '');
+  if (baseName.isEmpty) {
+    return 'image$fallbackExtension';
+  }
+  return '$baseName$fallbackExtension';
+}
+
+String _imageExtensionForContentType(String contentType) {
+  return switch (contentType.toLowerCase()) {
+    'image/png' => '.png',
+    'image/jpeg' => '.jpg',
+    'image/webp' => '.webp',
+    'image/gif' => '.gif',
+    _ => '.jpg',
+  };
+}
+
+String _formatBytes(int bytes) {
+  if (bytes >= 1024 * 1024) {
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)}MB';
+  }
+  if (bytes >= 1024) {
+    return '${(bytes / 1024).toStringAsFixed(0)}KB';
+  }
+  return '${bytes}B';
+}
+
+String _compressionSummary(PickedAdminImage image) {
+  final sizeText =
+      '${_formatBytes(image.originalSizeBytes)} → ${_formatBytes(image.sizeBytes)}';
+  final dimensionText = image.width != null && image.height != null
+      ? '，${image.width}×${image.height}px'
+      : '';
+  final qualityText =
+      image.quality == null ? '' : '，品質 ${(image.quality! * 100).round()}%';
+  return '已壓縮成 WebP：$sizeText$dimensionText$qualityText';
+}
+
 class _NewsEditorDialog extends StatefulWidget {
   const _NewsEditorDialog({
     required this.newsItem,
+    required this.newsId,
     required this.isEditing,
     required this.titleController,
     required this.summaryController,
@@ -6373,10 +7799,15 @@ class _NewsEditorDialog extends StatefulWidget {
     required this.dateController,
     required this.imageController,
     required this.externalUrlController,
+    required this.helpfulCountController,
     required this.initialStatus,
+    required this.coverImageStorageFolder,
+    required this.articleImageStorageFolder,
+    required this.onUploadImage,
   });
 
   final backend.VeevaNews? newsItem;
+  final String newsId;
   final bool isEditing;
   final TextEditingController titleController;
   final TextEditingController summaryController;
@@ -6386,7 +7817,11 @@ class _NewsEditorDialog extends StatefulWidget {
   final TextEditingController dateController;
   final TextEditingController imageController;
   final TextEditingController externalUrlController;
+  final TextEditingController helpfulCountController;
   final backend.VeevaContentStatus initialStatus;
+  final String coverImageStorageFolder;
+  final String articleImageStorageFolder;
+  final _AdminImageUploader onUploadImage;
 
   @override
   State<_NewsEditorDialog> createState() => _NewsEditorDialogState();
@@ -6394,6 +7829,8 @@ class _NewsEditorDialog extends StatefulWidget {
 
 class _NewsEditorDialogState extends State<_NewsEditorDialog> {
   final FocusNode _contentFocusNode = FocusNode();
+  final ArticleRichEditorController _articleEditorController =
+      ArticleRichEditorController();
 
   late backend.VeevaContentStatus _status;
   String? _formError;
@@ -6564,49 +8001,53 @@ class _NewsEditorDialogState extends State<_NewsEditorDialog> {
         children: [
           _NewsEditorToolButton(
             tooltip: '粗體',
-            icon: Icons.format_bold,
-            onPressed: () => _wrapSelection('**', '**', '重點文字'),
+            onPressed: _articleEditorController.bold,
+            child: const Text(
+              'B',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
+                height: 1,
+              ),
+            ),
           ),
           _NewsEditorToolButton(
             tooltip: '斜體',
             icon: Icons.format_italic,
-            onPressed: () => _wrapSelection('_', '_', '斜體文字'),
+            onPressed: _articleEditorController.italic,
           ),
-          _NewsEditorToolButton(
-            tooltip: '小標題',
-            icon: Icons.format_size,
-            onPressed: () => _insertBlock('## 小標題\n'),
+          _NewsEditorFontSizeButton(
+            onSelected: _articleEditorController.fontSize,
           ),
           _NewsEditorToolButton(
             tooltip: '項目清單',
             icon: Icons.format_list_bulleted,
-            onPressed: () => _insertBlock('- 清單項目\n'),
+            onPressed: _articleEditorController.bulletedList,
           ),
           _NewsEditorToolButton(
             tooltip: '編號清單',
             icon: Icons.format_list_numbered,
-            onPressed: () => _insertBlock('1. 清單項目\n'),
+            onPressed: _articleEditorController.numberedList,
           ),
           _NewsEditorToolButton(
             tooltip: '引用',
             icon: Icons.format_quote,
-            onPressed: () => _insertBlock('> 引用內容\n'),
+            onPressed: _articleEditorController.quote,
           ),
           _NewsEditorToolButton(
             tooltip: '插入連結',
             icon: Icons.link_outlined,
-            onPressed: () =>
-                _wrapSelection('[', '](https://example.com)', '連結文字'),
+            onPressed: _articleEditorController.link,
           ),
           _NewsEditorToolButton(
             tooltip: '插入圖片',
             icon: Icons.image_outlined,
-            onPressed: () => _insertBlock('![圖片說明](https://image-url)\n'),
+            onPressed: _articleEditorController.image,
           ),
           _NewsEditorToolButton(
             tooltip: '分隔線',
             icon: Icons.horizontal_rule,
-            onPressed: () => _insertBlock('---\n'),
+            onPressed: _articleEditorController.divider,
           ),
         ],
       ),
@@ -6614,26 +8055,13 @@ class _NewsEditorDialogState extends State<_NewsEditorDialog> {
   }
 
   Widget _buildDocumentEditor({required bool expandContent}) {
-    final contentField = TextField(
+    final contentField = RichArticleEditor(
       controller: widget.contentController,
+      richController: _articleEditorController,
       focusNode: _contentFocusNode,
-      minLines: expandContent ? null : 14,
-      maxLines: expandContent ? null : 24,
+      onUploadImage: _pickAndUploadArticleImage,
       expands: expandContent,
-      textAlignVertical:
-          expandContent ? TextAlignVertical.top : TextAlignVertical.center,
-      decoration: const InputDecoration(
-        labelText: '文章內容',
-        alignLabelWithHint: true,
-        border: OutlineInputBorder(),
-        filled: true,
-        fillColor: Colors.white,
-      ),
-      style: const TextStyle(
-        color: Color(0xFF25352F),
-        fontSize: 16,
-        height: 1.65,
-      ),
+      minHeight: 420,
     );
 
     return Container(
@@ -6666,24 +8094,6 @@ class _NewsEditorDialogState extends State<_NewsEditorDialog> {
               fontSize: 25,
               fontWeight: FontWeight.w900,
               height: 1.25,
-            ),
-          ),
-          const SizedBox(height: 14),
-          TextField(
-            controller: widget.summaryController,
-            minLines: 2,
-            maxLines: 4,
-            decoration: const InputDecoration(
-              labelText: '摘要',
-              alignLabelWithHint: true,
-              border: OutlineInputBorder(),
-              filled: true,
-              fillColor: Color(0xFFFAFBFB),
-            ),
-            style: const TextStyle(
-              color: Color(0xFF42524D),
-              fontSize: 14,
-              height: 1.5,
             ),
           ),
           const SizedBox(height: 16),
@@ -6719,6 +8129,18 @@ class _NewsEditorDialogState extends State<_NewsEditorDialog> {
               const SizedBox(height: 12),
             ],
             TextField(
+              controller: widget.summaryController,
+              minLines: 2,
+              maxLines: 4,
+              decoration: const InputDecoration(
+                labelText: '列表摘要',
+                helperText: '可不填，系統會用文章前段自動產生。',
+                alignLabelWithHint: true,
+                prefixIcon: Icon(Icons.notes_outlined),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
               controller: widget.sourceController,
               decoration: const InputDecoration(
                 labelText: '來源',
@@ -6743,6 +8165,16 @@ class _NewsEditorDialogState extends State<_NewsEditorDialog> {
               ),
             ),
             const SizedBox(height: 12),
+            TextField(
+              controller: widget.helpfulCountController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: '有幫助人數',
+                helperText: '前台文章底部會顯示。',
+                prefixIcon: Icon(Icons.thumb_up_alt_outlined),
+              ),
+            ),
+            const SizedBox(height: 12),
             DropdownButtonFormField<backend.VeevaContentStatus>(
               value: _status,
               decoration: const InputDecoration(
@@ -6764,13 +8196,12 @@ class _NewsEditorDialogState extends State<_NewsEditorDialog> {
               },
             ),
             const SizedBox(height: 12),
-            TextField(
+            _ImageUploadField(
               controller: widget.imageController,
-              keyboardType: TextInputType.url,
-              decoration: const InputDecoration(
-                labelText: '封面圖片網址',
-                prefixIcon: Icon(Icons.image_outlined),
-              ),
+              label: '封面圖片',
+              helperText: '會顯示在前台最新資訊列表與文章頁。',
+              storageFolder: widget.coverImageStorageFolder,
+              onUpload: widget.onUploadImage,
             ),
             const SizedBox(height: 12),
             TextField(
@@ -6787,20 +8218,86 @@ class _NewsEditorDialogState extends State<_NewsEditorDialog> {
     );
   }
 
+  Future<String?> _pickAndUploadArticleImage() async {
+    final image = await pickAdminImage();
+    if (image == null) {
+      return null;
+    }
+    if (!_isAllowedAdminImageContentType(image.contentType)) {
+      setState(() => _formError = '請選擇 PNG、JPG、WebP 或 GIF 圖片。');
+      return null;
+    }
+    if (image.originalSizeBytes > adminImageSourceMaxBytes) {
+      setState(
+        () =>
+            _formError = '原圖過大，目前上限是 ${_formatBytes(adminImageSourceMaxBytes)}，'
+                '你選擇的是 ${_formatBytes(image.originalSizeBytes)}。',
+      );
+      return null;
+    }
+    if (image.sizeBytes > adminImageUploadMaxBytes) {
+      setState(
+        () => _formError = '壓縮後圖片仍超過 ${_formatBytes(adminImageUploadMaxBytes)}，'
+            '請換一張尺寸較小或內容較單純的圖片。',
+      );
+      return null;
+    }
+
+    setState(() => _formError = null);
+    try {
+      final url = await widget.onUploadImage(
+        path: _imageStoragePath(
+          folder: widget.articleImageStorageFolder,
+          fileName: image.name,
+          contentType: image.contentType,
+        ),
+        bytes: image.bytes,
+        contentType: image.contentType,
+      );
+      if (url.trim().isEmpty) {
+        throw StateError('empty download url');
+      }
+      if (mounted) {
+        setState(() => _formError = null);
+      }
+      return url;
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () =>
+              _formError = '文章圖片上傳失敗，請確認 Firebase Storage bucket 已建立並部署 rules。',
+        );
+      }
+      return null;
+    }
+  }
+
   void _submit() {
     final title = widget.titleController.text.trim();
-    final summary = widget.summaryController.text.trim();
     final content = widget.contentController.text.trim();
+    final summary = _optionalText(widget.summaryController.text) ??
+        _summaryFromContent(content);
     final date = widget.dateController.text.trim();
     final imageUrl = _optionalText(widget.imageController.text);
     final externalUrl = _optionalText(widget.externalUrlController.text);
+    final helpfulCountText = widget.helpfulCountController.text.trim();
+    final helpfulCount =
+        helpfulCountText.isEmpty ? 12 : int.tryParse(helpfulCountText);
 
-    if (title.isEmpty || summary.isEmpty) {
-      setState(() => _formError = '請至少填寫文章標題與摘要。');
+    if (title.isEmpty) {
+      setState(() => _formError = '請填寫文章標題。');
+      return;
+    }
+    if (content.isEmpty) {
+      setState(() => _formError = '請填寫文章內容。');
       return;
     }
     if (date.isEmpty) {
       setState(() => _formError = '請填寫發布日期。');
+      return;
+    }
+    if (helpfulCount == null || helpfulCount < 0) {
+      setState(() => _formError = '有幫助人數需要是 0 以上的數字。');
       return;
     }
     if (imageUrl != null && !_isHttpUrl(imageUrl)) {
@@ -6813,7 +8310,7 @@ class _NewsEditorDialogState extends State<_NewsEditorDialog> {
     }
 
     final news = backend.VeevaNews(
-      id: widget.newsItem?.id ?? createVeevaId('news'),
+      id: widget.newsId,
       date: date,
       source: _fallbackText(widget.sourceController.text, 'Veeva'),
       title: title,
@@ -6821,79 +8318,52 @@ class _NewsEditorDialogState extends State<_NewsEditorDialog> {
       status: _status,
       category: _optionalText(widget.categoryController.text),
       imageUrl: imageUrl,
-      content: content.isEmpty ? summary : content,
+      content: content,
+      detailContent: content,
+      keyPoints: const [],
       externalUrl: externalUrl,
+      helpfulCount: helpfulCount,
     );
     Navigator.of(context).pop(news);
   }
 
-  void _insertBlock(String block) {
-    final controller = widget.contentController;
-    final text = controller.text;
-    final (:start, :end) = _normalizedSelection(controller.selection, text);
-    final needsLeadingBreak =
-        start > 0 && !text.substring(0, start).endsWith('\n');
-    final needsTrailingBreak =
-        end < text.length && !text.substring(end).startsWith('\n');
-    final replacement = [
-      if (needsLeadingBreak) '\n',
-      block,
-      if (needsTrailingBreak) '\n',
-    ].join();
-    final updated = text.replaceRange(start, end, replacement);
-    controller.value = TextEditingValue(
-      text: updated,
-      selection: TextSelection.collapsed(offset: start + replacement.length),
-    );
-    _contentFocusNode.requestFocus();
-  }
-
-  void _wrapSelection(String prefix, String suffix, String placeholder) {
-    final controller = widget.contentController;
-    final text = controller.text;
-    final (:start, :end) = _normalizedSelection(controller.selection, text);
-    final selected = start == end ? placeholder : text.substring(start, end);
-    final replacement = '$prefix$selected$suffix';
-    controller.value = TextEditingValue(
-      text: text.replaceRange(start, end, replacement),
-      selection: TextSelection(
-        baseOffset: start + prefix.length,
-        extentOffset: start + prefix.length + selected.length,
-      ),
-    );
-    _contentFocusNode.requestFocus();
-  }
-
-  ({int start, int end}) _normalizedSelection(
-    TextSelection selection,
-    String text,
-  ) {
-    var start = selection.start;
-    var end = selection.end;
-    if (!selection.isValid || start < 0 || end < 0) {
-      start = text.length;
-      end = text.length;
+  String _summaryFromContent(String content) {
+    final plainText = content
+        .split(RegExp(r'\r?\n'))
+        .map((line) {
+          return line
+              .replaceFirst(RegExp(r'^#{1,6}\s*'), '')
+              .replaceFirst(RegExp(r'^[-*•]\s*'), '')
+              .replaceFirst(RegExp(r'^\d+\.\s*'), '')
+              .replaceFirst(RegExp(r'^>\s*'), '')
+              .replaceAll(RegExp(r'!\[[^\]]*\]\([^)]+\)'), '')
+              .replaceAllMapped(
+                RegExp(r'\[([^\]]+)\]\([^)]+\)'),
+                (match) => match.group(1) ?? '',
+              )
+              .replaceAll(RegExp(r'[*_`#>-]'), '')
+              .trim();
+        })
+        .where((line) => line.isNotEmpty && line != '---')
+        .join(' ');
+    if (plainText.length <= 82) {
+      return plainText;
     }
-    if (start > end) {
-      final previousStart = start;
-      start = end;
-      end = previousStart;
-    }
-    start = start.clamp(0, text.length).toInt();
-    end = end.clamp(0, text.length).toInt();
-    return (start: start, end: end);
+    return '${plainText.substring(0, 82)}...';
   }
 }
 
 class _NewsEditorToolButton extends StatelessWidget {
   const _NewsEditorToolButton({
     required this.tooltip,
-    required this.icon,
     required this.onPressed,
+    this.icon,
+    this.child,
   });
 
   final String tooltip;
-  final IconData icon;
+  final IconData? icon;
+  final Widget? child;
   final VoidCallback onPressed;
 
   @override
@@ -6904,12 +8374,63 @@ class _NewsEditorToolButton extends StatelessWidget {
       child: IconButton(
         tooltip: tooltip,
         onPressed: onPressed,
-        icon: Icon(icon, size: 20),
+        icon: child ?? Icon(icon!, size: 20),
         style: IconButton.styleFrom(
           foregroundColor: const Color(0xFF30443D),
           backgroundColor: Colors.white,
           side: const BorderSide(color: Color(0xFFDCE4E1)),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      ),
+    );
+  }
+}
+
+class _NewsEditorFontSizeButton extends StatelessWidget {
+  const _NewsEditorFontSizeButton({required this.onSelected});
+
+  final ValueChanged<int> onSelected;
+
+  static const _sizes = [14, 16, 18, 20, 24, 28, 32];
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<int>(
+      tooltip: '字體大小',
+      onSelected: onSelected,
+      itemBuilder: (context) => [
+        for (final size in _sizes)
+          PopupMenuItem<int>(
+            value: size,
+            child: Text('$size px'),
+          ),
+      ],
+      child: Container(
+        height: 38,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border.all(color: const Color(0xFFDCE4E1)),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '字級',
+              style: TextStyle(
+                color: Color(0xFF30443D),
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            SizedBox(width: 4),
+            Icon(
+              Icons.arrow_drop_down,
+              color: Color(0xFF30443D),
+              size: 18,
+            ),
+          ],
         ),
       ),
     );
@@ -7070,17 +8591,14 @@ class _RewardsManagementState extends State<_RewardsManagement> {
                 else if (visibleRewards.isEmpty)
                   const _EmptyListMessage(message: '目前沒有符合條件的兌換券。')
                 else
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: _RewardDataTable(
-                      rewards: visibleRewards,
-                      onEdit: widget.onEdit,
-                      onPreview: widget.onPreview,
-                      onToggleStatus: widget.onToggleStatus,
-                      onAdjustStock: widget.onAdjustStock,
-                      onExpire: widget.onExpire,
-                      onDelete: widget.onDelete,
-                    ),
+                  _RewardDataTable(
+                    rewards: visibleRewards,
+                    onEdit: widget.onEdit,
+                    onPreview: widget.onPreview,
+                    onToggleStatus: widget.onToggleStatus,
+                    onAdjustStock: widget.onAdjustStock,
+                    onExpire: widget.onExpire,
+                    onDelete: widget.onDelete,
                   ),
               ],
             ),
@@ -7209,43 +8727,46 @@ class _RewardDataTable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DataTable(
-      columnSpacing: 24,
-      horizontalMargin: 16,
-      headingRowColor: WidgetStateProperty.all(const Color(0xFFF5F7F8)),
-      columns: const [
-        DataColumn(label: Text('兌換券')),
-        DataColumn(label: Text('分類')),
-        DataColumn(label: Text('可用庫存')),
-        DataColumn(label: Text('發放 / 兌換')),
-        DataColumn(label: Text('期限')),
-        DataColumn(label: Text('狀態')),
-        DataColumn(label: Text('操作')),
-      ],
-      rows: [
-        for (final reward in rewards)
-          DataRow(
-            cells: [
-              DataCell(_RewardNameCell(reward: reward)),
-              DataCell(Text(reward.category)),
-              DataCell(Text('${reward.stock}')),
-              DataCell(Text('${reward.issued} / ${reward.redeemed}')),
-              DataCell(Text(reward.expiresAt)),
-              DataCell(_RewardStatusChip(status: reward.status)),
-              DataCell(
-                _RewardActions(
-                  reward: reward,
-                  onEdit: () => onEdit(reward),
-                  onPreview: () => onPreview(reward),
-                  onToggleStatus: () => onToggleStatus(reward),
-                  onAdjustStock: () => onAdjustStock(reward),
-                  onExpire: () => onExpire(reward),
-                  onDelete: () => onDelete(reward),
+    return _FullWidthDataTable(
+      minWidth: 1120,
+      child: DataTable(
+        columnSpacing: 24,
+        horizontalMargin: 16,
+        headingRowColor: WidgetStateProperty.all(const Color(0xFFF5F7F8)),
+        columns: const [
+          DataColumn(label: Text('兌換券')),
+          DataColumn(label: Text('分類')),
+          DataColumn(label: Text('可用庫存')),
+          DataColumn(label: Text('發放 / 兌換')),
+          DataColumn(label: Text('期限')),
+          DataColumn(label: Text('狀態')),
+          DataColumn(label: Text('操作')),
+        ],
+        rows: [
+          for (final reward in rewards)
+            DataRow(
+              cells: [
+                DataCell(_RewardNameCell(reward: reward)),
+                DataCell(Text(reward.category)),
+                DataCell(Text('${reward.stock}')),
+                DataCell(Text('${reward.issued} / ${reward.redeemed}')),
+                DataCell(Text(reward.expiresAt)),
+                DataCell(_RewardStatusChip(status: reward.status)),
+                DataCell(
+                  _RewardActions(
+                    reward: reward,
+                    onEdit: () => onEdit(reward),
+                    onPreview: () => onPreview(reward),
+                    onToggleStatus: () => onToggleStatus(reward),
+                    onAdjustStock: () => onAdjustStock(reward),
+                    onExpire: () => onExpire(reward),
+                    onDelete: () => onDelete(reward),
+                  ),
                 ),
-              ),
-            ],
-          ),
-      ],
+              ],
+            ),
+        ],
+      ),
     );
   }
 }

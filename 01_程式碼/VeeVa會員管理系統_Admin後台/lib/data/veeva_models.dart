@@ -469,7 +469,10 @@ class VeevaNews {
     this.category,
     this.imageUrl,
     this.content,
+    this.detailContent,
+    this.keyPoints = const [],
     this.externalUrl,
+    this.helpfulCount = 12,
   });
 
   factory VeevaNews.fromMap(String id, Map<String, Object?> data) {
@@ -487,7 +490,10 @@ class VeevaNews {
       category: data['category']?.toString(),
       imageUrl: data['imageUrl']?.toString(),
       content: data['content']?.toString(),
+      detailContent: data['detailContent']?.toString(),
+      keyPoints: _readStringList(data['keyPoints']),
       externalUrl: data['externalUrl']?.toString(),
+      helpfulCount: _readInt(data['helpfulCount'], 12),
     );
   }
 
@@ -500,7 +506,10 @@ class VeevaNews {
   final String? category;
   final String? imageUrl;
   final String? content;
+  final String? detailContent;
+  final List<String> keyPoints;
   final String? externalUrl;
+  final int helpfulCount;
 
   Map<String, Object?> toMap() {
     return {
@@ -512,7 +521,10 @@ class VeevaNews {
       'category': category,
       'imageUrl': imageUrl,
       'content': content,
+      'detailContent': detailContent,
+      'keyPoints': keyPoints,
       'externalUrl': externalUrl,
+      'helpfulCount': helpfulCount,
       'updatedAt': FieldValue.serverTimestamp(),
     };
   }

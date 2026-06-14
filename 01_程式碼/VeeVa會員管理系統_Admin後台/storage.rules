@@ -4,7 +4,9 @@ service firebase.storage {
   match /b/{bucket}/o {
     match /public/{allPaths=**} {
       allow read: if true;
-      allow write: if false;
+      allow create, update: if request.resource.size < 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if false;
     }
   }
 }
