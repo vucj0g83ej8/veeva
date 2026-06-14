@@ -30,6 +30,12 @@ abstract class VeevaRepository {
 
   Future<void> saveReward(VeevaReward reward);
 
+  Future<int> importRewardVoucherLinks({
+    required VeevaReward reward,
+    required List<String> links,
+    required String fileName,
+  });
+
   Future<void> deleteReward(String rewardId);
 
   Future<void> saveActivity(VeevaActivity activity);
@@ -85,6 +91,8 @@ class FirestoreVeevaRepository implements VeevaRepository {
       firestore.collection('adminUsers');
   CollectionReference<Map<String, dynamic>> get _memberRewards =>
       firestore.collection('memberRewards');
+  CollectionReference<Map<String, dynamic>> get _rewardVouchers =>
+      firestore.collection('rewardVouchers');
   CollectionReference<Map<String, dynamic>> get _activityRegistrations =>
       firestore.collection('activityRegistrations');
   CollectionReference<Map<String, dynamic>> get _activityCompletions =>
@@ -299,6 +307,61 @@ class FirestoreVeevaRepository implements VeevaRepository {
   }
 
   @override
+  Future<int> importRewardVoucherLinks({
+    required VeevaReward reward,
+    required List<String> links,
+    required String fileName,
+  }) async {
+    final cleanLinks = _dedupeVoucherLinks(links);
+    if (cleanLinks.isEmpty) {
+      return 0;
+    }
+
+    var added = 0;
+    for (var start = 0; start < cleanLinks.length; start += 350) {
+      final chunk = cleanLinks.skip(start).take(350).toList();
+      final refs = [
+        for (final link in chunk)
+          _rewardVouchers.doc(_voucherDocumentId(reward.id, link)),
+      ];
+      final snapshots = await Future.wait(refs.map((ref) => ref.get()));
+      final batch = firestore.batch();
+      var batchHasWrites = false;
+      for (var index = 0; index < chunk.length; index += 1) {
+        if (snapshots[index].exists) {
+          continue;
+        }
+        added += 1;
+        batchHasWrites = true;
+        batch.set(refs[index], {
+          'rewardId': reward.id,
+          'rewardName': reward.name,
+          'url': chunk[index],
+          'status': 'available',
+          'sourceFileName': fileName,
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+      if (batchHasWrites) {
+        await batch.commit();
+      }
+    }
+
+    if (added > 0) {
+      await _rewards.doc(reward.id).set({
+        'voucherTotal': FieldValue.increment(added),
+        'voucherAvailable': FieldValue.increment(added),
+        'lastVoucherImportFileName': fileName,
+        'lastVoucherImportCount': added,
+        'lastVoucherImportAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+    return added;
+  }
+
+  @override
   Future<void> deleteReward(String rewardId) {
     return _rewards.doc(rewardId).delete();
   }
@@ -387,6 +450,18 @@ class FirestoreVeevaRepository implements VeevaRepository {
     final cleanNote = note?.trim();
     final issuedBatchId = DateTime.now().millisecondsSinceEpoch;
     final normalizedSource = source.trim().isEmpty ? 'manualAdmin' : source;
+    final liveRewardData = (await rewardRef.get()).data();
+    final voucherPoolTotal = _readIntLike(liveRewardData?['voucherTotal']);
+    DocumentReference<Map<String, dynamic>>? voucherRef;
+    if (voucherPoolTotal > 0) {
+      if (quantity != 1) {
+        throw StateError('voucher link rewards must be issued one at a time');
+      }
+      voucherRef = await _findAvailableVoucherRef(reward.id);
+      if (voucherRef == null) {
+        throw StateError('no available voucher link');
+      }
+    }
     final shouldMarkReferralReward =
         normalizedSource == 'referralActivityCompletion' &&
             sourceMember != null &&
@@ -406,6 +481,14 @@ class FirestoreVeevaRepository implements VeevaRepository {
     await firestore.runTransaction((transaction) async {
       final rewardSnapshot = await transaction.get(rewardRef);
       final rewardData = rewardSnapshot.data();
+      final voucherSnapshot =
+          voucherRef == null ? null : await transaction.get(voucherRef);
+      final voucherData = voucherSnapshot?.data();
+      if (voucherRef != null &&
+          (voucherSnapshot?.exists != true ||
+              voucherData?['status']?.toString() != 'available')) {
+        throw StateError('voucher link is not available');
+      }
       final existingGrantSnapshot =
           preventDuplicate && deterministicGrantId != null
               ? await transaction.get(_memberRewards.doc(deterministicGrantId))
@@ -447,6 +530,8 @@ class FirestoreVeevaRepository implements VeevaRepository {
           'rewardName': reward.name,
           'rewardCategory': reward.category,
           'rewardImageUrl': reward.imageUrl,
+          'redemptionUrl': voucherData?['url']?.toString(),
+          'voucherId': voucherRef?.id,
           'status': 'issued',
           'source': normalizedSource,
           'activityId': activity?.id,
@@ -473,9 +558,24 @@ class FirestoreVeevaRepository implements VeevaRepository {
           {
             'stock': FieldValue.increment(-quantity),
             'issued': FieldValue.increment(quantity),
+            if (voucherRef != null)
+              'voucherAvailable': FieldValue.increment(-1),
             'updatedAt': FieldValue.serverTimestamp(),
           },
           SetOptions(merge: true));
+      if (voucherRef != null) {
+        transaction.set(
+            voucherRef,
+            {
+              'status': 'issued',
+              'memberId': member.id,
+              'memberName': member.name,
+              'memberLineUserId': member.lineUserId,
+              'issuedAt': FieldValue.serverTimestamp(),
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true));
+      }
       if (sourceMemberRef != null) {
         transaction.set(
             sourceMemberRef,
@@ -500,6 +600,20 @@ class FirestoreVeevaRepository implements VeevaRepository {
     final reference = storage.ref(path);
     await reference.putData(bytes, SettableMetadata(contentType: contentType));
     return reference.getDownloadURL();
+  }
+
+  Future<DocumentReference<Map<String, dynamic>>?> _findAvailableVoucherRef(
+    String rewardId,
+  ) async {
+    final snapshot = await _rewardVouchers
+        .where('rewardId', isEqualTo: rewardId)
+        .where('status', isEqualTo: 'available')
+        .limit(1)
+        .get();
+    if (snapshot.docs.isEmpty) {
+      return null;
+    }
+    return snapshot.docs.first.reference;
   }
 }
 
@@ -579,6 +693,15 @@ class DemoVeevaRepository implements VeevaRepository {
   Future<void> saveReward(VeevaReward reward) async {}
 
   @override
+  Future<int> importRewardVoucherLinks({
+    required VeevaReward reward,
+    required List<String> links,
+    required String fileName,
+  }) async {
+    return links.length;
+  }
+
+  @override
   Future<void> deleteReward(String rewardId) async {}
 
   @override
@@ -634,6 +757,32 @@ int _readIntLike(Object? value) {
   if (value is int) return value;
   if (value is num) return value.round();
   return int.tryParse(value?.toString() ?? '') ?? 0;
+}
+
+List<String> _dedupeVoucherLinks(Iterable<String> links) {
+  final seen = <String>{};
+  final results = <String>[];
+  for (final rawLink in links) {
+    final link = rawLink.trim();
+    if (link.isEmpty || !seen.add(link)) {
+      continue;
+    }
+    results.add(link);
+  }
+  return results;
+}
+
+String _voucherDocumentId(String rewardId, String link) {
+  return '${_firestoreDocumentSegment(rewardId)}-${_stableLinkHash(link)}';
+}
+
+String _stableLinkHash(String text) {
+  var hash = 0x811c9dc5;
+  for (final unit in text.codeUnits) {
+    hash ^= unit;
+    hash = (hash * 0x01000193) & 0xffffffff;
+  }
+  return hash.toRadixString(16).padLeft(8, '0');
 }
 
 String _rewardGrantDocumentId({

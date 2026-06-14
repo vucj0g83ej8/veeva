@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  type DocumentReference,
   getDoc,
   getDocs,
   increment,
@@ -39,6 +40,12 @@ interface RewardIssueResult {
     | "inactiveReward"
     | "expiredReward"
     | "outOfStock";
+}
+
+interface VoucherAllocation {
+  id: string;
+  url: string;
+  ref: DocumentReference;
 }
 
 export async function loadBootstrap(): Promise<BootstrapData> {
@@ -353,6 +360,7 @@ async function issueReferrerRewardForActivityCompletion(
     } satisfies RewardIssueResult;
   }
   const inviteeRef = doc(firestore, "members", completedBy.id);
+  const voucherCandidate = await findAvailableVoucherForReward(rewardId);
 
   return runTransaction(firestore, async (transaction) => {
     const inviteeSnapshot = await transaction.get(inviteeRef);
@@ -442,6 +450,26 @@ async function issueReferrerRewardForActivityCompletion(
     }
 
     const referrer = memberFromData(referrerSnapshot.id, referrerData);
+    const voucher = reward.voucherTotal > 0 ? voucherCandidate : undefined;
+    if (reward.voucherTotal > 0 && !voucher) {
+      return {
+        issued: false,
+        reason: "outOfStock",
+      } satisfies RewardIssueResult;
+    }
+    const voucherSnapshot = voucher
+      ? await transaction.get(voucher.ref)
+      : undefined;
+    if (
+      voucher &&
+      (!voucherSnapshot?.exists() ||
+        voucherSnapshot.data()?.status !== "available")
+    ) {
+      return {
+        issued: false,
+        reason: "outOfStock",
+      } satisfies RewardIssueResult;
+    }
 
     transaction.set(grantRef, {
       memberId: referrer.id,
@@ -451,6 +479,8 @@ async function issueReferrerRewardForActivityCompletion(
       rewardName: reward.name,
       rewardCategory: reward.category,
       rewardImageUrl: reward.imageUrl ?? null,
+      redemptionUrl: voucher?.url ?? null,
+      voucherId: voucher?.id ?? null,
       status: "issued",
       source: "referralActivityCompletion",
       activityId: activity.id,
@@ -475,10 +505,25 @@ async function issueReferrerRewardForActivityCompletion(
       {
         stock: increment(-1),
         issued: increment(1),
+        ...(voucher ? { voucherAvailable: increment(-1) } : {}),
         updatedAt: serverTimestamp(),
       },
       { merge: true },
     );
+    if (voucher) {
+      transaction.set(
+        voucher.ref,
+        {
+          status: "issued",
+          memberId: referrer.id,
+          memberName: referrer.name,
+          memberLineUserId: referrer.lineUserId ?? referrer.id,
+          issuedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+    }
     transaction.set(
       inviteeRef,
       {
@@ -523,6 +568,7 @@ async function issueMemberRewardIfNeeded(input: {
 
   const rewardRef = doc(firestore, "rewards", rewardId);
   const memberRef = doc(firestore, "members", input.member.id);
+  const voucherCandidate = await findAvailableVoucherForReward(rewardId);
   const grantRef = doc(
     firestore,
     "memberRewards",
@@ -573,6 +619,27 @@ async function issueMemberRewardIfNeeded(input: {
       } satisfies RewardIssueResult;
     }
 
+    const voucher = reward.voucherTotal > 0 ? voucherCandidate : undefined;
+    if (reward.voucherTotal > 0 && !voucher) {
+      return {
+        issued: false,
+        reason: "outOfStock",
+      } satisfies RewardIssueResult;
+    }
+    const voucherSnapshot = voucher
+      ? await transaction.get(voucher.ref)
+      : undefined;
+    if (
+      voucher &&
+      (!voucherSnapshot?.exists() ||
+        voucherSnapshot.data()?.status !== "available")
+    ) {
+      return {
+        issued: false,
+        reason: "outOfStock",
+      } satisfies RewardIssueResult;
+    }
+
     transaction.set(grantRef, {
       memberId: input.member.id,
       memberName: input.member.name,
@@ -581,6 +648,8 @@ async function issueMemberRewardIfNeeded(input: {
       rewardName: reward.name,
       rewardCategory: reward.category,
       rewardImageUrl: reward.imageUrl ?? null,
+      redemptionUrl: voucher?.url ?? null,
+      voucherId: voucher?.id ?? null,
       status: "issued",
       source: input.source,
       activityId: input.activity.id,
@@ -606,13 +675,50 @@ async function issueMemberRewardIfNeeded(input: {
       {
         stock: increment(-1),
         issued: increment(1),
+        ...(voucher ? { voucherAvailable: increment(-1) } : {}),
         updatedAt: serverTimestamp(),
       },
       { merge: true },
     );
+    if (voucher) {
+      transaction.set(
+        voucher.ref,
+        {
+          status: "issued",
+          memberId: input.member.id,
+          memberName: input.member.name,
+          memberLineUserId: input.member.lineUserId ?? input.member.id,
+          issuedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+    }
 
     return { issued: true } satisfies RewardIssueResult;
   });
+}
+
+async function findAvailableVoucherForReward(
+  rewardId: string,
+): Promise<VoucherAllocation | undefined> {
+  const voucherSnapshot = await getDocs(
+    query(
+      collection(firestore, "rewardVouchers"),
+      where("rewardId", "==", rewardId),
+      where("status", "==", "available"),
+      limit(1),
+    ),
+  );
+  const voucherDoc = voucherSnapshot.docs[0];
+  if (!voucherDoc) return undefined;
+  const url = optionalString(voucherDoc.data().url);
+  if (!url) return undefined;
+  return {
+    id: voucherDoc.id,
+    url,
+    ref: voucherDoc.ref,
+  };
 }
 
 async function createReferralIfNeeded(
@@ -793,6 +899,8 @@ function rewardFromData(
     stock: numberValue(data.stock),
     issued: numberValue(data.issued),
     redeemed: numberValue(data.redeemed),
+    voucherTotal: numberValue(data.voucherTotal),
+    voucherAvailable: numberValue(data.voucherAvailable),
     status: enumValue(data.status, "active"),
     expiresAt: dateValue(data.expiresAt),
     imageUrl: optionalString(data.imageUrl),
@@ -811,6 +919,8 @@ function memberRewardFromData(
     rewardName: stringValue(data.rewardName, "兌換券"),
     rewardImageUrl:
       optionalString(data.rewardImageUrl) ?? optionalString(data.imageUrl),
+    redemptionUrl: optionalString(data.redemptionUrl),
+    voucherId: optionalString(data.voucherId),
     status: enumValue(data.status, "issued"),
     source: enumValue<NonNullable<VeevaMemberReward["source"]>>(
       data.source,

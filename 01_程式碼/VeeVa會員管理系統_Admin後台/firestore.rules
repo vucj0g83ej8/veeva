@@ -17,6 +17,11 @@ service cloud.firestore {
       allow write: if true;
     }
 
+    match /rewardVouchers/{voucherId} {
+      allow read, create, update: if true;
+      allow delete: if false;
+    }
+
     match /members/{memberId} {
       allow read, create, update: if true;
       allow delete: if false;

@@ -106,6 +106,8 @@ export interface VeevaReward {
   stock: number;
   issued: number;
   redeemed: number;
+  voucherTotal: number;
+  voucherAvailable: number;
   status: VeevaRewardStatus;
   expiresAt?: Date;
   imageUrl?: string;
@@ -118,6 +120,8 @@ export interface VeevaMemberReward {
   rewardId: string;
   rewardName: string;
   rewardImageUrl?: string;
+  redemptionUrl?: string;
+  voucherId?: string;
   status: "issued" | "redeemed" | "expired";
   source?: "manualAdmin" | "activityCompletion" | "referralActivityCompletion";
   activityId?: string;

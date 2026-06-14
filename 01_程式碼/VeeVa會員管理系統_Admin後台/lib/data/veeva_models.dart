@@ -303,6 +303,8 @@ class VeevaMemberReward {
     this.activityTitle,
     this.sourceMemberId,
     this.sourceMemberName,
+    this.redemptionUrl,
+    this.voucherId,
     this.issuedAt,
     this.redeemedAt,
     this.expiresAt,
@@ -322,6 +324,8 @@ class VeevaMemberReward {
       activityTitle: data['activityTitle']?.toString(),
       sourceMemberId: data['sourceMemberId']?.toString(),
       sourceMemberName: data['sourceMemberName']?.toString(),
+      redemptionUrl: data['redemptionUrl']?.toString(),
+      voucherId: data['voucherId']?.toString(),
       issuedAt: _readDate(data['issuedAt']),
       redeemedAt: _readDate(data['redeemedAt']),
       expiresAt: _readDate(data['expiresAt']),
@@ -339,6 +343,8 @@ class VeevaMemberReward {
   final String? activityTitle;
   final String? sourceMemberId;
   final String? sourceMemberName;
+  final String? redemptionUrl;
+  final String? voucherId;
   final DateTime? issuedAt;
   final DateTime? redeemedAt;
   final DateTime? expiresAt;
@@ -471,6 +477,8 @@ class VeevaReward {
     required this.expiresAt,
     required this.status,
     this.imageUrl,
+    this.voucherTotal = 0,
+    this.voucherAvailable = 0,
   });
 
   factory VeevaReward.fromMap(String id, Map<String, Object?> data) {
@@ -488,6 +496,8 @@ class VeevaReward {
         VeevaRewardStatus.active,
       ),
       imageUrl: data['imageUrl']?.toString(),
+      voucherTotal: _readInt(data['voucherTotal']),
+      voucherAvailable: _readInt(data['voucherAvailable']),
     );
   }
 
@@ -500,6 +510,8 @@ class VeevaReward {
   final DateTime expiresAt;
   final VeevaRewardStatus status;
   final String? imageUrl;
+  final int voucherTotal;
+  final int voucherAvailable;
 
   Map<String, Object?> toMap() {
     return {
@@ -511,6 +523,8 @@ class VeevaReward {
       'expiresAt': Timestamp.fromDate(expiresAt),
       'status': status.name,
       'imageUrl': imageUrl,
+      'voucherTotal': voucherTotal,
+      'voucherAvailable': voucherAvailable,
       'updatedAt': FieldValue.serverTimestamp(),
     };
   }

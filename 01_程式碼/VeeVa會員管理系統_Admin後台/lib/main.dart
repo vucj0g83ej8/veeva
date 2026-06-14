@@ -14,6 +14,9 @@ import 'widgets/admin_image_drop_overlay_stub.dart'
     if (dart.library.html) 'widgets/admin_image_drop_overlay_web.dart';
 import 'widgets/rich_article_editor_stub.dart'
     if (dart.library.html) 'widgets/rich_article_editor_web.dart';
+import 'services/admin_voucher_importer_base.dart';
+import 'services/admin_voucher_importer_stub.dart'
+    if (dart.library.html) 'services/admin_voucher_importer_web.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -176,6 +179,8 @@ class AdminRewardItem {
     required this.expiresAt,
     required this.status,
     this.imageUrl,
+    this.voucherTotal = 0,
+    this.voucherAvailable = 0,
   });
 
   factory AdminRewardItem.fromBackend(backend.VeevaReward reward) {
@@ -193,6 +198,8 @@ class AdminRewardItem {
         backend.VeevaRewardStatus.expired => RewardStatus.expired,
       },
       imageUrl: reward.imageUrl,
+      voucherTotal: reward.voucherTotal,
+      voucherAvailable: reward.voucherAvailable,
     );
   }
 
@@ -205,6 +212,8 @@ class AdminRewardItem {
   final String expiresAt;
   RewardStatus status;
   final String? imageUrl;
+  final int voucherTotal;
+  final int voucherAvailable;
 
   AdminRewardItem copyWith({
     String? name,
@@ -215,6 +224,8 @@ class AdminRewardItem {
     String? expiresAt,
     RewardStatus? status,
     Object? imageUrl = _unchangedRewardImageUrl,
+    int? voucherTotal,
+    int? voucherAvailable,
   }) {
     return AdminRewardItem(
       id: id,
@@ -228,6 +239,8 @@ class AdminRewardItem {
       imageUrl: identical(imageUrl, _unchangedRewardImageUrl)
           ? this.imageUrl
           : imageUrl as String?,
+      voucherTotal: voucherTotal ?? this.voucherTotal,
+      voucherAvailable: voucherAvailable ?? this.voucherAvailable,
     );
   }
 
@@ -246,6 +259,8 @@ class AdminRewardItem {
         RewardStatus.expired => backend.VeevaRewardStatus.expired,
       },
       imageUrl: imageUrl,
+      voucherTotal: voucherTotal,
+      voucherAvailable: voucherAvailable,
     );
   }
 }
@@ -2026,6 +2041,63 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
     }
   }
 
+  Future<void> _importRewardVoucherLinks(
+    AdminRewardItem reward,
+    ImportedVoucherLinks imported,
+  ) async {
+    try {
+      final added = await repository.importRewardVoucherLinks(
+        reward: reward.toBackend(),
+        links: imported.links,
+        fileName: imported.fileName,
+      );
+      if (!mounted) return;
+      final duplicateCount = imported.count - added;
+      final adjustedStock =
+          duplicateCount > 0 ? reward.stock - duplicateCount : reward.stock;
+      final updatedReward = reward.copyWith(
+        stock: adjustedStock < 0 ? 0 : adjustedStock,
+        voucherTotal: reward.voucherTotal + added,
+        voucherAvailable: reward.voucherAvailable + added,
+      );
+      await repository.saveReward(updatedReward.toBackend());
+      if (!mounted) return;
+      setState(() {
+        final index = rewards.indexWhere((item) => item.id == reward.id);
+        if (index == -1) {
+          rewards.insert(0, updatedReward);
+        } else {
+          rewards[index] = updatedReward;
+        }
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            duplicateCount > 0
+                ? '已匯入 $added 筆兌換連結，略過 $duplicateCount 筆重複連結。'
+                : '已匯入 $added 筆兌換連結。',
+          ),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      final rollbackStock = reward.stock - imported.count;
+      final rolledBackReward = reward.copyWith(
+        stock: rollbackStock < 0 ? 0 : rollbackStock,
+      );
+      setState(() {
+        final index = rewards.indexWhere((item) => item.id == reward.id);
+        if (index == -1) {
+          rewards.insert(0, rolledBackReward);
+        } else {
+          rewards[index] = rolledBackReward;
+        }
+        backendError = '兌換連結匯入失敗：請確認 Firestore rules 已部署。';
+      });
+      await repository.saveReward(rolledBackReward.toBackend());
+    }
+  }
+
   Future<void> _toggleRewardStatus(AdminRewardItem reward) async {
     if (reward.status == RewardStatus.expired) return;
     final nextStatus = reward.status == RewardStatus.active
@@ -2383,6 +2455,9 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
             : _formatAdminDate(DateTime.now().add(const Duration(days: 90))));
     final imageController = TextEditingController(text: reward?.imageUrl ?? '');
     var status = reward?.status ?? RewardStatus.active;
+    final voucherImporter = createAdminVoucherImporter();
+    ImportedVoucherLinks? pendingVoucherImport;
+    var isImportingVouchers = false;
     String? formError;
     AdminRewardItem? pendingReward;
 
@@ -2424,8 +2499,51 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                 expiresAt: expiresAt,
                 status: status,
                 imageUrl: _optionalText(imageController.text),
+                voucherTotal: reward?.voucherTotal ?? 0,
+                voucherAvailable: reward?.voucherAvailable ?? 0,
               );
               Navigator.of(dialogContext).pop();
+            }
+
+            Future<void> pickVoucherLinks() async {
+              setDialogState(() {
+                isImportingVouchers = true;
+                formError = null;
+              });
+              try {
+                final imported = await voucherImporter.pickVoucherLinks();
+                if (imported == null) {
+                  setDialogState(() => isImportingVouchers = false);
+                  return;
+                }
+                if (imported.links.isEmpty) {
+                  setDialogState(() {
+                    isImportingVouchers = false;
+                    formError = '檔案內沒有找到 http 或 https 開頭的兌換連結。';
+                  });
+                  return;
+                }
+                final currentStock =
+                    int.tryParse(stockController.text.trim()) ?? 0;
+                final previousPendingCount = pendingVoucherImport?.count ?? 0;
+                final defaultNewRewardStock = !isEditing &&
+                    previousPendingCount == 0 &&
+                    currentStock == 50;
+                final baseStock = defaultNewRewardStock
+                    ? 0
+                    : currentStock - previousPendingCount;
+                final nextStock = (baseStock + imported.count).clamp(0, 999999);
+                setDialogState(() {
+                  pendingVoucherImport = imported;
+                  stockController.text = '$nextStock';
+                  isImportingVouchers = false;
+                });
+              } catch (_) {
+                setDialogState(() {
+                  isImportingVouchers = false;
+                  formError = '兌換連結匯入失敗，請確認檔案格式為 .xlsx、.csv 或 .txt。';
+                });
+              }
             }
 
             Future<void> pickExpiryDate() async {
@@ -2765,6 +2883,28 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                                 storageFolder: 'public/rewards/$rewardId/cover',
                                 onUpload: repository.uploadImage,
                               ),
+                              const SizedBox(height: 18),
+                              _RewardVoucherImportSection(
+                                currentReward: reward,
+                                pendingImport: pendingVoucherImport,
+                                isImporting: isImportingVouchers,
+                                onImport: pickVoucherLinks,
+                                onClear: pendingVoucherImport == null
+                                    ? null
+                                    : () {
+                                        final currentStock = int.tryParse(
+                                              stockController.text.trim(),
+                                            ) ??
+                                            0;
+                                        final nextStock = (currentStock -
+                                                pendingVoucherImport!.count)
+                                            .clamp(0, 999999);
+                                        setDialogState(() {
+                                          pendingVoucherImport = null;
+                                          stockController.text = '$nextStock';
+                                        });
+                                      },
+                              ),
                             ],
                           ),
                         ),
@@ -2782,6 +2922,10 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
     final rewardToSave = pendingReward;
     if (rewardToSave != null) {
       await _saveReward(rewardToSave);
+      final importToSave = pendingVoucherImport;
+      if (importToSave != null && importToSave.links.isNotEmpty) {
+        await _importRewardVoucherLinks(rewardToSave, importToSave);
+      }
     }
 
     await Future<void>.delayed(const Duration(milliseconds: 250));
@@ -3242,6 +3386,176 @@ class _RewardExpiryInfoBox extends StatelessWidget {
                 height: 1.7,
                 fontWeight: FontWeight.w800,
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RewardVoucherImportSection extends StatelessWidget {
+  const _RewardVoucherImportSection({
+    required this.currentReward,
+    required this.pendingImport,
+    required this.isImporting,
+    required this.onImport,
+    required this.onClear,
+  });
+
+  final AdminRewardItem? currentReward;
+  final ImportedVoucherLinks? pendingImport;
+  final bool isImporting;
+  final VoidCallback onImport;
+  final VoidCallback? onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final reward = currentReward;
+    final pending = pendingImport;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE0E7E4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.table_chart_outlined,
+                color: Color(0xFF0D7A57),
+                size: 28,
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  '批量兌換連結',
+                  style: TextStyle(
+                    color: Color(0xFF263A34),
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              OutlinedButton.icon(
+                onPressed: isImporting ? null : onImport,
+                icon: isImporting
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.upload_file_outlined),
+                label: Text(isImporting ? '讀取中' : '匯入 Excel / CSV'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            '支援 .xlsx、.csv、.txt。系統會自動抓取檔案內所有 http / https 連結，發放時每位會員只會拿到一條未使用連結。',
+            style: TextStyle(
+              color: Color(0xFF61706A),
+              fontSize: 13,
+              height: 1.5,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _VoucherPoolChip(
+                icon: Icons.link_outlined,
+                label: '連結總數 ${reward?.voucherTotal ?? 0}',
+              ),
+              _VoucherPoolChip(
+                icon: Icons.inventory_2_outlined,
+                label: '可用連結 ${reward?.voucherAvailable ?? 0}',
+              ),
+              if (pending != null)
+                _VoucherPoolChip(
+                  icon: Icons.add_circle_outline,
+                  label: '待匯入 ${pending.count}',
+                  highlight: true,
+                ),
+            ],
+          ),
+          if (pending != null) ...[
+            const SizedBox(height: 16),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0F8F5),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.check_circle_outline,
+                      color: Color(0xFF0D7A57),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        '${pending.fileName}：找到 ${pending.count} 筆兌換連結',
+                        style: const TextStyle(
+                          color: Color(0xFF35564C),
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: onClear,
+                      child: const Text('移除'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _VoucherPoolChip extends StatelessWidget {
+  const _VoucherPoolChip({
+    required this.icon,
+    required this.label,
+    this.highlight = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: highlight ? const Color(0xFFDCF5E9) : const Color(0xFFF1F3F2),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: const Color(0xFF216B57)),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFF216B57),
+              fontWeight: FontWeight.w800,
             ),
           ),
         ],
