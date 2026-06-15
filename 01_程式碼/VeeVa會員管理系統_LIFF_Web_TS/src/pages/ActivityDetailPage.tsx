@@ -62,7 +62,6 @@ function ActivityDetailContent({
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
-  const statusLabel = activityStatusLabel(activity);
   const location = activity.location ?? fallbackLocation(activity);
   const memberActivityRecord = useMemo(
     () =>
@@ -71,12 +70,17 @@ function ActivityDetailContent({
       ),
     [activity.id, app.memberActivityRecords],
   );
+  const statusLabel = activityStatusLabel(activity, memberActivityRecord);
   const registrationStatus =
     activity.type === "registration" ? memberActivityRecord?.status : undefined;
   const registrationLocked =
     registrationStatus === "registered" || registrationStatus === "completed";
+  const surveyCompleted =
+    activity.type === "survey" && memberActivityRecord?.status === "completed";
   const primaryButtonLabel =
-    registrationStatus === "completed"
+    surveyCompleted
+      ? "已填寫完成"
+      : registrationStatus === "completed"
       ? "已完成"
       : registrationStatus === "registered"
         ? "已報名"
@@ -88,6 +92,9 @@ function ActivityDetailContent({
     setMessage("");
 
     if (activity.type === "survey") {
+      if (surveyCompleted) {
+        return;
+      }
       if (!activity.surveyUrl) {
         setMessage("這個問卷活動尚未設定問卷連結。");
         return;
@@ -249,11 +256,11 @@ function ActivityDetailContent({
         <div className="activity-detail-actions">
           <button
             className="activity-detail-primary-button"
-            disabled={busy || app.busy || registrationLocked}
+            disabled={busy || app.busy || registrationLocked || surveyCompleted}
             type="button"
             onClick={() => void handlePrimaryAction()}
           >
-            {registrationLocked ? (
+            {registrationLocked || surveyCompleted ? (
               <CheckCircle2 size={18} />
             ) : (
               buttonIconFor(activity)
@@ -373,7 +380,15 @@ function buttonIconFor(activity: VeevaActivity) {
   return <Megaphone size={18} />;
 }
 
-function activityStatusLabel(activity: VeevaActivity) {
+function activityStatusLabel(
+  activity: VeevaActivity,
+  record?: { status: "registered" | "completed" },
+) {
+  if (activity.type === "survey" && record?.status === "completed") {
+    return "已填寫完成";
+  }
+  if (record?.status === "completed") return "已完成";
+  if (record?.status === "registered") return "已報名";
   if (activity.status === "archived" || !activity.active) return "已結束";
   if (activity.label.includes("即將")) return "即將開始";
   if (activity.label.includes("報名")) return "報名中";
@@ -393,7 +408,7 @@ function noticeItemsFor(activity: VeevaActivity) {
   if (activity.type === "survey") {
     return [
       "完成問卷後，系統會依活動規則確認紀錄。",
-      "若活動包含兌換券，將依後台設定發放。",
+      "若活動包含兌換券，將於人工確認後發放。",
       "如有任何問題，請聯繫主辦單位。",
     ];
   }

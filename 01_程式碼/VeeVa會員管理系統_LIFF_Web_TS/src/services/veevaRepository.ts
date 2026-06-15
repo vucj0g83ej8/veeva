@@ -1,7 +1,6 @@
 import {
   collection,
   doc,
-  type DocumentReference,
   getDoc,
   getDocs,
   increment,
@@ -24,6 +23,7 @@ import type {
   VeevaNews,
   VeevaReferralRecord,
   VeevaReward,
+  VeevaSurveyEngagement,
 } from "../types/veeva";
 import { shareCodeFromId } from "../utils/shareCode";
 
@@ -32,20 +32,9 @@ type RewardIssueSource =
   | "activityCompletion"
   | "referralActivityCompletion";
 
-interface RewardIssueResult {
-  issued: boolean;
-  reason?:
-    | "alreadyIssued"
-    | "missingReward"
-    | "inactiveReward"
-    | "expiredReward"
-    | "outOfStock";
-}
-
-interface VoucherAllocation {
-  id: string;
-  url: string;
-  ref: DocumentReference;
+interface RewardQueueResult {
+  queued: boolean;
+  reason?: "alreadyQueued" | "missingReward";
 }
 
 export async function loadBootstrap(): Promise<BootstrapData> {
@@ -326,11 +315,16 @@ export async function registerActivity(input: {
     },
     { merge: true },
   );
+
+  await queueMemberRewardForActivityCompletion(input.activity, input.member);
+  await queueReferrerRewardForActivityCompletion(input.activity, input.member);
 }
 
 export async function completeActivity(input: {
   activity: VeevaActivity;
   member: VeevaMember;
+  completionMethod?: "behaviorScore" | "system";
+  surveyEngagement?: VeevaSurveyEngagement;
 }) {
   const completionId = firestoreDocumentId([
     input.member.id,
@@ -351,8 +345,15 @@ export async function completeActivity(input: {
       memberLineUserId: input.member.lineUserId ?? input.member.id,
       status: "completed",
       surveyUrl: input.activity.surveyUrl ?? null,
+      completionMethod: input.completionMethod ?? "system",
       updatedAt: serverTimestamp(),
     };
+
+    if (input.surveyEngagement) {
+      payload.surveyEngagement = input.surveyEngagement;
+      payload.surveyEngagementScore = input.surveyEngagement.score;
+      payload.completedByBehavior = input.surveyEngagement.completedByBehavior;
+    }
 
     if (!completionSnapshot.exists() || !completionData?.completedAt) {
       payload.createdAt = serverTimestamp();
@@ -362,37 +363,39 @@ export async function completeActivity(input: {
     transaction.set(completionRef, payload, { merge: true });
   });
 
-  const memberReward = await issueMemberRewardForActivityCompletion(
+  const memberReward = await queueMemberRewardForActivityCompletion(
     input.activity,
     input.member,
   );
-  const referrerReward = await issueReferrerRewardForActivityCompletion(
+  const referrerReward = await queueReferrerRewardForActivityCompletion(
     input.activity,
     input.member,
   );
 
   return {
     completionId,
-    memberRewardIssued: memberReward.issued,
+    memberRewardIssued: false,
     memberRewardReason: memberReward.reason,
-    referrerRewardIssued: referrerReward.issued,
+    memberRewardQueued: memberReward.queued,
+    referrerRewardIssued: false,
     referrerRewardReason: referrerReward.reason,
+    referrerRewardQueued: referrerReward.queued,
   };
 }
 
-async function issueMemberRewardForActivityCompletion(
+async function queueMemberRewardForActivityCompletion(
   activity: VeevaActivity,
   member: VeevaMember,
 ) {
   const rewardId = participantRewardIdFor(activity);
   if (!rewardId) {
     return {
-      issued: false,
+      queued: false,
       reason: "missingReward",
-    } satisfies RewardIssueResult;
+    } satisfies RewardQueueResult;
   }
 
-  return issueMemberRewardIfNeeded({
+  return queuePendingMemberRewardIfNeeded({
     activity,
     member,
     rewardId,
@@ -400,227 +403,90 @@ async function issueMemberRewardForActivityCompletion(
   });
 }
 
-async function issueReferrerRewardForActivityCompletion(
+async function queueReferrerRewardForActivityCompletion(
   activity: VeevaActivity,
   completedBy: VeevaMember,
 ) {
   const rewardId = referrerRewardIdFor(activity);
   if (!rewardId) {
     return {
-      issued: false,
+      queued: false,
       reason: "missingReward",
-    } satisfies RewardIssueResult;
+    } satisfies RewardQueueResult;
   }
   const inviteeRef = doc(firestore, "members", completedBy.id);
-  const voucherCandidate = await findAvailableVoucherForReward(rewardId);
+  const inviteeSnapshot = await getDoc(inviteeRef);
+  const inviteeData = inviteeSnapshot.data();
+  const invitee =
+    inviteeSnapshot.exists() && inviteeData
+      ? memberFromData(inviteeSnapshot.id, inviteeData)
+      : completedBy;
+  const referrerId = invitee.referredByMemberId?.trim();
 
-  return runTransaction(firestore, async (transaction) => {
-    const inviteeSnapshot = await transaction.get(inviteeRef);
-    const inviteeData = inviteeSnapshot.data();
-    const invitee =
-      inviteeSnapshot.exists() && inviteeData
-        ? memberFromData(inviteeSnapshot.id, inviteeData)
-        : completedBy;
-    const referrerId = invitee.referredByMemberId?.trim();
+  if (!referrerId) {
+    return {
+      queued: false,
+      reason: "missingReward",
+    } satisfies RewardQueueResult;
+  }
+  if (
+    invitee.referralRewardGrantedAt ||
+    invitee.referralRewardGrantedActivityId
+  ) {
+    return {
+      queued: false,
+      reason: "alreadyQueued",
+    } satisfies RewardQueueResult;
+  }
 
-    if (!referrerId) {
-      return {
-        issued: false,
-        reason: "missingReward",
-      } satisfies RewardIssueResult;
-    }
-    if (
-      invitee.referralRewardGrantedAt ||
-      invitee.referralRewardGrantedActivityId
-    ) {
-      return {
-        issued: false,
-        reason: "alreadyIssued",
-      } satisfies RewardIssueResult;
-    }
+  const existingReferralRewardSnap = await getDocs(
+    query(
+      collection(firestore, "memberRewards"),
+      where("sourceMemberId", "==", invitee.id),
+      limit(20),
+    ),
+  );
+  if (
+    existingReferralRewardSnap.docs.some(
+      (item) => item.data().source === "referralActivityCompletion",
+    )
+  ) {
+    return {
+      queued: false,
+      reason: "alreadyQueued",
+    } satisfies RewardQueueResult;
+  }
 
-    const rewardRef = doc(firestore, "rewards", rewardId);
-    const referrerRef = doc(firestore, "members", referrerId);
-    const grantRef = doc(
-      firestore,
-      "memberRewards",
-      rewardGrantDocumentId({
-        memberId: referrerId,
-        rewardId,
-        activityId: activity.id,
-        source: "referralActivityCompletion",
-        sourceMemberId: invitee.id,
-      }),
-    );
-    const [existingGrant, rewardSnapshot, referrerSnapshot] =
-      await Promise.all([
-        transaction.get(grantRef),
-        transaction.get(rewardRef),
-        transaction.get(referrerRef),
-      ]);
+  const referrer = await loadMember(referrerId);
+  if (!referrer) {
+    return {
+      queued: false,
+      reason: "missingReward",
+    } satisfies RewardQueueResult;
+  }
 
-    if (existingGrant.exists()) {
-      return {
-        issued: false,
-        reason: "alreadyIssued",
-      } satisfies RewardIssueResult;
-    }
-
-    const rewardData = rewardSnapshot.data();
-    if (!rewardSnapshot.exists() || !rewardData) {
-      return {
-        issued: false,
-        reason: "missingReward",
-      } satisfies RewardIssueResult;
-    }
-    const referrerData = referrerSnapshot.data();
-    if (!referrerSnapshot.exists() || !referrerData) {
-      return {
-        issued: false,
-        reason: "missingReward",
-      } satisfies RewardIssueResult;
-    }
-
-    const reward = rewardFromData(rewardSnapshot.id, rewardData);
-    if (reward.status !== "active") {
-      return {
-        issued: false,
-        reason: "inactiveReward",
-      } satisfies RewardIssueResult;
-    }
-    if (reward.expiresAt && reward.expiresAt.getTime() < Date.now()) {
-      return {
-        issued: false,
-        reason: "expiredReward",
-      } satisfies RewardIssueResult;
-    }
-    if (reward.stock <= 0) {
-      return {
-        issued: false,
-        reason: "outOfStock",
-      } satisfies RewardIssueResult;
-    }
-
-    const referrer = memberFromData(referrerSnapshot.id, referrerData);
-    const voucher = reward.voucherTotal > 0 ? voucherCandidate : undefined;
-    if (reward.voucherTotal > 0 && !voucher) {
-      return {
-        issued: false,
-        reason: "outOfStock",
-      } satisfies RewardIssueResult;
-    }
-    const voucherSnapshot = voucher
-      ? await transaction.get(voucher.ref)
-      : undefined;
-    if (
-      voucher &&
-      (!voucherSnapshot?.exists() ||
-        voucherSnapshot.data()?.status !== "available")
-    ) {
-      return {
-        issued: false,
-        reason: "outOfStock",
-      } satisfies RewardIssueResult;
-    }
-
-    transaction.set(grantRef, {
-      memberId: referrer.id,
-      memberName: referrer.name,
-      memberLineUserId: referrer.lineUserId ?? referrer.id,
-      rewardId: reward.id,
-      rewardName: reward.name,
-      rewardCategory: reward.category,
-      rewardImageUrl: reward.imageUrl ?? null,
-      redemptionUrl: voucher?.url ?? null,
-      voucherId: voucher?.id ?? null,
-      status: "issued",
-      source: "referralActivityCompletion",
-      activityId: activity.id,
-      activityTitle: activity.title,
-      sourceMemberId: invitee.id,
-      sourceMemberName: invitee.name,
-      issuedAt: serverTimestamp(),
-      expiresAt: reward.expiresAt ? Timestamp.fromDate(reward.expiresAt) : null,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-    transaction.set(
-      referrerRef,
-      {
-        earnedCoupons: increment(1),
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true },
-    );
-    transaction.set(
-      rewardRef,
-      {
-        stock: increment(-1),
-        issued: increment(1),
-        ...(voucher ? { voucherAvailable: increment(-1) } : {}),
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true },
-    );
-    if (voucher) {
-      transaction.set(
-        voucher.ref,
-        {
-          status: "issued",
-          memberId: referrer.id,
-          memberName: referrer.name,
-          memberLineUserId: referrer.lineUserId ?? referrer.id,
-          issuedAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true },
-      );
-    }
-    transaction.set(
-      inviteeRef,
-      {
-        referralRewardGrantedActivityId: activity.id,
-        referralRewardGrantedRewardId: reward.id,
-        referralRewardGrantedReferrerId: referrer.id,
-        referralRewardGrantedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true },
-    );
-    transaction.set(
-      doc(firestore, "referrals", `${referrer.id}_${invitee.id}`),
-      {
-        lastCompletedActivityId: activity.id,
-        lastCompletedActivityTitle: activity.title,
-        lastCompletedAt: serverTimestamp(),
-        firstRewardedActivityId: activity.id,
-        firstRewardedActivityTitle: activity.title,
-        rewardGrantedAt: serverTimestamp(),
-        rewardedActivityCount: increment(1),
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true },
-    );
-
-    return { issued: true } satisfies RewardIssueResult;
+  return queuePendingMemberRewardIfNeeded({
+    activity,
+    member: referrer,
+    rewardId,
+    source: "referralActivityCompletion",
+    sourceMember: invitee,
   });
 }
 
-async function issueMemberRewardIfNeeded(input: {
+async function queuePendingMemberRewardIfNeeded(input: {
   activity: VeevaActivity;
   member: VeevaMember;
   rewardId: string;
   source: RewardIssueSource;
   sourceMember?: VeevaMember;
-}): Promise<RewardIssueResult> {
+}): Promise<RewardQueueResult> {
   const rewardId = input.rewardId.trim();
   if (!rewardId) {
-    return { issued: false, reason: "missingReward" };
+    return { queued: false, reason: "missingReward" };
   }
 
   const rewardRef = doc(firestore, "rewards", rewardId);
-  const memberRef = doc(firestore, "members", input.member.id);
-  const voucherCandidate = await findAvailableVoucherForReward(rewardId);
   const grantRef = doc(
     firestore,
     "memberRewards",
@@ -637,61 +503,21 @@ async function issueMemberRewardIfNeeded(input: {
     const existingGrant = await transaction.get(grantRef);
     if (existingGrant.exists()) {
       return {
-        issued: false,
-        reason: "alreadyIssued",
-      } satisfies RewardIssueResult;
+        queued: false,
+        reason: "alreadyQueued",
+      } satisfies RewardQueueResult;
     }
 
     const rewardSnapshot = await transaction.get(rewardRef);
     const rewardData = rewardSnapshot.data();
     if (!rewardSnapshot.exists() || !rewardData) {
       return {
-        issued: false,
+        queued: false,
         reason: "missingReward",
-      } satisfies RewardIssueResult;
+      } satisfies RewardQueueResult;
     }
 
     const reward = rewardFromData(rewardSnapshot.id, rewardData);
-    if (reward.status !== "active") {
-      return {
-        issued: false,
-        reason: "inactiveReward",
-      } satisfies RewardIssueResult;
-    }
-    if (reward.expiresAt && reward.expiresAt.getTime() < Date.now()) {
-      return {
-        issued: false,
-        reason: "expiredReward",
-      } satisfies RewardIssueResult;
-    }
-    if (reward.stock <= 0) {
-      return {
-        issued: false,
-        reason: "outOfStock",
-      } satisfies RewardIssueResult;
-    }
-
-    const voucher = reward.voucherTotal > 0 ? voucherCandidate : undefined;
-    if (reward.voucherTotal > 0 && !voucher) {
-      return {
-        issued: false,
-        reason: "outOfStock",
-      } satisfies RewardIssueResult;
-    }
-    const voucherSnapshot = voucher
-      ? await transaction.get(voucher.ref)
-      : undefined;
-    if (
-      voucher &&
-      (!voucherSnapshot?.exists() ||
-        voucherSnapshot.data()?.status !== "available")
-    ) {
-      return {
-        issued: false,
-        reason: "outOfStock",
-      } satisfies RewardIssueResult;
-    }
-
     transaction.set(grantRef, {
       memberId: input.member.id,
       memberName: input.member.name,
@@ -700,77 +526,22 @@ async function issueMemberRewardIfNeeded(input: {
       rewardName: reward.name,
       rewardCategory: reward.category,
       rewardImageUrl: reward.imageUrl ?? null,
-      redemptionUrl: voucher?.url ?? null,
-      voucherId: voucher?.id ?? null,
-      status: "issued",
+      redemptionUrl: null,
+      voucherId: null,
+      status: "pending",
       source: input.source,
       activityId: input.activity.id,
       activityTitle: input.activity.title,
       sourceMemberId: input.sourceMember?.id ?? null,
       sourceMemberName: input.sourceMember?.name ?? null,
-      issuedAt: serverTimestamp(),
+      queuedAt: serverTimestamp(),
       expiresAt: reward.expiresAt ? Timestamp.fromDate(reward.expiresAt) : null,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
 
-    transaction.set(
-      memberRef,
-      {
-        earnedCoupons: increment(1),
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true },
-    );
-    transaction.set(
-      rewardRef,
-      {
-        stock: increment(-1),
-        issued: increment(1),
-        ...(voucher ? { voucherAvailable: increment(-1) } : {}),
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true },
-    );
-    if (voucher) {
-      transaction.set(
-        voucher.ref,
-        {
-          status: "issued",
-          memberId: input.member.id,
-          memberName: input.member.name,
-          memberLineUserId: input.member.lineUserId ?? input.member.id,
-          issuedAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true },
-      );
-    }
-
-    return { issued: true } satisfies RewardIssueResult;
+    return { queued: true } satisfies RewardQueueResult;
   });
-}
-
-async function findAvailableVoucherForReward(
-  rewardId: string,
-): Promise<VoucherAllocation | undefined> {
-  const voucherSnapshot = await getDocs(
-    query(
-      collection(firestore, "rewardVouchers"),
-      where("rewardId", "==", rewardId),
-      where("status", "==", "available"),
-      limit(1),
-    ),
-  );
-  const voucherDoc = voucherSnapshot.docs[0];
-  if (!voucherDoc) return undefined;
-  const url = optionalString(voucherDoc.data().url);
-  if (!url) return undefined;
-  return {
-    id: voucherDoc.id,
-    url,
-    ref: voucherDoc.ref,
-  };
 }
 
 async function createReferralIfNeeded(

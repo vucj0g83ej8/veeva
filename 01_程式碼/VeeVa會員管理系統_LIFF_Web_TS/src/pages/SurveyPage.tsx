@@ -2,11 +2,17 @@ import { ArrowLeft, CheckCircle2, ClipboardList, LoaderCircle } from 'lucide-rea
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import type { VeevaAppState } from '../hooks/useVeevaApp'
-import type { VeevaActivity } from '../types/veeva'
+import type { VeevaActivity, VeevaSurveyEngagement } from '../types/veeva'
 
 interface PageProps {
   app: VeevaAppState
 }
+
+const SURVEY_COMPLETION_SCORE = 75
+const SURVEY_MIN_VISIBLE_MS = 35_000
+const SURVEY_MIN_TOTAL_MS = 45_000
+const SURVEY_FAST_EXIT_MS = 15_000
+const SURVEY_EVALUATION_INTERVAL_MS = 2_000
 
 export function SurveyPage({ app }: PageProps) {
   const { activityId = '' } = useParams()
@@ -17,43 +23,33 @@ export function SurveyPage({ app }: PageProps) {
   const completedRef = useRef(false)
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
+  const surveyCompleted = app.memberActivityRecords.some(
+    (record) =>
+      record.activityId === activity?.id && record.status === 'completed',
+  )
 
-  const handleSurveyCompleted = useCallback(
-    async (source: string) => {
+  const handleBehaviorCompleted = useCallback(
+    async (engagement: VeevaSurveyEngagement) => {
       if (!activity || completedRef.current) return
       completedRef.current = true
       setBusy(true)
-      setMessage('已偵測到問卷完成，正在寫入活動紀錄...')
+      setMessage('')
 
       try {
         if (!app.member) {
+          completedRef.current = false
           await app.login()
-          setMessage('請先完成 LINE 登入，登入後會保留問卷完成狀態。')
           return
         }
 
         const { completeActivity } = await import('../services/veevaRepository')
-        const result = await completeActivity({
+        await completeActivity({
           activity,
           member: app.member,
+          completionMethod: 'behaviorScore',
+          surveyEngagement: engagement,
         })
         await app.refreshMemberData()
-
-        const memberRewardText = result.memberRewardIssued
-          ? '已發放你的活動完成兌換券。'
-          : result.memberRewardReason === 'alreadyIssued'
-            ? '你的活動完成兌換券先前已發放。'
-            : '此活動目前沒有可發放的完成兌換券。'
-        const referrerRewardText = result.referrerRewardIssued
-          ? '邀請者加碼兌換券也已發放。'
-          : ''
-
-        setMessage(
-          [`問卷完成已記錄。`, memberRewardText, referrerRewardText]
-            .filter(Boolean)
-            .join(' '),
-        )
-        console.info('VeeVa survey completed by', source)
       } catch (error) {
         completedRef.current = false
         setMessage(
@@ -101,7 +97,7 @@ export function SurveyPage({ app }: PageProps) {
       <section className="empty-state">
         <ClipboardList size={30} />
         <h2>請先登入 LINE</h2>
-        <p>登入後再填寫問卷，系統才能記錄完成狀態並發放兌換券。</p>
+        <p>登入後再填寫問卷，系統才能記錄完成狀態並等待人工確認。</p>
         <button className="primary-button" type="button" onClick={app.login}>
           LINE 登入
         </button>
@@ -119,30 +115,35 @@ export function SurveyPage({ app }: PageProps) {
         >
           <ArrowLeft size={24} />
         </Link>
-        <strong>填寫問卷</strong>
+        <strong>{surveyCompleted ? '已填寫完成' : '填寫問卷'}</strong>
         <span aria-hidden="true" />
       </div>
 
       <section className="survey-shell">
-        <div className="survey-title-row">
-          <div>
-            <span className="soft-tag">問卷活動</span>
-            <h2>{activity.title}</h2>
-          </div>
-          {busy ? <LoaderCircle className="spin-icon" size={22} /> : null}
-        </div>
+        {surveyCompleted && (
+          <section className="empty-state compact survey-completed-state">
+            <CheckCircle2 size={30} />
+            <h2>已填寫完成</h2>
+          </section>
+        )}
 
         {message && (
           <div className="success-message survey-message">
-            <CheckCircle2 size={18} />
+            {busy ? (
+              <LoaderCircle className="spin-icon" size={18} />
+            ) : (
+              <CheckCircle2 size={18} />
+            )}
             <span>{message}</span>
           </div>
         )}
 
-        <EmbeddedSurveyFrame
-          activity={activity}
-          onCompleted={(source) => void handleSurveyCompleted(source)}
-        />
+        {!surveyCompleted && (
+          <EmbeddedSurveyFrame
+            activity={activity}
+            onBehaviorCompleted={handleBehaviorCompleted}
+          />
+        )}
       </section>
     </article>
   )
@@ -150,64 +151,92 @@ export function SurveyPage({ app }: PageProps) {
 
 function EmbeddedSurveyFrame({
   activity,
-  onCompleted,
+  onBehaviorCompleted,
 }: {
   activity: VeevaActivity
-  onCompleted: (source: string) => void
+  onBehaviorCompleted: (engagement: VeevaSurveyEngagement) => void
 }) {
-  const seenInitialLoadRef = useRef(false)
-  const canCompleteFromReloadRef = useRef(false)
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+  const engagementRef = useRef(createSurveyEngagementDraft(activity))
+  const completedByBehaviorRef = useRef(false)
 
   useEffect(() => {
-    canCompleteFromReloadRef.current = false
-    seenInitialLoadRef.current = false
-    const reloadTimer = window.setTimeout(() => {
-      canCompleteFromReloadRef.current = true
-    }, 8000)
+    engagementRef.current = createSurveyEngagementDraft(activity)
+    completedByBehaviorRef.current = false
 
-    const handleSubmittedEvent = () => {
-      onCompleted('OneTrustWebFormSubmitted')
+    const recordParentPointer = () => {
+      engagementRef.current.pointerCount += 1
     }
-
-    const handleMessage = (event: MessageEvent) => {
-      if (!isTrustedOneTrustMessage(event, activity.surveyUrl ?? '')) {
-        return
-      }
-      const messageText = stringifyMessageData(event.data)
-      try {
-        ;(window as Window & { veevaLastOneTrustMessage?: string })
-          .veevaLastOneTrustMessage = messageText
-      } catch {
-        // Debug-only helper; completion detection should continue.
-      }
-      if (looksLikeOneTrustSubmission(messageText)) {
-        onCompleted('OneTrustPostMessage')
-      }
+    const recordParentTouch = () => {
+      engagementRef.current.touchCount += 1
     }
-
-    window.addEventListener(
-      'OneTrustWebFormSubmitted',
-      handleSubmittedEvent as EventListener,
-    )
-    window.addEventListener('message', handleMessage)
-    return () => {
-      window.clearTimeout(reloadTimer)
-      window.removeEventListener(
-        'OneTrustWebFormSubmitted',
-        handleSubmittedEvent as EventListener,
+    const recordParentClick = () => {
+      engagementRef.current.clickCount += 1
+    }
+    const recordParentKey = () => {
+      engagementRef.current.keyCount += 1
+    }
+    const recordParentScroll = () => {
+      const current = engagementRef.current
+      current.scrollCount += 1
+      current.maxParentScrollDepth = Math.max(
+        current.maxParentScrollDepth,
+        calculateParentScrollDepth(),
       )
-      window.removeEventListener('message', handleMessage)
     }
-  }, [activity.surveyUrl, onCompleted])
+    const handleVisibilityChange = () => {
+      applyVisibilityChange(engagementRef.current)
+    }
+    const handleWindowBlur = () => {
+      window.setTimeout(() => {
+        if (document.activeElement === iframeRef.current) {
+          recordIframeFocus(engagementRef.current)
+        }
+      }, 60)
+    }
+    const evaluate = () => {
+      const engagement = buildSurveyEngagement(engagementRef.current)
+      if (engagement.completedByBehavior && !completedByBehaviorRef.current) {
+        completedByBehaviorRef.current = true
+        onBehaviorCompleted(engagement)
+      }
+    }
+
+    window.addEventListener('pointerdown', recordParentPointer, {
+      passive: true,
+    })
+    window.addEventListener('touchstart', recordParentTouch, { passive: true })
+    window.addEventListener('click', recordParentClick)
+    window.addEventListener('keydown', recordParentKey)
+    window.addEventListener('scroll', recordParentScroll, { passive: true })
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('blur', handleWindowBlur)
+    const evaluationTimer = window.setInterval(
+      evaluate,
+      SURVEY_EVALUATION_INTERVAL_MS,
+    )
+
+    return () => {
+      applyVisibilityChange(engagementRef.current, true)
+      window.clearInterval(evaluationTimer)
+      window.removeEventListener('pointerdown', recordParentPointer)
+      window.removeEventListener('touchstart', recordParentTouch)
+      window.removeEventListener('click', recordParentClick)
+      window.removeEventListener('keydown', recordParentKey)
+      window.removeEventListener('scroll', recordParentScroll)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('blur', handleWindowBlur)
+    }
+  }, [activity, onBehaviorCompleted])
 
   function handleIframeLoad() {
-    if (!seenInitialLoadRef.current) {
-      seenInitialLoadRef.current = true
-      return
-    }
-    if (canCompleteFromReloadRef.current) {
-      onCompleted('OneTrustIframeReload')
-    }
+    const current = engagementRef.current
+    current.iframeLoadCount += 1
+    current.lastIframeLoadAtMs = Date.now()
+  }
+
+  function handleIframeFocus() {
+    recordIframeFocus(engagementRef.current)
   }
 
   return (
@@ -215,7 +244,9 @@ function EmbeddedSurveyFrame({
       <iframe
         allow="clipboard-read; clipboard-write"
         className="survey-frame"
+        onFocus={handleIframeFocus}
         onLoad={handleIframeLoad}
+        ref={iframeRef}
         referrerPolicy="strict-origin-when-cross-origin"
         src={activity.surveyUrl}
         title="VeeVa 問卷填寫"
@@ -224,62 +255,166 @@ function EmbeddedSurveyFrame({
   )
 }
 
-function isTrustedOneTrustMessage(event: MessageEvent, formUrl: string) {
-  return isTrustedOneTrustOrigin(event.origin, formUrl)
+interface SurveyEngagementDraft {
+  activityId: string
+  surveyUrl: string
+  startedAtMs: number
+  visibleStartedAtMs: number | null
+  visibleDurationMs: number
+  iframeLoadCount: number
+  iframeFocusedCount: number
+  lastIframeLoadAtMs: number | null
+  lastIframeFocusAtMs: number | null
+  pointerCount: number
+  touchCount: number
+  clickCount: number
+  keyCount: number
+  scrollCount: number
+  maxParentScrollDepth: number
+  hiddenCount: number
 }
 
-function isTrustedOneTrustOrigin(origin: string, formUrl: string) {
-  try {
-    const originUrl = new URL(origin)
-    const surveyUrl = new URL(formUrl)
-    if (originUrl.protocol !== 'https:') return false
-    const host = originUrl.hostname.toLowerCase()
-    const surveyHost = surveyUrl.hostname.toLowerCase()
-    return (
-      host === surveyHost ||
-      host === 'onetrust.com' ||
-      host.endsWith('.onetrust.com')
-    )
-  } catch {
-    return false
+function createSurveyEngagementDraft(
+  activity: VeevaActivity,
+): SurveyEngagementDraft {
+  const now = Date.now()
+  const isVisible = document.visibilityState === 'visible'
+  return {
+    activityId: activity.id,
+    surveyUrl: activity.surveyUrl ?? '',
+    startedAtMs: now,
+    visibleStartedAtMs: isVisible ? now : null,
+    visibleDurationMs: 0,
+    iframeLoadCount: 0,
+    iframeFocusedCount: 0,
+    lastIframeLoadAtMs: null,
+    lastIframeFocusAtMs: null,
+    pointerCount: 0,
+    touchCount: 0,
+    clickCount: 0,
+    keyCount: 0,
+    scrollCount: 0,
+    maxParentScrollDepth: calculateParentScrollDepth(),
+    hiddenCount: isVisible ? 0 : 1,
   }
 }
 
-function looksLikeOneTrustSubmission(messageText: string) {
-  const normalized = messageText.toLowerCase()
-  if (!normalized) return false
+function applyVisibilityChange(
+  draft: SurveyEngagementDraft,
+  forcePause = false,
+) {
+  const now = Date.now()
+  const isVisible = document.visibilityState === 'visible' && !forcePause
 
-  const hasSubmitSignal =
-    normalized.includes('submit') ||
-    normalized.includes('submitted') ||
-    normalized.includes('submission') ||
-    normalized.includes('requestsubmission') ||
-    normalized.includes('request_submission') ||
-    normalized.includes('request id') ||
-    normalized.includes('requestid') ||
-    normalized.includes('webformsubmitted') ||
-    normalized.includes('formsubmitted')
+  if (!isVisible) {
+    if (draft.visibleStartedAtMs !== null) {
+      draft.visibleDurationMs += now - draft.visibleStartedAtMs
+      draft.visibleStartedAtMs = null
+    }
+    draft.hiddenCount += 1
+    return
+  }
 
-  if (!hasSubmitSignal) return false
+  if (draft.visibleStartedAtMs === null) {
+    draft.visibleStartedAtMs = now
+  }
+}
 
-  return (
-    normalized.includes('onetrust') ||
-    normalized.includes('webform') ||
-    normalized.includes('privacyportal') ||
-    normalized.includes('request') ||
-    normalized.includes('form')
+function recordIframeFocus(draft: SurveyEngagementDraft) {
+  const now = Date.now()
+  if (
+    draft.lastIframeFocusAtMs !== null &&
+    now - draft.lastIframeFocusAtMs < 800
+  ) {
+    return
+  }
+  draft.iframeFocusedCount += 1
+  draft.lastIframeFocusAtMs = now
+}
+
+function buildSurveyEngagement(
+  draft: SurveyEngagementDraft,
+): VeevaSurveyEngagement {
+  const now = Date.now()
+  const totalDurationMs = Math.max(0, now - draft.startedAtMs)
+  const visibleDurationMs = Math.max(
+    0,
+    draft.visibleDurationMs +
+      (draft.visibleStartedAtMs === null ? 0 : now - draft.visibleStartedAtMs),
   )
+  const parentInteractionCount =
+    draft.pointerCount +
+    draft.touchCount +
+    draft.clickCount +
+    draft.keyCount +
+    draft.scrollCount
+  const iframeLoaded = draft.iframeLoadCount > 0
+  const fastExit = totalDurationMs < SURVEY_FAST_EXIT_MS
+  const score = calculateSurveyScore({
+    iframeLoaded,
+    iframeFocusedCount: draft.iframeFocusedCount,
+    visibleDurationMs,
+    totalDurationMs,
+    parentInteractionCount,
+  })
+  const requiredConditionsMet =
+    iframeLoaded &&
+    draft.iframeFocusedCount > 0 &&
+    visibleDurationMs >= SURVEY_MIN_VISIBLE_MS &&
+    totalDurationMs >= SURVEY_MIN_TOTAL_MS &&
+    !fastExit &&
+    score >= SURVEY_COMPLETION_SCORE
+
+  return {
+    activityId: draft.activityId,
+    surveyUrl: draft.surveyUrl,
+    score,
+    completedByBehavior: requiredConditionsMet,
+    startedAt: new Date(draft.startedAtMs).toISOString(),
+    evaluatedAt: new Date(now).toISOString(),
+    totalDurationMs: Math.round(totalDurationMs),
+    visibleDurationMs: Math.round(visibleDurationMs),
+    iframeLoaded,
+    iframeLoadCount: draft.iframeLoadCount,
+    iframeFocusedCount: draft.iframeFocusedCount,
+    parentInteractionCount,
+    pointerCount: draft.pointerCount,
+    touchCount: draft.touchCount,
+    clickCount: draft.clickCount,
+    keyCount: draft.keyCount,
+    scrollCount: draft.scrollCount,
+    maxParentScrollDepth: draft.maxParentScrollDepth,
+    hiddenCount: draft.hiddenCount,
+    fastExit,
+    requiredConditionsMet,
+  }
 }
 
-function stringifyMessageData(data: unknown) {
-  if (data == null) return ''
-  if (typeof data === 'string') return data
-  if (typeof data === 'number' || typeof data === 'boolean') return String(data)
-  try {
-    return JSON.stringify(data)
-  } catch {
-    return String(data)
-  }
+function calculateSurveyScore(input: {
+  iframeLoaded: boolean
+  iframeFocusedCount: number
+  visibleDurationMs: number
+  totalDurationMs: number
+  parentInteractionCount: number
+}) {
+  let score = 0
+  if (input.iframeLoaded) score += 15
+  if (input.iframeFocusedCount > 0) score += 25
+  if (input.visibleDurationMs >= SURVEY_MIN_VISIBLE_MS) score += 15
+  if (input.visibleDurationMs >= SURVEY_MIN_TOTAL_MS) score += 10
+  if (input.totalDurationMs >= SURVEY_MIN_TOTAL_MS) score += 15
+  if (input.totalDurationMs >= SURVEY_FAST_EXIT_MS) score += 10
+  if (input.parentInteractionCount > 0) score += 10
+  return Math.min(score, 100)
+}
+
+function calculateParentScrollDepth() {
+  const scrollableHeight = Math.max(
+    0,
+    document.documentElement.scrollHeight - window.innerHeight,
+  )
+  if (scrollableHeight <= 0) return 0
+  return Math.min(100, Math.round((window.scrollY / scrollableHeight) * 100))
 }
 
 function safeDecode(value: string) {

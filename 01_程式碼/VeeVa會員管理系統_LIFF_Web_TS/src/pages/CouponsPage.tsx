@@ -283,7 +283,7 @@ function CouponDetailDialog({
           ) : (
             <button className="coupon-detail-use-button disabled" type="button" disabled>
               <Ticket size={22} />
-              {isUsable ? '尚未取得兌換連結' : '目前無法使用'}
+              {isUsable ? '尚未取得兌換連結' : statusLabel(reward.status)}
             </button>
           )}
           <p className="coupon-detail-warning">
@@ -381,6 +381,7 @@ function CouponDetailDialog({
 }
 
 function statusLabel(status: string) {
+  if (status === 'pending') return '待確認'
   if (status === 'redeemed') return '已使用'
   if (status === 'expired') return '已過期'
   return '可兌換'

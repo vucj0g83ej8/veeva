@@ -494,7 +494,11 @@ class FirestoreVeevaRepository implements VeevaRepository {
               ? await transaction.get(_memberRewards.doc(deterministicGrantId))
               : null;
       if (existingGrantSnapshot?.exists == true) {
-        throw StateError('reward already issued');
+        final existingStatus =
+            existingGrantSnapshot?.data()?['status']?.toString();
+        if (existingStatus != 'pending') {
+          throw StateError('reward already issued');
+        }
       }
       final sourceMemberSnapshot = sourceMemberRef == null
           ? null

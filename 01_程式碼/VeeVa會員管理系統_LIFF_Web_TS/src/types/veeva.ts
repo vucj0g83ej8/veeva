@@ -83,6 +83,30 @@ export interface VeevaActivityRegistration {
   completedAt?: Date;
 }
 
+export interface VeevaSurveyEngagement {
+  activityId: string;
+  surveyUrl: string;
+  score: number;
+  completedByBehavior: boolean;
+  startedAt: string;
+  evaluatedAt: string;
+  totalDurationMs: number;
+  visibleDurationMs: number;
+  iframeLoaded: boolean;
+  iframeLoadCount: number;
+  iframeFocusedCount: number;
+  parentInteractionCount: number;
+  pointerCount: number;
+  touchCount: number;
+  clickCount: number;
+  keyCount: number;
+  scrollCount: number;
+  maxParentScrollDepth: number;
+  hiddenCount: number;
+  fastExit: boolean;
+  requiredConditionsMet: boolean;
+}
+
 export interface VeevaNews {
   id: string;
   date: string;
@@ -122,7 +146,7 @@ export interface VeevaMemberReward {
   rewardImageUrl?: string;
   redemptionUrl?: string;
   voucherId?: string;
-  status: "issued" | "redeemed" | "expired";
+  status: "pending" | "issued" | "redeemed" | "expired";
   source?: "manualAdmin" | "activityCompletion" | "referralActivityCompletion";
   activityId?: string;
   activityTitle?: string;

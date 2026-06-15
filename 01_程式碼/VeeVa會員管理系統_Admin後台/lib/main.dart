@@ -7840,7 +7840,8 @@ class _RewardDistributionManagementState
 
   int _issuedCountFor(backend.VeevaActivity activity) {
     return _participantsFor(activity)
-        .where((participant) => _hasCompletionReward(activity, participant))
+        .where(
+            (participant) => _hasIssuedCompletionReward(activity, participant))
         .length;
   }
 
@@ -7848,37 +7849,58 @@ class _RewardDistributionManagementState
     final participants = _participantsFor(activity);
     if (participants.isEmpty) return '尚無參加者';
     final issued = _issuedCountFor(activity);
-    return '已發放 $issued / 待發放 ${participants.length - issued}';
+    final ready = participants.where((item) {
+      return item.record.isCompleted ||
+          activity.type == backend.VeevaActivityType.registration ||
+          _completionRewardGrant(activity, item) != null;
+    }).length;
+    return '已發放 $issued / 待確認 ${ready - issued}';
   }
 
-  bool _hasCompletionReward(
+  backend.VeevaMemberReward? _completionRewardGrant(
     backend.VeevaActivity activity,
     _DistributionParticipant participant,
   ) {
     final rewardId = activity.completionRewardId;
-    if (rewardId == null) return false;
-    return widget.memberRewards.any(
-      (item) =>
-          item.memberId == participant.member.id &&
+    if (rewardId == null) return null;
+    for (final item in widget.memberRewards) {
+      if (item.memberId == participant.member.id &&
           item.rewardId == rewardId &&
           item.activityId == activity.id &&
-          item.source == 'activityCompletion',
-    );
+          item.source == 'activityCompletion') {
+        return item;
+      }
+    }
+    return null;
   }
 
-  bool _hasReferrerReward(
+  bool _isIssuedGrant(backend.VeevaMemberReward item) {
+    return item.status != 'pending';
+  }
+
+  bool _hasIssuedCompletionReward(
+    backend.VeevaActivity activity,
+    _DistributionParticipant participant,
+  ) {
+    final grant = _completionRewardGrant(activity, participant);
+    return grant != null && _isIssuedGrant(grant);
+  }
+
+  backend.VeevaMemberReward? _referrerRewardGrant(
     backend.VeevaActivity activity,
     backend.VeevaMember participant,
   ) {
     final rewardId = activity.referrerRewardId;
-    if (rewardId == null) return false;
-    return widget.memberRewards.any(
-      (item) =>
-          item.rewardId == rewardId &&
+    if (rewardId == null) return null;
+    for (final item in widget.memberRewards) {
+      if (item.rewardId == rewardId &&
           item.activityId == activity.id &&
           item.source == 'referralActivityCompletion' &&
-          item.sourceMemberId == participant.id,
-    );
+          item.sourceMemberId == participant.id) {
+        return item;
+      }
+    }
+    return null;
   }
 
   bool _referralRewardAlreadyUsed(backend.VeevaMember participant) {
@@ -7887,7 +7909,8 @@ class _RewardDistributionManagementState
         widget.memberRewards.any(
           (item) =>
               item.source == 'referralActivityCompletion' &&
-              item.sourceMemberId == participant.id,
+              item.sourceMemberId == participant.id &&
+              _isIssuedGrant(item),
         );
   }
 
@@ -7900,7 +7923,11 @@ class _RewardDistributionManagementState
         participant.referredByMemberId!.trim().isEmpty) {
       return '無邀請者';
     }
-    if (_hasReferrerReward(activity, participant)) {
+    final grant = _referrerRewardGrant(activity, participant);
+    if (grant != null && !_isIssuedGrant(grant)) {
+      return '待確認';
+    }
+    if (grant != null && _isIssuedGrant(grant)) {
       return '已發放給邀請者';
     }
     final grantedActivityId = participant.referralRewardGrantedActivityId;
@@ -7909,7 +7936,7 @@ class _RewardDistributionManagementState
         grantedActivityId != activity.id) {
       return '已於其他活動觸發';
     }
-    return '發放完成獎勵時自動處理';
+    return '發放完成獎勵時一併處理';
   }
 
   Future<void> _openDistributionDialog(backend.VeevaActivity activity) async {
@@ -8006,10 +8033,18 @@ class _RewardDistributionManagementState
     required StateSetter setDialogState,
     required ValueChanged<String?> setFormError,
   }) {
-    final hasCompletionReward = _hasCompletionReward(activity, participant);
+    final completionRewardGrant = _completionRewardGrant(activity, participant);
+    final hasCompletionReward =
+        completionRewardGrant != null && _isIssuedGrant(completionRewardGrant);
+    final hasPendingCompletionReward =
+        completionRewardGrant != null && !_isIssuedGrant(completionRewardGrant);
     final completionReward = _rewardFor(activity.completionRewardId);
     final isIssuing = issuingParticipantIds.contains(participant.member.id);
-    final canIssue = completionReward != null && !hasCompletionReward;
+    final isReadyForReward = participant.record.isCompleted ||
+        activity.type == backend.VeevaActivityType.registration ||
+        hasPendingCompletionReward;
+    final canIssue =
+        isReadyForReward && completionReward != null && !hasCompletionReward;
     return DataRow(
       cells: [
         DataCell(_DistributionMemberCell(member: participant.member)),
@@ -8020,9 +8055,13 @@ class _RewardDistributionManagementState
                 ? '未設定'
                 : hasCompletionReward
                     ? '已發放'
-                    : completionReward == null
-                        ? '找不到兌換券'
-                        : completionReward.name,
+                    : hasPendingCompletionReward
+                        ? '待確認'
+                        : !isReadyForReward
+                            ? '尚未完成'
+                            : completionReward == null
+                                ? '找不到兌換券'
+                                : completionReward.name,
           ),
         ),
         DataCell(Text(_referrerRewardStatus(activity, participant.member))),
@@ -8083,7 +8122,9 @@ class _RewardDistributionManagementState
                   ? '已發放'
                   : isIssuing
                       ? '發放中'
-                      : '發放',
+                      : hasPendingCompletionReward
+                          ? '確認發放'
+                          : '發放',
             ),
           ),
         ),
@@ -8114,8 +8155,7 @@ class _RewardDistributionManagementState
     if (referrerReward == null ||
         referrerId == null ||
         referrerId.isEmpty ||
-        _referralRewardAlreadyUsed(participant) ||
-        _hasReferrerReward(activity, participant)) {
+        _referralRewardAlreadyUsed(participant)) {
       return '';
     }
 

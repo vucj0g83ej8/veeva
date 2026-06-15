@@ -352,7 +352,7 @@ function activityShareIntro(activity: VeevaActivity) {
 }
 
 function activityShareHighlight(activity: VeevaActivity) {
-  if (activity.type === 'survey') return '完成問卷，即可依活動規則取得獎勵！'
+  if (activity.type === 'survey') return '完成問卷後，將由後台人工確認獎勵！'
   if (activity.type === 'registration') return '名額有限，立即報名保留席次！'
   if (activity.type === 'referral') return '邀請好友一起加入，享受會員好禮！'
   return '點擊下方按鈕，立即查看活動！'
