@@ -212,7 +212,7 @@ export function useVeevaApp() {
           busy: false,
           error: message,
         }))
-        throw new Error(message)
+        throw new Error(message, { cause: error })
       }
     },
     [refreshMemberDetails, state.member],

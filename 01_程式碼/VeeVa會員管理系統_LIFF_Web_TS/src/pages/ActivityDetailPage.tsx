@@ -63,6 +63,8 @@ function ActivityDetailContent({
   const [busy, setBusy] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
   const location = activity.location ?? fallbackLocation(activity);
+  const activityTime = activity.activityTime ?? "依活動公告為準";
+  const organizer = activity.organizer ?? "VeeVa Member";
   const memberActivityRecord = useMemo(
     () =>
       app.memberActivityRecords.find(
@@ -295,7 +297,7 @@ function ActivityDetailContent({
           <ActivityInfoRow
             icon={<Clock3 size={20} />}
             label="活動時間"
-            value="依活動公告為準"
+            value={activityTime}
           />
           <ActivityInfoRow
             icon={<MapPin size={20} />}
@@ -305,7 +307,7 @@ function ActivityDetailContent({
           <ActivityInfoRow
             icon={<UserRound size={20} />}
             label="主辦單位"
-            value="VeeVa Member"
+            value={organizer}
           />
           <ActivityInfoRow
             icon={<Tag size={20} />}

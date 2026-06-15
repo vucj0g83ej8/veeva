@@ -6,8 +6,10 @@ import {
   Newspaper,
   Share2,
   Tag,
+  ThumbsUp,
   UserRound,
 } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import type { VeevaAppState } from '../hooks/useVeevaApp'
@@ -36,9 +38,70 @@ export function NewsDetailPage({ app }: PageProps) {
     )
   }
 
+  return <NewsArticleDetail app={app} article={article} key={article.id} />
+}
+
+function NewsArticleDetail({
+  app,
+  article,
+}: {
+  app: VeevaAppState
+  article: VeevaNews
+}) {
   const category = article.category ?? article.source ?? '最新資訊'
   const articleContent = article.detailContent ?? article.content ?? article.summary
-  const helpfulCount = article.helpfulCount ?? 12
+  const [helpfulCount, setHelpfulCount] = useState(article.helpfulCount ?? 0)
+  const [hasMarkedHelpful, setHasMarkedHelpful] = useState(false)
+  const [helpfulPending, setHelpfulPending] = useState(false)
+  const [helpfulError, setHelpfulError] = useState<string>()
+
+  useEffect(() => {
+    let cancelled = false
+
+    if (!app.member) return undefined
+
+    void import('../services/veevaRepository')
+      .then(({ hasMemberMarkedNewsHelpful }) =>
+        hasMemberMarkedNewsHelpful({
+          newsId: article.id,
+          memberId: app.member!.id,
+        }),
+      )
+      .then((liked) => {
+        if (!cancelled) setHasMarkedHelpful(liked)
+      })
+      .catch(() => {
+        if (!cancelled) setHelpfulError('目前無法確認按讚狀態')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [app.member, article.helpfulCount, article.id])
+
+  const handleHelpfulClick = async () => {
+    if (helpfulPending || hasMarkedHelpful) return
+    if (!app.member) {
+      await app.login()
+      return
+    }
+
+    setHelpfulPending(true)
+    setHelpfulError(undefined)
+    try {
+      const { markNewsHelpful } = await import('../services/veevaRepository')
+      const result = await markNewsHelpful({
+        news: article,
+        member: app.member,
+      })
+      setHelpfulCount(result.helpfulCount)
+      setHasMarkedHelpful(result.liked)
+    } catch {
+      setHelpfulError('按讚失敗，請稍後再試')
+    } finally {
+      setHelpfulPending(false)
+    }
+  }
 
   return (
     <article className="article-detail">
@@ -110,12 +173,21 @@ export function NewsDetailPage({ app }: PageProps) {
         )}
       </section>
 
-      <div className="article-helpful-bar">
+      <button
+        className={`article-helpful-bar${hasMarkedHelpful ? ' active' : ''}`}
+        disabled={helpfulPending || hasMarkedHelpful}
+        onClick={handleHelpfulClick}
+        type="button"
+      >
         <span className="article-helpful-icon">
-          <Bookmark size={18} />
+          <ThumbsUp size={18} />
         </span>
         <strong>{helpfulCount} 人覺得這則資訊有幫助</strong>
-      </div>
+        <span className="article-helpful-action">
+          {hasMarkedHelpful ? '已按讚' : app.member ? '我覺得有幫助' : '登入後按讚'}
+        </span>
+      </button>
+      {helpfulError && <p className="article-helpful-error">{helpfulError}</p>}
     </article>
   )
 }

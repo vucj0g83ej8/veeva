@@ -1640,16 +1640,33 @@ button:disabled {
   position: sticky;
   bottom: 72px;
   z-index: 5;
+  width: calc(100% + 40px);
   min-height: 48px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 9px;
   margin: 26px -20px 0;
+  padding: 10px 16px;
   color: #0b835f;
   background: rgba(246, 251, 249, 0.96);
   border-top: 1px solid #dfe9e5;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
   font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+  appearance: none;
+}
+
+.article-helpful-bar:disabled {
+  cursor: default;
+}
+
+.article-helpful-bar.active {
+  color: #0b6f51;
+  background: rgba(232, 245, 239, 0.98);
 }
 
 .article-helpful-icon {
@@ -1659,6 +1676,24 @@ button:disabled {
   place-items: center;
   background: #e2f3ed;
   border-radius: 999px;
+}
+
+.article-helpful-action {
+  min-width: max-content;
+  padding: 4px 10px;
+  background: #ffffff;
+  border: 1px solid #d6e5df;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.article-helpful-error {
+  margin: 8px 0 0;
+  color: #b44949;
+  font-size: 13px;
+  font-weight: 800;
+  text-align: center;
 }
 
 .back-link {

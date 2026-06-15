@@ -10,7 +10,14 @@ enum VeevaRewardStatus { active, paused, expired }
 
 enum VeevaContentStatus { draft, scheduled, published, archived }
 
-enum VeevaActivityType { survey, registration }
+enum VeevaActivityType {
+  survey,
+  registration,
+  referral,
+  task,
+  checkin,
+  external
+}
 
 enum VeevaAdminRole { owner, manager, editor, viewer }
 
@@ -65,6 +72,18 @@ VeevaActivityType _readActivityType(
   final text = '$id $title $label'.toLowerCase();
   if (text.contains('survey') || text.contains('問卷')) {
     return VeevaActivityType.survey;
+  }
+  if (text.contains('referral') || text.contains('邀請')) {
+    return VeevaActivityType.referral;
+  }
+  if (text.contains('checkin') || text.contains('簽到')) {
+    return VeevaActivityType.checkin;
+  }
+  if (text.contains('task') || text.contains('任務')) {
+    return VeevaActivityType.task;
+  }
+  if (text.contains('external') || text.contains('外部')) {
+    return VeevaActivityType.external;
   }
   return VeevaActivityType.registration;
 }
@@ -544,7 +563,11 @@ class VeevaActivity {
     this.completionRewardId,
     this.referrerRewardId,
     this.surveyUrl,
+    this.actionUrl,
     this.periodText,
+    this.location,
+    this.activityTime,
+    this.organizer,
     this.note,
     this.imageUrl,
   });
@@ -563,6 +586,7 @@ class VeevaActivity {
       completionRewardId: data['completionRewardId']?.toString(),
       referrerRewardId: data['referrerRewardId']?.toString(),
       surveyUrl: data['surveyUrl']?.toString(),
+      actionUrl: data['actionUrl']?.toString(),
       status: _readEnum(
         VeevaContentStatus.values,
         data['status'],
@@ -570,6 +594,9 @@ class VeevaActivity {
       ),
       active: data['active'] == true,
       periodText: data['periodText']?.toString(),
+      location: data['location']?.toString(),
+      activityTime: data['activityTime']?.toString(),
+      organizer: data['organizer']?.toString(),
       note: data['note']?.toString(),
       imageUrl: data['imageUrl']?.toString(),
     );
@@ -585,9 +612,13 @@ class VeevaActivity {
   final String? completionRewardId;
   final String? referrerRewardId;
   final String? surveyUrl;
+  final String? actionUrl;
   final VeevaContentStatus status;
   final bool active;
   final String? periodText;
+  final String? location;
+  final String? activityTime;
+  final String? organizer;
   final String? note;
   final String? imageUrl;
 
@@ -602,9 +633,13 @@ class VeevaActivity {
       'completionRewardId': completionRewardId,
       'referrerRewardId': referrerRewardId,
       'surveyUrl': surveyUrl,
+      'actionUrl': actionUrl,
       'status': status.name,
       'active': active,
       'periodText': periodText,
+      'location': location,
+      'activityTime': activityTime,
+      'organizer': organizer,
       'note': note,
       'imageUrl': imageUrl,
       'updatedAt': FieldValue.serverTimestamp(),
@@ -626,7 +661,7 @@ class VeevaNews {
     this.detailContent,
     this.keyPoints = const [],
     this.externalUrl,
-    this.helpfulCount = 12,
+    this.helpfulCount = 0,
   });
 
   factory VeevaNews.fromMap(String id, Map<String, Object?> data) {
@@ -647,7 +682,7 @@ class VeevaNews {
       detailContent: data['detailContent']?.toString(),
       keyPoints: _readStringList(data['keyPoints']),
       externalUrl: data['externalUrl']?.toString(),
-      helpfulCount: _readInt(data['helpfulCount'], 12),
+      helpfulCount: _readInt(data['helpfulCount'], 0),
     );
   }
 
@@ -678,7 +713,6 @@ class VeevaNews {
       'detailContent': detailContent,
       'keyPoints': keyPoints,
       'externalUrl': externalUrl,
-      'helpfulCount': helpfulCount,
       'updatedAt': FieldValue.serverTimestamp(),
     };
   }

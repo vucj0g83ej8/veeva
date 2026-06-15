@@ -1050,7 +1050,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       AdminTab.settings => const _PlaceholderPanel(
           icon: Icons.settings_outlined,
           title: '系統設定',
-          description: '設定活動期間、獎勵規則、通知模板與管理員權限。',
+          description: '後續如有額外新增功能，會在此頁新增',
         ),
     };
 
@@ -1121,9 +1121,13 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       status: backend.VeevaContentStatus.published,
       active: !activity.active,
       periodText: activity.periodText,
+      location: activity.location,
+      activityTime: activity.activityTime,
+      organizer: activity.organizer,
       note: activity.note,
       imageUrl: activity.imageUrl,
       surveyUrl: activity.surveyUrl,
+      actionUrl: activity.actionUrl,
     );
     await _saveActivity(updated);
   }
@@ -1141,9 +1145,13 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       status: backend.VeevaContentStatus.archived,
       active: false,
       periodText: activity.periodText,
+      location: activity.location,
+      activityTime: activity.activityTime,
+      organizer: activity.organizer,
       note: activity.note,
       imageUrl: activity.imageUrl,
       surveyUrl: activity.surveyUrl,
+      actionUrl: activity.actionUrl,
     );
     await _saveActivity(updated);
   }
@@ -1159,6 +1167,10 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       '會員限定',
       '問卷活動',
       '活動報名',
+      '任務活動',
+      '簽到活動',
+      '外部連結',
+      '邀請好友',
     ];
     final currentLabel = activity?.label.trim();
     if (currentLabel != null &&
@@ -1192,11 +1204,23 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
     }
     final periodController =
         TextEditingController(text: activity?.periodText ?? '');
+    final locationController =
+        TextEditingController(text: activity?.location ?? '');
+    final activityTimeController =
+        TextEditingController(text: activity?.activityTime ?? '');
+    final organizerController =
+        TextEditingController(text: activity?.organizer ?? 'VeeVa Member');
     final noteController = TextEditingController(text: activity?.note ?? '');
     final imageController =
         TextEditingController(text: activity?.imageUrl ?? '');
     final surveyUrlController = TextEditingController(
         text: activity?.surveyUrl ?? defaultVeevaSurveyUrl);
+    final actionUrlController = TextEditingController(
+      text: activity?.actionUrl ??
+          (activity != null && activity.type != backend.VeevaActivityType.survey
+              ? activity.surveyUrl ?? ''
+              : ''),
+    );
     var activityType = activity?.type ?? backend.VeevaActivityType.survey;
     var status = activity?.status ?? backend.VeevaContentStatus.published;
     var active = activity?.active ?? true;
@@ -1237,6 +1261,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                     : '兌換券',
               );
               final surveyUrl = _optionalText(surveyUrlController.text);
+              final actionUrl = _optionalText(actionUrlController.text);
               final savedStatus =
                   isDraft ? backend.VeevaContentStatus.draft : status;
               return backend.VeevaActivity(
@@ -1254,10 +1279,17 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                     : savedStatus,
                 active: active && !isDraft,
                 periodText: _optionalText(periodController.text),
+                location: _optionalText(locationController.text),
+                activityTime: _optionalText(activityTimeController.text),
+                organizer: _optionalText(organizerController.text),
                 note: _optionalText(noteController.text),
                 imageUrl: _optionalText(imageController.text),
                 surveyUrl: activityType == backend.VeevaActivityType.survey
                     ? surveyUrl
+                    : null,
+                actionUrl: activityType == backend.VeevaActivityType.external ||
+                        activityType == backend.VeevaActivityType.task
+                    ? actionUrl
                     : null,
               );
             }
@@ -1266,6 +1298,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
               final title = titleController.text.trim();
               final description = descriptionController.text.trim();
               final surveyUrl = _optionalText(surveyUrlController.text);
+              final actionUrl = _optionalText(actionUrlController.text);
               if (!draft && (title.isEmpty || description.isEmpty)) {
                 setDialogState(() => formError = '請至少填寫活動名稱與活動說明。');
                 return false;
@@ -1293,6 +1326,13 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                   activityType == backend.VeevaActivityType.survey &&
                   !_isHttpUrl(surveyUrl)) {
                 setDialogState(() => formError = '問卷活動請填入正確的活動網址。');
+                return false;
+              }
+              if (!draft &&
+                  (activityType == backend.VeevaActivityType.external ||
+                      activityType == backend.VeevaActivityType.task) &&
+                  !_isHttpUrl(actionUrl)) {
+                setDialogState(() => formError = '外部連結或任務活動請填入正確的操作連結。');
                 return false;
               }
               setDialogState(() => formError = null);
@@ -1359,6 +1399,21 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                               icon: Icons.date_range_outlined,
                               label: '期間',
                               value: preview.periodText ?? '未設定',
+                            ),
+                            _ActivityDetailLine(
+                              icon: Icons.schedule_outlined,
+                              label: '時間',
+                              value: preview.activityTime ?? '依活動公告為準',
+                            ),
+                            _ActivityDetailLine(
+                              icon: Icons.place_outlined,
+                              label: '地點',
+                              value: preview.location ?? '依活動類型預設',
+                            ),
+                            _ActivityDetailLine(
+                              icon: Icons.apartment_outlined,
+                              label: '主辦單位',
+                              value: preview.organizer ?? 'VeeVa Member',
                             ),
                           ],
                         ),
@@ -1572,6 +1627,71 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                                       ),
                                     ],
                                   );
+                                  final linkField = activityType ==
+                                          backend.VeevaActivityType.survey
+                                      ? Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            const _ActivityFieldLabel(
+                                              text: '問卷網址',
+                                              required: true,
+                                            ),
+                                            TextField(
+                                              controller: surveyUrlController,
+                                              keyboardType: TextInputType.url,
+                                              decoration:
+                                                  _activityInputDecoration(
+                                                hintText: 'https://',
+                                                icon: Icons.link_outlined,
+                                                helperText: '會員點擊填寫問卷後會開啟此網址。',
+                                              ),
+                                            ),
+                                          ],
+                                        )
+                                      : Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            _ActivityFieldLabel(
+                                              text: activityType ==
+                                                          backend
+                                                              .VeevaActivityType
+                                                              .external ||
+                                                      activityType ==
+                                                          backend
+                                                              .VeevaActivityType
+                                                              .task
+                                                  ? '操作連結'
+                                                  : '外部連結',
+                                              required: activityType ==
+                                                      backend.VeevaActivityType
+                                                          .external ||
+                                                  activityType ==
+                                                      backend.VeevaActivityType
+                                                          .task,
+                                            ),
+                                            TextField(
+                                              controller: actionUrlController,
+                                              keyboardType: TextInputType.url,
+                                              decoration:
+                                                  _activityInputDecoration(
+                                                hintText: 'https://',
+                                                icon: Icons.link_outlined,
+                                                helperText: activityType ==
+                                                            backend
+                                                                .VeevaActivityType
+                                                                .external ||
+                                                        activityType ==
+                                                            backend
+                                                                .VeevaActivityType
+                                                                .task
+                                                    ? '會員點擊主按鈕後會開啟此連結。'
+                                                    : '選填，目前此活動類型不會自動開啟外部連結。',
+                                              ),
+                                            ),
+                                          ],
+                                        );
                                   return Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.stretch,
@@ -1605,17 +1725,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                                         ),
                                       ),
                                       const SizedBox(height: 10),
-                                      const _ActivityFieldLabel(text: '活動網址'),
-                                      TextField(
-                                        controller: surveyUrlController,
-                                        keyboardType: TextInputType.url,
-                                        decoration: _activityInputDecoration(
-                                          hintText: 'https://',
-                                          icon: Icons.link_outlined,
-                                          helperText:
-                                              '可輸入活動詳情頁面或外部連結；問卷活動請填問卷網址。',
-                                        ),
-                                      ),
+                                      linkField,
                                       const SizedBox(height: 16),
                                       const _ActivityFieldLabel(text: '活動說明'),
                                       TextField(
@@ -1672,6 +1782,49 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                                       ),
                                     ],
                                   );
+                                  final timeField = Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const _ActivityFieldLabel(text: '活動時間'),
+                                      TextField(
+                                        controller: activityTimeController,
+                                        decoration: _activityInputDecoration(
+                                          hintText: '例如：09:00 - 17:00',
+                                          icon: Icons.schedule_outlined,
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                  final locationField = Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const _ActivityFieldLabel(text: '活動地點'),
+                                      TextField(
+                                        controller: locationController,
+                                        decoration: _activityInputDecoration(
+                                          hintText: '例如：台北國際會議中心 201 會議室',
+                                          icon: Icons.place_outlined,
+                                          helperText: '前台活動列表與活動資訊頁都會顯示此地點。',
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                  final organizerField = Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const _ActivityFieldLabel(text: '主辦單位'),
+                                      TextField(
+                                        controller: organizerController,
+                                        decoration: _activityInputDecoration(
+                                          hintText: '例如：台灣醫學會',
+                                          icon: Icons.apartment_outlined,
+                                        ),
+                                      ),
+                                    ],
+                                  );
                                   return Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.stretch,
@@ -1691,6 +1844,24 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                                         const SizedBox(height: 16),
                                         periodField,
                                       ],
+                                      const SizedBox(height: 16),
+                                      if (twoColumns)
+                                        Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Expanded(child: timeField),
+                                            const SizedBox(width: 26),
+                                            Expanded(child: locationField),
+                                          ],
+                                        )
+                                      else ...[
+                                        timeField,
+                                        const SizedBox(height: 16),
+                                        locationField,
+                                      ],
+                                      const SizedBox(height: 16),
+                                      organizerField,
                                       const SizedBox(height: 18),
                                       const _ActivityFieldLabel(
                                         text: '獎勵設定',
@@ -1888,9 +2059,13 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
     descriptionController.dispose();
     rewardController.dispose();
     periodController.dispose();
+    locationController.dispose();
+    activityTimeController.dispose();
+    organizerController.dispose();
     noteController.dispose();
     imageController.dispose();
     surveyUrlController.dispose();
+    actionUrlController.dispose();
   }
 
   Future<void> _saveNews(
@@ -1966,9 +2141,6 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
         TextEditingController(text: newsItem?.imageUrl ?? '');
     final externalUrlController =
         TextEditingController(text: newsItem?.externalUrl ?? '');
-    final helpfulCountController = TextEditingController(
-      text: '${newsItem?.helpfulCount ?? 12}',
-    );
     final initialStatus =
         newsItem?.status ?? backend.VeevaContentStatus.published;
 
@@ -1987,7 +2159,6 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
           dateController: dateController,
           imageController: imageController,
           externalUrlController: externalUrlController,
-          helpfulCountController: helpfulCountController,
           initialStatus: initialStatus,
           coverImageStorageFolder: 'public/news/$newsId/cover',
           articleImageStorageFolder: 'public/news/$newsId/content',
@@ -2009,7 +2180,6 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
     dateController.dispose();
     imageController.dispose();
     externalUrlController.dispose();
-    helpfulCountController.dispose();
   }
 
   Future<void> _saveReward(
@@ -4577,7 +4747,7 @@ class _ImageUploadFieldState extends State<_ImageUploadField> {
   }
 }
 
-class _AdminSidebar extends StatelessWidget {
+class _AdminSidebar extends StatefulWidget {
   const _AdminSidebar({
     required this.selected,
     required this.onSelected,
@@ -4587,9 +4757,38 @@ class _AdminSidebar extends StatelessWidget {
   final ValueChanged<AdminTab> onSelected;
 
   @override
+  State<_AdminSidebar> createState() => _AdminSidebarState();
+}
+
+class _AdminSidebarState extends State<_AdminSidebar> {
+  late bool _activityExpanded = _isActivityGroup(widget.selected);
+
+  @override
+  void didUpdateWidget(covariant _AdminSidebar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_isActivityGroup(oldWidget.selected) &&
+        _isActivityGroup(widget.selected)) {
+      _activityExpanded = true;
+    }
+  }
+
+  static bool _isActivityGroup(AdminTab tab) {
+    return tab == AdminTab.activities || tab == AdminTab.rewardDistribution;
+  }
+
+  void _toggleActivityGroup() {
+    final isSelectedGroup = _isActivityGroup(widget.selected);
+    setState(() {
+      _activityExpanded = !_activityExpanded;
+    });
+    if (!isSelectedGroup && _activityExpanded) {
+      widget.onSelected(AdminTab.activities);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final activityGroupSelected = selected == AdminTab.activities ||
-        selected == AdminTab.rewardDistribution;
+    final activityGroupSelected = _isActivityGroup(widget.selected);
     return Container(
       width: 232,
       color: const Color(0xFF16241F),
@@ -4612,54 +4811,71 @@ class _AdminSidebar extends StatelessWidget {
           _SidebarItem(
             icon: Icons.dashboard_outlined,
             label: '儀表板',
-            selected: selected == AdminTab.dashboard,
-            onTap: () => onSelected(AdminTab.dashboard),
+            selected: widget.selected == AdminTab.dashboard,
+            onTap: () => widget.onSelected(AdminTab.dashboard),
           ),
           _SidebarItem(
             icon: Icons.verified_user_outlined,
             label: '權限管理',
-            selected: selected == AdminTab.permissions,
-            onTap: () => onSelected(AdminTab.permissions),
+            selected: widget.selected == AdminTab.permissions,
+            onTap: () => widget.onSelected(AdminTab.permissions),
           ),
           _SidebarItem(
             icon: Icons.groups_outlined,
             label: '會員管理',
-            selected: selected == AdminTab.members,
-            onTap: () => onSelected(AdminTab.members),
+            selected: widget.selected == AdminTab.members,
+            onTap: () => widget.onSelected(AdminTab.members),
           ),
           _SidebarGroupHeader(
             icon: Icons.campaign_outlined,
             label: '活動管理',
             selected: activityGroupSelected,
-            onTap: () => onSelected(AdminTab.activities),
+            expanded: _activityExpanded,
+            onTap: _toggleActivityGroup,
           ),
-          _SidebarSubItem(
-            label: '活動',
-            selected: selected == AdminTab.activities,
-            onTap: () => onSelected(AdminTab.activities),
-          ),
-          _SidebarSubItem(
-            label: '獎勵發放',
-            selected: selected == AdminTab.rewardDistribution,
-            onTap: () => onSelected(AdminTab.rewardDistribution),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 180),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            child: _activityExpanded
+                ? Column(
+                    key: const ValueKey('activity-subnav-open'),
+                    children: [
+                      _SidebarSubItem(
+                        label: '活動',
+                        selected: widget.selected == AdminTab.activities,
+                        onTap: () => widget.onSelected(AdminTab.activities),
+                      ),
+                      _SidebarSubItem(
+                        label: '獎勵發放',
+                        selected:
+                            widget.selected == AdminTab.rewardDistribution,
+                        onTap: () =>
+                            widget.onSelected(AdminTab.rewardDistribution),
+                      ),
+                    ],
+                  )
+                : const SizedBox.shrink(
+                    key: ValueKey('activity-subnav-closed'),
+                  ),
           ),
           _SidebarItem(
             icon: Icons.newspaper_outlined,
             label: '最新資訊',
-            selected: selected == AdminTab.news,
-            onTap: () => onSelected(AdminTab.news),
+            selected: widget.selected == AdminTab.news,
+            onTap: () => widget.onSelected(AdminTab.news),
           ),
           _SidebarItem(
             icon: Icons.confirmation_number_outlined,
             label: '兌換券管理',
-            selected: selected == AdminTab.rewards,
-            onTap: () => onSelected(AdminTab.rewards),
+            selected: widget.selected == AdminTab.rewards,
+            onTap: () => widget.onSelected(AdminTab.rewards),
           ),
           _SidebarItem(
             icon: Icons.settings_outlined,
             label: '設定',
-            selected: selected == AdminTab.settings,
-            onTap: () => onSelected(AdminTab.settings),
+            selected: widget.selected == AdminTab.settings,
+            onTap: () => widget.onSelected(AdminTab.settings),
           ),
           const Spacer(),
           const Text(
@@ -4677,12 +4893,14 @@ class _SidebarGroupHeader extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.selected,
+    required this.expanded,
     required this.onTap,
   });
 
   final IconData icon;
   final String label;
   final bool selected;
+  final bool expanded;
   final VoidCallback onTap;
 
   @override
@@ -4710,10 +4928,15 @@ class _SidebarGroupHeader extends StatelessWidget {
                     ),
                   ),
                 ),
-                const Icon(
-                  Icons.expand_more,
-                  color: Color(0xFF93A09A),
-                  size: 18,
+                AnimatedRotation(
+                  turns: expanded ? 0.5 : 0,
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOutCubic,
+                  child: const Icon(
+                    Icons.expand_more,
+                    color: Color(0xFF93A09A),
+                    size: 18,
+                  ),
                 ),
               ],
             ),
@@ -8503,7 +8726,11 @@ class _ActivityManagementState extends State<_ActivityManagement> {
           activity.reward,
           _activityTypeLabel(activity.type),
           activity.surveyUrl,
+          activity.actionUrl,
           activity.periodText,
+          activity.activityTime,
+          activity.location,
+          activity.organizer,
           activity.note,
           _activityStatusLabel(activity),
         ].whereType<String>().any((value) {
@@ -8576,10 +8803,31 @@ class _ActivityManagementState extends State<_ActivityManagement> {
                       label: '問卷網址',
                       value: activity.surveyUrl ?? defaultVeevaSurveyUrl,
                     ),
+                  if (activity.actionUrl?.isNotEmpty == true)
+                    _ActivityDetailLine(
+                      icon: Icons.open_in_new_outlined,
+                      label: '操作連結',
+                      value: activity.actionUrl!,
+                    ),
                   _ActivityDetailLine(
                     icon: Icons.date_range_outlined,
                     label: '期間',
                     value: activity.periodText ?? '未設定',
+                  ),
+                  _ActivityDetailLine(
+                    icon: Icons.schedule_outlined,
+                    label: '時間',
+                    value: activity.activityTime ?? '依活動公告為準',
+                  ),
+                  _ActivityDetailLine(
+                    icon: Icons.place_outlined,
+                    label: '地點',
+                    value: activity.location ?? '依活動類型預設',
+                  ),
+                  _ActivityDetailLine(
+                    icon: Icons.apartment_outlined,
+                    label: '主辦單位',
+                    value: activity.organizer ?? 'VeeVa Member',
                   ),
                   if (activity.note?.isNotEmpty == true)
                     _ActivityDetailLine(
@@ -9927,6 +10175,10 @@ String _activityTypeLabel(backend.VeevaActivityType type) {
   return switch (type) {
     backend.VeevaActivityType.survey => '問卷',
     backend.VeevaActivityType.registration => '活動報名',
+    backend.VeevaActivityType.referral => '邀請好友',
+    backend.VeevaActivityType.task => '任務活動',
+    backend.VeevaActivityType.checkin => '簽到活動',
+    backend.VeevaActivityType.external => '外部連結',
   };
 }
 
@@ -9934,6 +10186,10 @@ IconData _activityTypeIcon(backend.VeevaActivityType type) {
   return switch (type) {
     backend.VeevaActivityType.survey => Icons.fact_check_outlined,
     backend.VeevaActivityType.registration => Icons.event_available_outlined,
+    backend.VeevaActivityType.referral => Icons.group_add_outlined,
+    backend.VeevaActivityType.task => Icons.task_alt_outlined,
+    backend.VeevaActivityType.checkin => Icons.qr_code_scanner_outlined,
+    backend.VeevaActivityType.external => Icons.open_in_new_outlined,
   };
 }
 
@@ -10098,7 +10354,6 @@ class _NewsEditorDialog extends StatefulWidget {
     required this.dateController,
     required this.imageController,
     required this.externalUrlController,
-    required this.helpfulCountController,
     required this.initialStatus,
     required this.coverImageStorageFolder,
     required this.articleImageStorageFolder,
@@ -10116,7 +10371,6 @@ class _NewsEditorDialog extends StatefulWidget {
   final TextEditingController dateController;
   final TextEditingController imageController;
   final TextEditingController externalUrlController;
-  final TextEditingController helpfulCountController;
   final backend.VeevaContentStatus initialStatus;
   final String coverImageStorageFolder;
   final String articleImageStorageFolder;
@@ -10464,16 +10718,6 @@ class _NewsEditorDialogState extends State<_NewsEditorDialog> {
               ),
             ),
             const SizedBox(height: 12),
-            TextField(
-              controller: widget.helpfulCountController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: '有幫助人數',
-                helperText: '前台文章底部會顯示。',
-                prefixIcon: Icon(Icons.thumb_up_alt_outlined),
-              ),
-            ),
-            const SizedBox(height: 12),
             DropdownButtonFormField<backend.VeevaContentStatus>(
               value: _status,
               decoration: const InputDecoration(
@@ -10579,9 +10823,6 @@ class _NewsEditorDialogState extends State<_NewsEditorDialog> {
     final date = widget.dateController.text.trim();
     final imageUrl = _optionalText(widget.imageController.text);
     final externalUrl = _optionalText(widget.externalUrlController.text);
-    final helpfulCountText = widget.helpfulCountController.text.trim();
-    final helpfulCount =
-        helpfulCountText.isEmpty ? 12 : int.tryParse(helpfulCountText);
 
     if (title.isEmpty) {
       setState(() => _formError = '請填寫文章標題。');
@@ -10593,10 +10834,6 @@ class _NewsEditorDialogState extends State<_NewsEditorDialog> {
     }
     if (date.isEmpty) {
       setState(() => _formError = '請填寫發布日期。');
-      return;
-    }
-    if (helpfulCount == null || helpfulCount < 0) {
-      setState(() => _formError = '有幫助人數需要是 0 以上的數字。');
       return;
     }
     if (imageUrl != null && !_isHttpUrl(imageUrl)) {
@@ -10621,7 +10858,7 @@ class _NewsEditorDialogState extends State<_NewsEditorDialog> {
       detailContent: content,
       keyPoints: const [],
       externalUrl: externalUrl,
-      helpfulCount: helpfulCount,
+      helpfulCount: widget.newsItem?.helpfulCount ?? 0,
     );
     Navigator.of(context).pop(news);
   }

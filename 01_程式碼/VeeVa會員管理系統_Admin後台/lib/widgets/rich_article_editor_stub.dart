@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 class ArticleRichEditorController {
@@ -152,9 +154,18 @@ class _RichArticleEditorState extends State<RichArticleEditor> {
       quote: () => _insertBlock('> 引用內容\n'),
       fontSize: (size) => _wrapSelection('{{fs:$size}}', '{{/fs}}', '調整大小文字'),
       link: () => _wrapSelection('[', '](https://example.com)', '連結文字'),
-      image: () => _insertBlock('![圖片說明](https://image-url)\n'),
+      image: () => unawaited(_insertImage()),
       divider: () => _insertBlock('---\n'),
     );
+  }
+
+  Future<void> _insertImage() async {
+    final uploadImage = widget.onUploadImage;
+    final url = uploadImage == null ? 'https://image-url' : await uploadImage();
+    if (url == null || url.trim().isEmpty) {
+      return;
+    }
+    _insertBlock('![圖片說明](${url.trim()})\n');
   }
 
   void _insertBlock(String block) {

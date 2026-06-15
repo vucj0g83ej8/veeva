@@ -121,11 +121,32 @@ class _RichArticleEditorState extends State<RichArticleEditor> {
         _normalizeActiveInlineMarkers();
         _saveSelection();
         _syncDomToController();
+        _scheduleScrollSelectionIntoView();
       }))
-      ..add(_editorElement.onKeyUp.listen((_) => _saveSelection()))
+      ..add(_editorElement.onKeyUp.listen((_) {
+        _saveSelection();
+        _scheduleScrollSelectionIntoView();
+      }))
       ..add(_editorElement.onMouseUp.listen((_) => _saveSelection()))
       ..add(_editorElement.onFocus.listen((_) => _saveSelection()))
       ..add(_editorElement.onBlur.listen((_) => _syncDomToController()))
+      ..add(_editorElement.onWheel.listen((event) {
+        final deltaY = _numberProperty(event, 'deltaY');
+        if (deltaY == 0) {
+          return;
+        }
+        final deltaMode = _numberProperty(event, 'deltaMode');
+        final multiplier = deltaMode == 1
+            ? 18
+            : deltaMode == 2
+                ? _editorElement.clientHeight
+                : 1;
+        _editorElement.scrollTop =
+            (_editorElement.scrollTop + deltaY * multiplier).round();
+        event
+          ..preventDefault()
+          ..stopPropagation();
+      }))
       ..add(html.document.onSelectionChange.listen((_) => _saveSelection()));
     widget.controller.addListener(_syncControllerToDom);
     _attachToolbar();
@@ -202,6 +223,8 @@ class _RichArticleEditorState extends State<RichArticleEditor> {
       ..style.width = '100%'
       ..style.height = '100%'
       ..style.boxSizing = 'border-box'
+      ..style.maxHeight = '100%'
+      ..style.overflowX = 'hidden'
       ..style.overflowY = 'auto';
   }
 
@@ -259,6 +282,7 @@ class _RichArticleEditorState extends State<RichArticleEditor> {
     }
     _saveSelection();
     _syncDomToController();
+    _scheduleScrollSelectionIntoView();
   }
 
   void _toggleInlineTag(String tagName, Set<String> toggledTags) {
@@ -492,6 +516,7 @@ class _RichArticleEditorState extends State<RichArticleEditor> {
   }
 
   Future<void> _insertImage() async {
+    _saveSelection();
     final uploadImage = widget.onUploadImage;
     final url = uploadImage == null
         ? js_util
@@ -506,10 +531,59 @@ class _RichArticleEditorState extends State<RichArticleEditor> {
     if (url == null || url.isEmpty) {
       return;
     }
-    final safeUrl = _escapeAttribute(url);
-    _insertHtml(
-      '<p><img src="$safeUrl" alt="圖片說明"></p>',
+    _insertImageBlock(url);
+  }
+
+  void _insertImageBlock(String url) {
+    _restoreSelection();
+    final range = _currentRangeOrEditorEnd();
+    final anchor = _topLevelEditorChild(range.startContainer);
+    if (!range.collapsed) {
+      range.deleteContents();
+    }
+
+    final imageBlock = html.ParagraphElement()
+      ..classes.add('veeva-rich-editor-image-block');
+    imageBlock.append(
+      html.ImageElement(src: url.trim())..alt = '圖片說明',
     );
+    final caretBlock = html.ParagraphElement()..append(html.BRElement());
+
+    final anchorParent = anchor?.parentNode;
+    if (anchor != null && anchorParent == _editorElement) {
+      final nextNode = anchor.nextNode;
+      _editorElement.insertBefore(imageBlock, nextNode);
+      _editorElement.insertBefore(caretBlock, nextNode);
+    } else if (_editorElement.nodes.isEmpty ||
+        range.startContainer == _editorElement) {
+      html.Node? referenceNode;
+      if (range.startContainer == _editorElement) {
+        final nodes = _editorElement.nodes;
+        final offset = range.startOffset.clamp(0, nodes.length).toInt();
+        referenceNode = offset < nodes.length ? nodes[offset] : null;
+      }
+      _editorElement.insertBefore(imageBlock, referenceNode);
+      _editorElement.insertBefore(caretBlock, referenceNode);
+    } else {
+      _editorElement
+        ..append(imageBlock)
+        ..append(caretBlock);
+    }
+
+    final selection = html.window.getSelection();
+    if (selection != null) {
+      final nextRange = html.document.createRange()
+        ..selectNodeContents(caretBlock)
+        ..collapse(false);
+      selection
+        ..removeAllRanges()
+        ..addRange(nextRange);
+    }
+    _savedRange = html.document.createRange()
+      ..selectNodeContents(caretBlock)
+      ..collapse(false);
+    _syncDomToController();
+    _scheduleScrollSelectionIntoView();
   }
 
   void _syncControllerToDom() {
@@ -656,6 +730,48 @@ class _RichArticleEditorState extends State<RichArticleEditor> {
     selection.addRange(_savedRange!);
   }
 
+  void _scheduleScrollSelectionIntoView() {
+    html.window.requestAnimationFrame((_) => _scrollSelectionIntoView());
+  }
+
+  void _scrollSelectionIntoView() {
+    final selection = html.window.getSelection();
+    if (selection == null || (selection.rangeCount ?? 0) == 0) {
+      return;
+    }
+    final range = selection.getRangeAt(0);
+    if (!_isNodeInsideEditor(range.startContainer)) {
+      return;
+    }
+    final rangeRect =
+        js_util.callMethod<Object?>(range, 'getBoundingClientRect', const []);
+    if (rangeRect == null) {
+      return;
+    }
+    var top = _numberProperty(rangeRect, 'top');
+    var bottom = _numberProperty(rangeRect, 'bottom');
+    if (top == 0 && bottom == 0) {
+      final container = range.startContainer;
+      if (container is html.Element) {
+        final rect = container.getBoundingClientRect();
+        top = rect.top.toDouble();
+        bottom = rect.bottom.toDouble();
+      } else {
+        return;
+      }
+    }
+    final editorRect = _editorElement.getBoundingClientRect();
+    const padding = 32.0;
+    if (bottom > editorRect.bottom - padding) {
+      _editorElement.scrollTop =
+          (_editorElement.scrollTop + bottom - editorRect.bottom + padding)
+              .ceil();
+    } else if (top < editorRect.top + padding) {
+      _editorElement.scrollTop =
+          (_editorElement.scrollTop - (editorRect.top + padding - top)).floor();
+    }
+  }
+
   bool _isNodeInsideEditor(html.Node? node) {
     var current = node;
     while (current != null) {
@@ -665,6 +781,17 @@ class _RichArticleEditorState extends State<RichArticleEditor> {
       current = current.parentNode;
     }
     return false;
+  }
+
+  html.Node? _topLevelEditorChild(html.Node? node) {
+    var current = node;
+    while (current != null && current != _editorElement) {
+      if (current.parentNode == _editorElement) {
+        return current;
+      }
+      current = current.parentNode;
+    }
+    return null;
   }
 
   html.Element? _closestElement(html.Node? node, String tagName) {
@@ -710,6 +837,11 @@ class _RichArticleEditorState extends State<RichArticleEditor> {
   }
 }
 
+double _numberProperty(Object object, String name) {
+  final value = js_util.getProperty<Object?>(object, name);
+  return value is num ? value.toDouble() : 0;
+}
+
 void _ensureEditorStyles() {
   if (html.document.getElementById('veeva-rich-editor-style') != null) {
     return;
@@ -725,9 +857,16 @@ void _ensureEditorStyles() {
   font-size: 16px;
   font-weight: 500;
   line-height: 1.65;
+  height: 100%;
+  max-height: 100%;
   min-height: 100%;
   outline: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 14px 16px;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
 }
 .veeva-rich-editor:empty::before {
   color: #94a39d;

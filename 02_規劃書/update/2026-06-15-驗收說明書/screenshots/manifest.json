@@ -1,0 +1,98 @@
+[
+  {
+    "name": "front-01-activities",
+    "file": "/Users/ouyangtaisen/Documents/接案/專案/jay/VeeVa 會員管理系統/LINE_LIFF_會員系統_版本/02_規劃書/update/2026-06-15-驗收說明書/screenshots/front-01-activities.png",
+    "title": "VeeVa 會員",
+    "url": "https://vevva.web.app/activities?skipAutoLogin=1&t=manual-shot-1"
+  },
+  {
+    "name": "front-02-activity-detail",
+    "file": "/Users/ouyangtaisen/Documents/接案/專案/jay/VeeVa 會員管理系統/LINE_LIFF_會員系統_版本/02_規劃書/update/2026-06-15-驗收說明書/screenshots/front-02-activity-detail.png",
+    "title": "VeeVa 會員",
+    "url": "https://vevva.web.app/activities/seminar-reminder?skipAutoLogin=1&t=manual-shot-1"
+  },
+  {
+    "name": "front-03-survey-activity",
+    "file": "/Users/ouyangtaisen/Documents/接案/專案/jay/VeeVa 會員管理系統/LINE_LIFF_會員系統_版本/02_規劃書/update/2026-06-15-驗收說明書/screenshots/front-03-survey-activity.png",
+    "title": "VeeVa 會員",
+    "url": "https://vevva.web.app/activities/test-product-safety-survey?skipAutoLogin=1&t=manual-shot-1"
+  },
+  {
+    "name": "front-04-survey-page",
+    "file": "/Users/ouyangtaisen/Documents/接案/專案/jay/VeeVa 會員管理系統/LINE_LIFF_會員系統_版本/02_規劃書/update/2026-06-15-驗收說明書/screenshots/front-04-survey-page.png",
+    "title": "VeeVa 會員",
+    "url": "https://vevva.web.app/activities/test-product-safety-survey/survey?skipAutoLogin=1&t=manual-shot-1"
+  },
+  {
+    "name": "front-05-news",
+    "file": "/Users/ouyangtaisen/Documents/接案/專案/jay/VeeVa 會員管理系統/LINE_LIFF_會員系統_版本/02_規劃書/update/2026-06-15-驗收說明書/screenshots/front-05-news.png",
+    "title": "VeeVa 會員",
+    "url": "https://vevva.web.app/news?skipAutoLogin=1&t=manual-shot-1"
+  },
+  {
+    "name": "front-06-news-detail",
+    "file": "/Users/ouyangtaisen/Documents/接案/專案/jay/VeeVa 會員管理系統/LINE_LIFF_會員系統_版本/02_規劃書/update/2026-06-15-驗收說明書/screenshots/front-06-news-detail.png",
+    "title": "VeeVa 會員",
+    "url": "https://vevva.web.app/news/who-product-alert?skipAutoLogin=1&t=manual-shot-1"
+  },
+  {
+    "name": "front-07-coupons",
+    "file": "/Users/ouyangtaisen/Documents/接案/專案/jay/VeeVa 會員管理系統/LINE_LIFF_會員系統_版本/02_規劃書/update/2026-06-15-驗收說明書/screenshots/front-07-coupons.png",
+    "title": "VeeVa 會員",
+    "url": "https://vevva.web.app/coupons?skipAutoLogin=1&t=manual-shot-1"
+  },
+  {
+    "name": "front-08-member",
+    "file": "/Users/ouyangtaisen/Documents/接案/專案/jay/VeeVa 會員管理系統/LINE_LIFF_會員系統_版本/02_規劃書/update/2026-06-15-驗收說明書/screenshots/front-08-member.png",
+    "title": "VeeVa 會員",
+    "url": "https://vevva.web.app/member?skipAutoLogin=1&t=manual-shot-1"
+  },
+  {
+    "name": "admin-01-dashboard",
+    "file": "/Users/ouyangtaisen/Documents/接案/專案/jay/VeeVa 會員管理系統/LINE_LIFF_會員系統_版本/02_規劃書/update/2026-06-15-驗收說明書/screenshots/admin-01-dashboard.png",
+    "title": "VeeVa Admin",
+    "url": "https://veeva-admin.web.app/?t=manual-shot-1"
+  },
+  {
+    "name": "admin-02-permissions",
+    "file": "/Users/ouyangtaisen/Documents/接案/專案/jay/VeeVa 會員管理系統/LINE_LIFF_會員系統_版本/02_規劃書/update/2026-06-15-驗收說明書/screenshots/admin-02-permissions.png",
+    "title": "VeeVa Admin",
+    "url": "https://veeva-admin.web.app/?adminTab=permissions&t=manual-shot-1"
+  },
+  {
+    "name": "admin-03-members",
+    "file": "/Users/ouyangtaisen/Documents/接案/專案/jay/VeeVa 會員管理系統/LINE_LIFF_會員系統_版本/02_規劃書/update/2026-06-15-驗收說明書/screenshots/admin-03-members.png",
+    "title": "VeeVa Admin",
+    "url": "https://veeva-admin.web.app/?adminTab=members&t=manual-shot-1"
+  },
+  {
+    "name": "admin-04-activities",
+    "file": "/Users/ouyangtaisen/Documents/接案/專案/jay/VeeVa 會員管理系統/LINE_LIFF_會員系統_版本/02_規劃書/update/2026-06-15-驗收說明書/screenshots/admin-04-activities.png",
+    "title": "VeeVa Admin",
+    "url": "https://veeva-admin.web.app/?adminTab=activities&t=manual-shot-1"
+  },
+  {
+    "name": "admin-05-reward-distribution",
+    "file": "/Users/ouyangtaisen/Documents/接案/專案/jay/VeeVa 會員管理系統/LINE_LIFF_會員系統_版本/02_規劃書/update/2026-06-15-驗收說明書/screenshots/admin-05-reward-distribution.png",
+    "title": "VeeVa Admin",
+    "url": "https://veeva-admin.web.app/?adminTab=reward-distribution&t=manual-shot-1"
+  },
+  {
+    "name": "admin-06-news",
+    "file": "/Users/ouyangtaisen/Documents/接案/專案/jay/VeeVa 會員管理系統/LINE_LIFF_會員系統_版本/02_規劃書/update/2026-06-15-驗收說明書/screenshots/admin-06-news.png",
+    "title": "VeeVa Admin",
+    "url": "https://veeva-admin.web.app/?adminTab=news&t=manual-shot-1"
+  },
+  {
+    "name": "admin-07-rewards",
+    "file": "/Users/ouyangtaisen/Documents/接案/專案/jay/VeeVa 會員管理系統/LINE_LIFF_會員系統_版本/02_規劃書/update/2026-06-15-驗收說明書/screenshots/admin-07-rewards.png",
+    "title": "VeeVa Admin",
+    "url": "https://veeva-admin.web.app/?adminTab=rewards&t=manual-shot-1"
+  },
+  {
+    "name": "admin-08-settings",
+    "file": "/Users/ouyangtaisen/Documents/接案/專案/jay/VeeVa 會員管理系統/LINE_LIFF_會員系統_版本/02_規劃書/update/2026-06-15-驗收說明書/screenshots/admin-08-settings.png",
+    "title": "VeeVa Admin",
+    "url": "https://veeva-admin.web.app/?adminTab=settings&t=manual-shot-1"
+  }
+]

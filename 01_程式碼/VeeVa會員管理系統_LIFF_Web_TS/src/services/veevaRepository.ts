@@ -153,6 +153,66 @@ export async function updateMemberProfile(input: {
   return updatedMember;
 }
 
+export async function hasMemberMarkedNewsHelpful(input: {
+  newsId: string;
+  memberId: string;
+}) {
+  const voteId = firestoreDocumentId([input.newsId, input.memberId]);
+  const voteSnap = await getDoc(doc(firestore, "newsHelpfulVotes", voteId));
+  return voteSnap.exists();
+}
+
+export async function markNewsHelpful(input: {
+  news: VeevaNews;
+  member: VeevaMember;
+}) {
+  const voteId = firestoreDocumentId([input.news.id, input.member.id]);
+  const voteRef = doc(firestore, "newsHelpfulVotes", voteId);
+  const newsRef = doc(firestore, "news", input.news.id);
+  let helpfulCount = input.news.helpfulCount ?? 0;
+  let liked = false;
+
+  await runTransaction(firestore, async (transaction) => {
+    const [voteSnap, newsSnap] = await Promise.all([
+      transaction.get(voteRef),
+      transaction.get(newsRef),
+    ]);
+    const currentCount = numberValue(
+      newsSnap.data()?.helpfulCount,
+      input.news.helpfulCount ?? 0,
+    );
+
+    if (voteSnap.exists()) {
+      helpfulCount = currentCount;
+      liked = true;
+      return;
+    }
+
+    transaction.set(voteRef, {
+      newsId: input.news.id,
+      newsTitle: input.news.title,
+      memberId: input.member.id,
+      memberName: input.member.name,
+      memberAvatarUrl: input.member.avatarUrl ?? null,
+      memberLineUserId: input.member.lineUserId ?? input.member.id,
+      createdAt: serverTimestamp(),
+    });
+    transaction.set(
+      newsRef,
+      {
+        helpfulCount: increment(1),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    );
+
+    helpfulCount = currentCount + 1;
+    liked = true;
+  });
+
+  return { helpfulCount, liked };
+}
+
 export async function loadMemberRewards(memberId: string) {
   const rewardsSnap = await getDocs(
     query(
@@ -690,6 +750,8 @@ function activityFromData(
     surveyUrl: optionalString(data.surveyUrl),
     actionUrl: optionalString(data.actionUrl),
     location: optionalString(data.location),
+    activityTime: optionalString(data.activityTime),
+    organizer: optionalString(data.organizer),
   };
 }
 
@@ -707,7 +769,7 @@ function newsFromData(id: string, data: Record<string, unknown>): VeevaNews {
     detailContent: optionalString(data.detailContent),
     keyPoints: stringListValue(data.keyPoints),
     externalUrl: optionalString(data.externalUrl),
-    helpfulCount: numberValue(data.helpfulCount, 12),
+    helpfulCount: numberValue(data.helpfulCount, 0),
   };
 }
 
@@ -841,7 +903,7 @@ function firestoreDocumentId(parts: string[]) {
 }
 
 function firestoreDocumentSegment(value: string) {
-  const segment = value.trim().replace(/[\/#?\[\]]/g, "_");
+  const segment = value.trim().replace(/[/#?[\]]/g, "_");
   return segment || "unknown";
 }
 

@@ -70,6 +70,8 @@ export interface VeevaActivity {
   surveyUrl?: string;
   actionUrl?: string;
   location?: string;
+  activityTime?: string;
+  organizer?: string;
 }
 
 export interface VeevaActivityRegistration {
