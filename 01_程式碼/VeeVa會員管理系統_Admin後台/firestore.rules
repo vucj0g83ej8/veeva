@@ -52,6 +52,11 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /memberNotifications/{notificationId} {
+      allow read, create, update: if true;
+      allow delete: if false;
+    }
+
     match /activityRegistrations/{registrationId} {
       allow read, create, update: if true;
       allow delete: if false;

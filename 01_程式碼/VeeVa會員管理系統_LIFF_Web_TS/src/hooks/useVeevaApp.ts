@@ -4,6 +4,7 @@ import type {
   LiffSession,
   VeevaActivityRegistration,
   VeevaMember,
+  VeevaMemberNotification,
   VeevaMemberReward,
   VeevaReferralRecord,
 } from '../types/veeva'
@@ -19,6 +20,7 @@ interface AppState {
   bootstrap: BootstrapData
   memberActivityRecords: VeevaActivityRegistration[]
   memberRewards: VeevaMemberReward[]
+  notifications: VeevaMemberNotification[]
   referrals: VeevaReferralRecord[]
   referralCode?: string
 }
@@ -38,6 +40,7 @@ export function useVeevaApp() {
     bootstrap: emptyBootstrap,
     memberActivityRecords: [],
     memberRewards: [],
+    notifications: [],
     referrals: [],
     referralCode: referralCodeFromLocation(),
   })
@@ -45,19 +48,32 @@ export function useVeevaApp() {
   const refreshMemberDetails = useCallback(async (member: VeevaMember) => {
     const {
       loadMemberActivityRecords,
+      loadMemberNotifications,
       loadMemberRewards,
       loadReferralRecords,
     } = await import('../services/veevaRepository')
-    const [memberActivityRecords, memberRewards, referrals] = await Promise.all([
-      loadMemberActivityRecords(member.id).catch(() => []),
-      loadMemberRewards(member.id).catch(() => []),
-      loadReferralRecords(member.id).catch(() => []),
-    ])
+    const [memberActivityRecords, memberRewards, referrals, notifications] =
+      await Promise.all([
+        loadMemberActivityRecords(member.id).catch(() => []),
+        loadMemberRewards(member.id).catch(() => []),
+        loadReferralRecords(member.id).catch(() => []),
+        loadMemberNotifications(member.id).catch(() => []),
+      ])
     setState((current) => ({
       ...current,
       memberActivityRecords,
       memberRewards,
+      notifications,
       referrals,
+    }))
+  }, [])
+
+  const refreshMemberNotifications = useCallback(async (member: VeevaMember) => {
+    const { loadMemberNotifications } = await import('../services/veevaRepository')
+    const notifications = await loadMemberNotifications(member.id).catch(() => [])
+    setState((current) => ({
+      ...current,
+      notifications,
     }))
   }, [])
 
@@ -114,6 +130,9 @@ export function useVeevaApp() {
         liffSession,
         member,
         memberActivityRecords: member ? current.memberActivityRecords : [],
+        memberRewards: member ? current.memberRewards : [],
+        notifications: member ? current.notifications : [],
+        referrals: member ? current.referrals : [],
         error: liffSession.error,
         referralCode,
       }))
@@ -162,6 +181,9 @@ export function useVeevaApp() {
         liffSession,
         member,
         memberActivityRecords: [],
+        memberRewards: [],
+        notifications: [],
+        referrals: [],
       }))
       await refreshMemberDetails(member)
     } catch (error) {
@@ -182,6 +204,46 @@ export function useVeevaApp() {
     if (!state.member) return
     await refreshMemberDetails(state.member)
   }, [refreshMemberDetails, state.member])
+
+  const refreshNotifications = useCallback(async () => {
+    if (!state.member) return
+    await refreshMemberNotifications(state.member)
+  }, [refreshMemberNotifications, state.member])
+
+  const markNotificationsRead = useCallback(
+    async (notificationIds?: string[]) => {
+      if (!state.member) return
+      const targetIds =
+        notificationIds ??
+        state.notifications.filter((item) => !item.readAt).map((item) => item.id)
+      if (targetIds.length === 0) return
+
+      const readAt = new Date()
+      setState((current) => ({
+        ...current,
+        notifications: current.notifications.map((item) =>
+          targetIds.includes(item.id) ? { ...item, readAt } : item,
+        ),
+      }))
+
+      const { markMemberNotificationsRead } = await import(
+        '../services/veevaRepository'
+      )
+      await markMemberNotificationsRead({
+        memberId: state.member.id,
+        notificationIds: targetIds,
+      })
+    },
+    [state.member, state.notifications],
+  )
+
+  useEffect(() => {
+    if (!state.member) return undefined
+    const timer = window.setInterval(() => {
+      void refreshMemberNotifications(state.member!)
+    }, 60_000)
+    return () => window.clearInterval(timer)
+  }, [refreshMemberNotifications, state.member])
 
   const updateMemberProfile = useCallback(
     async (input: { name: string; email: string }) => {
@@ -247,7 +309,9 @@ export function useVeevaApp() {
       logout,
       refresh: initialize,
       refreshMemberData,
+      refreshNotifications,
       shareInvite,
+      markNotificationsRead,
       updateMemberProfile,
     }),
     [
@@ -255,7 +319,9 @@ export function useVeevaApp() {
       initialize,
       login,
       logout,
+      markNotificationsRead,
       refreshMemberData,
+      refreshNotifications,
       shareInvite,
       state,
       updateMemberProfile,

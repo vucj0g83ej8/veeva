@@ -1,7 +1,8 @@
-import { Bell, CalendarDays, Newspaper, Ticket, UserRound } from 'lucide-react'
+import { CalendarDays, Newspaper, Ticket, UserRound } from 'lucide-react'
 import type { PropsWithChildren } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import type { VeevaAppState } from '../hooks/useVeevaApp'
+import { NotificationCenter } from './NotificationCenter'
 
 const navItems = [
   { to: '/activities', label: '活動', icon: CalendarDays },
@@ -28,9 +29,7 @@ export function AppShell({ app, children }: AppShellProps) {
           <p className="eyebrow">VeeVa Member</p>
           <h1>{title}</h1>
         </div>
-        <button className="icon-button" type="button" aria-label="通知">
-          <Bell size={20} />
-        </button>
+        <NotificationCenter app={app} />
       </header>
 
       <main className={mainClassName}>

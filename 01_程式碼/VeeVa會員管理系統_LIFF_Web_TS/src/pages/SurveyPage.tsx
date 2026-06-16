@@ -21,7 +21,6 @@ export function SurveyPage({ app }: PageProps) {
     (item) => item.id === decodedActivityId,
   )
   const completedRef = useRef(false)
-  const completionRecordedThisVisitRef = useRef<string | null>(null)
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [completionRecordedThisVisitFor, setCompletionRecordedThisVisitFor] =
@@ -31,9 +30,7 @@ export function SurveyPage({ app }: PageProps) {
   )
   const backendSurveyCompleted = surveyRecord?.status === 'completed'
   const backendSurveyPendingReview = surveyRecord?.status === 'pendingReview'
-  const completionRecordedThisVisit =
-    completionRecordedThisVisitFor === activity?.id ||
-    completionRecordedThisVisitRef.current === activity?.id
+  const completionRecordedThisVisit = completionRecordedThisVisitFor === activity?.id
   const surveyCompletedBeforeThisVisit =
     backendSurveyCompleted && !completionRecordedThisVisit
   const surveyPendingReviewBeforeThisVisit =
@@ -41,10 +38,6 @@ export function SurveyPage({ app }: PageProps) {
 
   useEffect(() => {
     completedRef.current = false
-    completionRecordedThisVisitRef.current = null
-    setCompletionRecordedThisVisitFor(null)
-    setMessage('')
-    setBusy(false)
   }, [activity?.id])
 
   const handleBehaviorCompleted = useCallback(
@@ -68,7 +61,6 @@ export function SurveyPage({ app }: PageProps) {
           completionMethod: 'behaviorScore',
           surveyEngagement: engagement,
         })
-        completionRecordedThisVisitRef.current = activity.id
         setCompletionRecordedThisVisitFor(activity.id)
         await app.refreshMemberData()
       } catch (error) {

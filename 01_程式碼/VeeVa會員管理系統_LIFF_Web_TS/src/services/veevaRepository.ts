@@ -11,6 +11,7 @@ import {
   setDoc,
   Timestamp,
   where,
+  writeBatch,
 } from "firebase/firestore";
 import { firestore } from "./firebase";
 import type {
@@ -19,6 +20,7 @@ import type {
   VeevaActivity,
   VeevaActivityRegistration,
   VeevaMember,
+  VeevaMemberNotification,
   VeevaMemberReward,
   VeevaNews,
   VeevaReferralRecord,
@@ -226,6 +228,44 @@ export async function loadMemberRewards(memberId: string) {
     .filter((item) => item.status !== "rejected");
 }
 
+export async function loadMemberNotifications(memberId: string) {
+  const notificationSnap = await getDocs(
+    query(
+      collection(firestore, "memberNotifications"),
+      where("memberId", "==", memberId),
+      limit(60),
+    ),
+  );
+  return notificationSnap.docs
+    .map((item) => memberNotificationFromData(item.id, item.data()))
+    .sort((a, b) => {
+      const aTime = a.createdAt?.getTime() ?? 0;
+      const bTime = b.createdAt?.getTime() ?? 0;
+      return bTime - aTime;
+    });
+}
+
+export async function markMemberNotificationsRead(input: {
+  memberId: string;
+  notificationIds: string[];
+}) {
+  const uniqueIds = [...new Set(input.notificationIds)].filter(Boolean);
+  if (uniqueIds.length === 0) return;
+  const batch = writeBatch(firestore);
+  for (const notificationId of uniqueIds) {
+    batch.set(
+      doc(firestore, "memberNotifications", notificationId),
+      {
+        memberId: input.memberId,
+        readAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    );
+  }
+  await batch.commit();
+}
+
 export async function redeemMemberReward(input: {
   memberRewardId: string;
   memberId: string;
@@ -393,6 +433,15 @@ export async function completeActivity(input: {
     input.activity.id,
   ]);
   const completionRef = doc(firestore, "activityCompletions", completionId);
+  const notificationRef = doc(
+    firestore,
+    "memberNotifications",
+    firestoreDocumentId([
+      input.member.id,
+      input.activity.id,
+      "activity-completed",
+    ]),
+  );
 
   await runTransaction(firestore, async (transaction) => {
     const completionSnapshot = await transaction.get(completionRef);
@@ -423,6 +472,24 @@ export async function completeActivity(input: {
     }
 
     transaction.set(completionRef, payload, { merge: true });
+    transaction.set(
+      notificationRef,
+      {
+        memberId: input.member.id,
+        memberName: input.member.name,
+        memberLineUserId: input.member.lineUserId ?? input.member.id,
+        type: "activityCompleted",
+        title: "已收到活動完成紀錄",
+        body: `你已完成「${input.activity.title}」的填寫，工作人員確認後會發放兌換券。`,
+        activityId: input.activity.id,
+        activityTitle: input.activity.title,
+        actionPath: `/activities/${input.activity.id}`,
+        readAt: null,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    );
   });
 
   const memberReward = await queueMemberRewardForActivityCompletion(
@@ -823,6 +890,27 @@ function memberRewardFromData(
     issuedAt: dateValue(data.issuedAt),
     redeemedAt: dateValue(data.redeemedAt),
     expiresAt: dateValue(data.expiresAt),
+  };
+}
+
+function memberNotificationFromData(
+  id: string,
+  data: Record<string, unknown>,
+): VeevaMemberNotification {
+  return {
+    id,
+    memberId: stringValue(data.memberId),
+    title: stringValue(data.title, "系統訊息"),
+    body: stringValue(data.body),
+    type: enumValue<VeevaMemberNotification["type"]>(data.type, "system"),
+    activityId: optionalString(data.activityId),
+    activityTitle: optionalString(data.activityTitle),
+    rewardId: optionalString(data.rewardId),
+    rewardName: optionalString(data.rewardName),
+    memberRewardId: optionalString(data.memberRewardId),
+    actionPath: optionalString(data.actionPath),
+    createdAt: dateValue(data.createdAt),
+    readAt: dateValue(data.readAt),
   };
 }
 

@@ -159,6 +159,27 @@ export interface VeevaMemberReward {
   expiresAt?: Date;
 }
 
+export type VeevaNotificationType =
+  | "activityCompleted"
+  | "rewardIssued"
+  | "system";
+
+export interface VeevaMemberNotification {
+  id: string;
+  memberId: string;
+  title: string;
+  body: string;
+  type: VeevaNotificationType;
+  activityId?: string;
+  activityTitle?: string;
+  rewardId?: string;
+  rewardName?: string;
+  memberRewardId?: string;
+  actionPath?: string;
+  createdAt?: Date;
+  readAt?: Date;
+}
+
 export interface VeevaReferralRecord {
   id: string;
   referrerMemberId: string;

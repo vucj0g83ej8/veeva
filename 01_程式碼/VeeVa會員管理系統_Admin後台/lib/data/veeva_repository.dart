@@ -93,6 +93,8 @@ class FirestoreVeevaRepository implements VeevaRepository {
       firestore.collection('adminUsers');
   CollectionReference<Map<String, dynamic>> get _memberRewards =>
       firestore.collection('memberRewards');
+  CollectionReference<Map<String, dynamic>> get _memberNotifications =>
+      firestore.collection('memberNotifications');
   CollectionReference<Map<String, dynamic>> get _rewardVouchers =>
       firestore.collection('rewardVouchers');
   CollectionReference<Map<String, dynamic>> get _activityRegistrations =>
@@ -310,6 +312,12 @@ class FirestoreVeevaRepository implements VeevaRepository {
         .limit(200)
         .get();
     final batch = firestore.batch();
+    final notificationRef = _memberNotifications.doc(
+      _memberNotificationDocumentId(
+        memberId: record.memberId,
+        eventId: '${record.activityId}-activity-rejected',
+      ),
+    );
 
     batch.set(
       _activityCompletions.doc(record.id),
@@ -317,6 +325,24 @@ class FirestoreVeevaRepository implements VeevaRepository {
         'status': 'rejected',
         'completedAt': FieldValue.delete(),
         'rejectedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+    batch.set(
+      notificationRef,
+      {
+        'memberId': record.memberId,
+        'memberName': record.memberName,
+        'memberLineUserId': record.memberLineUserId ?? record.memberId,
+        'type': 'system',
+        'title': '活動審核未通過',
+        'body': _activityRejectedNotificationBody(record),
+        'activityId': record.activityId,
+        'activityTitle': record.activityTitle,
+        'actionPath': '/activities/${record.activityId}',
+        'readAt': null,
+        'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       },
       SetOptions(merge: true),
@@ -573,6 +599,12 @@ class FirestoreVeevaRepository implements VeevaRepository {
               ? deterministicGrantId
               : '${member.id}-${reward.id}-$issuedBatchId-$index',
         );
+        final notificationRef = _memberNotifications.doc(
+          _memberNotificationDocumentId(
+            memberId: member.id,
+            eventId: '${grantRef.id}-issued',
+          ),
+        );
         transaction.set(grantRef, {
           'memberId': member.id,
           'memberName': member.name,
@@ -595,6 +627,30 @@ class FirestoreVeevaRepository implements VeevaRepository {
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
         });
+        transaction.set(
+            notificationRef,
+            {
+              'memberId': member.id,
+              'memberName': member.name,
+              'memberLineUserId': member.lineUserId ?? member.id,
+              'type': 'rewardIssued',
+              'title': '收到兌換券',
+              'body': _rewardIssuedNotificationBody(
+                reward: reward,
+                activity: activity,
+                source: normalizedSource,
+              ),
+              'rewardId': reward.id,
+              'rewardName': reward.name,
+              'memberRewardId': grantRef.id,
+              'activityId': activity?.id,
+              'activityTitle': activity?.title,
+              'actionPath': '/coupons',
+              'readAt': null,
+              'createdAt': FieldValue.serverTimestamp(),
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true));
       }
 
       transaction.set(
@@ -880,6 +936,35 @@ String _activityCompletionDocumentId({
   required String activityId,
 }) {
   return [memberId, activityId].map(_firestoreDocumentSegment).join('_');
+}
+
+String _memberNotificationDocumentId({
+  required String memberId,
+  required String eventId,
+}) {
+  return [memberId, eventId].map(_firestoreDocumentSegment).join('_');
+}
+
+String _rewardIssuedNotificationBody({
+  required VeevaReward reward,
+  VeevaActivity? activity,
+  required String source,
+}) {
+  if (source == 'referralActivityCompletion' && activity != null) {
+    return '你的邀請獎勵已確認，已收到「${reward.name}」兌換券。';
+  }
+  if (activity != null) {
+    return '「${activity.title}」已確認完成，已收到「${reward.name}」兌換券。';
+  }
+  return '你已收到「${reward.name}」兌換券。';
+}
+
+String _activityRejectedNotificationBody(VeevaActivityRecord record) {
+  if (record.activityType == VeevaActivityType.survey.name ||
+      record.activityTitle.contains('問卷')) {
+    return '「${record.activityTitle}」未通過確認，請重新填寫問卷後再送出。';
+  }
+  return '「${record.activityTitle}」未通過確認，請重新完成活動後再送出。';
 }
 
 String _firestoreDocumentSegment(String value) {
