@@ -8239,10 +8239,11 @@ class _RewardDistributionManagementState
     }
     final participants = [
       for (final record in byMemberId.values)
-        _DistributionParticipant(
-          record: record,
-          member: _memberForRecord(record),
-        ),
+        if (record.status != 'rejected')
+          _DistributionParticipant(
+            record: record,
+            member: _memberForRecord(record),
+          ),
     ];
     participants.sort((a, b) {
       if (a.record.isCompleted != b.record.isCompleted) {
@@ -8317,11 +8318,13 @@ class _RewardDistributionManagementState
     if (participants.isEmpty) return '尚無參加者';
     final issued = _issuedCountFor(activity);
     final ready = participants.where((item) {
+      if (item.record.status == 'rejected') return false;
       return item.record.isCompleted ||
           activity.type == backend.VeevaActivityType.registration ||
           _completionRewardGrant(activity, item) != null;
     }).length;
-    return '已發放 $issued / 待確認 ${ready - issued}';
+    final pending = ready > issued ? ready - issued : 0;
+    return '已發放 $issued / 待確認 $pending';
   }
 
   backend.VeevaMemberReward? _completionRewardGrant(
@@ -8334,7 +8337,8 @@ class _RewardDistributionManagementState
       if (item.memberId == participant.member.id &&
           item.rewardId == rewardId &&
           item.activityId == activity.id &&
-          item.source == 'activityCompletion') {
+          item.source == 'activityCompletion' &&
+          item.status != 'rejected') {
         return item;
       }
     }
@@ -8343,6 +8347,10 @@ class _RewardDistributionManagementState
 
   bool _isIssuedGrant(backend.VeevaMemberReward item) {
     return item.status == 'issued' || item.status == 'redeemed';
+  }
+
+  bool _isPendingGrant(backend.VeevaMemberReward item) {
+    return item.status == 'pending';
   }
 
   bool _hasIssuedCompletionReward(
@@ -8363,7 +8371,8 @@ class _RewardDistributionManagementState
       if (item.rewardId == rewardId &&
           item.activityId == activity.id &&
           item.source == 'referralActivityCompletion' &&
-          item.sourceMemberId == participant.id) {
+          item.sourceMemberId == participant.id &&
+          item.status != 'rejected') {
         return item;
       }
     }
@@ -8509,7 +8518,7 @@ class _RewardDistributionManagementState
     final hasCompletionReward =
         completionRewardGrant != null && _isIssuedGrant(completionRewardGrant);
     final hasPendingCompletionReward =
-        completionRewardGrant != null && !_isIssuedGrant(completionRewardGrant);
+        completionRewardGrant != null && _isPendingGrant(completionRewardGrant);
     final completionReward = _rewardFor(activity.completionRewardId);
     final isIssuing = issuingParticipantIds.contains(participant.member.id);
     final isRejecting = rejectingParticipantIds.contains(participant.member.id);
