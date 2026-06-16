@@ -8,7 +8,11 @@ import type {
   VeevaMemberReward,
   VeevaReferralRecord,
 } from '../types/veeva'
-import { referralCodeFromLocation, referralCodeFromUrl } from '../utils/shareCode'
+import {
+  referralCodeFromLocation,
+  referralCodeFromUrl,
+  shareCodeFromId,
+} from '../utils/shareCode'
 
 interface AppState {
   initializing: boolean
@@ -89,7 +93,12 @@ export function useVeevaApp() {
     }))
     try {
       const liffApi = await import('../services/liff')
-      const liffSession = await liffApi.initializeLiff()
+      const repositoryPromise = import('../services/veevaRepository')
+      const liffSessionPromise = liffApi.initializeLiff()
+      const bootstrapPromise = repositoryPromise.then((repository) =>
+        repository.loadBootstrap().catch(() => emptyBootstrap),
+      )
+      const liffSession = await liffSessionPromise
 
       if (
         !liffSession.loggedIn &&
@@ -106,21 +115,14 @@ export function useVeevaApp() {
         return
       }
 
-      const repository = await import('../services/veevaRepository')
-      const bootstrap = await repository.loadBootstrap().catch(() => emptyBootstrap)
+      const repository = await repositoryPromise
+      const bootstrap = await bootstrapPromise
       const pendingLoginUrl = liffApi.getPendingLoginRedirectUrl()
       const referralCode =
         state.referralCode ??
         (pendingLoginUrl ? referralCodeFromUrl(pendingLoginUrl) : undefined)
 
-      let member: VeevaMember | undefined
-      if (liffSession.loggedIn && liffSession.profile) {
-        member = await repository.upsertLineMember({
-          profile: liffSession.profile,
-          lineIdToken: liffSession.idToken,
-          referralCode,
-        })
-      }
+      const member = memberFromLiffSession(liffSession)
       const restoreUrl = member
         ? liffApi.consumePendingLoginRedirectUrl()
         : undefined
@@ -141,7 +143,25 @@ export function useVeevaApp() {
       }))
 
       if (member) {
-        await refreshMemberDetails(member)
+        void repository
+          .upsertLineMember({
+            profile: liffSession.profile!,
+            lineIdToken: liffSession.idToken,
+            referralCode,
+          })
+          .then(async (updatedMember) => {
+            setState((current) => ({
+              ...current,
+              member: updatedMember,
+            }))
+            await refreshMemberDetails(updatedMember)
+          })
+          .catch((error) => {
+            setState((current) => ({
+              ...current,
+              error: error instanceof Error ? error.message : String(error),
+            }))
+          })
       }
       restoreUrlAfterLogin(restoreUrl)
     } catch (error) {
@@ -333,6 +353,28 @@ export function useVeevaApp() {
 }
 
 export type VeevaAppState = ReturnType<typeof useVeevaApp>
+
+function memberFromLiffSession(session: LiffSession): VeevaMember | undefined {
+  const profile = session.profile
+  if (!session.loggedIn || !profile) return undefined
+
+  return {
+    id: profile.userId,
+    name: profile.displayName || 'LINE 會員',
+    hospital: '',
+    department: '',
+    status: 'loggedIn',
+    accountStatus: 'active',
+    earnedCoupons: 0,
+    invitedCount: 0,
+    shareCode: shareCodeFromId(profile.userId),
+    lineUserId: profile.userId,
+    avatarUrl: profile.pictureUrl,
+    email: profile.email,
+    lineStatusMessage: profile.statusMessage,
+    lastLineLoginAt: new Date(),
+  }
+}
 
 function restoreUrlAfterLogin(url?: string) {
   if (!url) return
