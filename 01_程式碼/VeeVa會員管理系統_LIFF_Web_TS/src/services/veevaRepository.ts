@@ -221,9 +221,9 @@ export async function loadMemberRewards(memberId: string) {
       limit(50),
     ),
   );
-  return rewardsSnap.docs.map((item) =>
-    memberRewardFromData(item.id, item.data()),
-  );
+  return rewardsSnap.docs
+    .map((item) => memberRewardFromData(item.id, item.data()))
+    .filter((item) => item.status !== "rejected");
 }
 
 export async function redeemMemberReward(input: {
@@ -342,7 +342,9 @@ export async function loadMemberActivityRecords(memberId: string) {
       unique.push(record);
       return unique;
     }
-    if (record.status === "completed") {
+    if (
+      activityRecordPriority(record) >= activityRecordPriority(unique[existingIndex])
+    ) {
       unique[existingIndex] = record;
     }
     return unique;
@@ -403,7 +405,7 @@ export async function completeActivity(input: {
       memberName: input.member.name,
       memberAvatarUrl: input.member.avatarUrl ?? null,
       memberLineUserId: input.member.lineUserId ?? input.member.id,
-      status: "completed",
+      status: "pendingReview",
       surveyUrl: input.activity.surveyUrl ?? null,
       completionMethod: input.completionMethod ?? "system",
       updatedAt: serverTimestamp(),
@@ -562,10 +564,13 @@ async function queuePendingMemberRewardIfNeeded(input: {
   return runTransaction(firestore, async (transaction) => {
     const existingGrant = await transaction.get(grantRef);
     if (existingGrant.exists()) {
-      return {
-        queued: false,
-        reason: "alreadyQueued",
-      } satisfies RewardQueueResult;
+      const existingStatus = existingGrant.data()?.status;
+      if (existingStatus !== "rejected") {
+        return {
+          queued: false,
+          reason: "alreadyQueued",
+        } satisfies RewardQueueResult;
+      }
     }
 
     const rewardSnapshot = await transaction.get(rewardRef);
@@ -876,6 +881,14 @@ function activityRecordFromData(
 
 function participantRewardIdFor(activity: VeevaActivity) {
   return activity.completionRewardId;
+}
+
+function activityRecordPriority(record: VeevaActivityRegistration) {
+  if (record.status === "completed") return 4;
+  if (record.status === "pendingReview") return 3;
+  if (record.status === "rejected") return 2;
+  if (record.status === "registered") return 1;
+  return 0;
 }
 
 function referrerRewardIdFor(activity: VeevaActivity) {

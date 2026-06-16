@@ -80,7 +80,7 @@ export interface VeevaActivityRegistration {
   activityTitle: string;
   memberId: string;
   memberName: string;
-  status: "registered" | "completed";
+  status: "registered" | "pendingReview" | "completed" | "rejected";
   registeredAt?: Date;
   completedAt?: Date;
 }
@@ -148,7 +148,7 @@ export interface VeevaMemberReward {
   rewardImageUrl?: string;
   redemptionUrl?: string;
   voucherId?: string;
-  status: "pending" | "issued" | "redeemed" | "expired";
+  status: "pending" | "issued" | "redeemed" | "expired" | "rejected";
   source?: "manualAdmin" | "activityCompletion" | "referralActivityCompletion";
   activityId?: string;
   activityTitle?: string;

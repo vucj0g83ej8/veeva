@@ -385,6 +385,11 @@ a {
   background: rgba(225, 243, 250, 0.94);
 }
 
+.activity-status-chip.pendingReview {
+  color: #6a4b0b;
+  background: rgba(255, 242, 207, 0.94);
+}
+
 .activity-status-chip.completed {
   color: #6b5616;
   background: rgba(255, 246, 218, 0.94);

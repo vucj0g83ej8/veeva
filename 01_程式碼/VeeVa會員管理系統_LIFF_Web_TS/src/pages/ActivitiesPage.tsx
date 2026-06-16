@@ -183,6 +183,11 @@ function activityStatusLabel(
   activity: VeevaActivity,
   record?: VeevaActivityRegistration,
 ) {
+  if (activity.type === 'survey') {
+    if (record?.status === 'completed') return '已填寫'
+    if (record?.status === 'pendingReview') return '審核中'
+    return '填寫問卷'
+  }
   if (record?.status === 'completed') return '已完成'
   if (record?.status === 'registered') return '已報名'
   const phase = activityPhase(activity)
@@ -190,7 +195,6 @@ function activityStatusLabel(
   if (phase === 'upcoming') return '即將開始'
   if (activity.label.includes('報名')) return '報名中'
   if (activity.type === 'registration') return '報名中'
-  if (activity.type === 'survey') return '進行中'
   return activity.label || '進行中'
 }
 
@@ -198,6 +202,7 @@ function activityStatusClassName(
   activity: VeevaActivity,
   record?: VeevaActivityRegistration,
 ) {
+  if (record?.status === 'rejected') return activityPhase(activity)
   if (record?.status) return record.status
   return activityPhase(activity)
 }
@@ -213,13 +218,24 @@ function activityRecordsByActivityId(records: VeevaActivityRegistration[]) {
   return records.reduce<Map<string, VeevaActivityRegistration>>(
     (recordMap, record) => {
       const existing = recordMap.get(record.activityId)
-      if (!existing || record.status === 'completed') {
+      if (
+        !existing ||
+        activityRecordPriority(record) >= activityRecordPriority(existing)
+      ) {
         recordMap.set(record.activityId, record)
       }
       return recordMap
     },
     new Map(),
   )
+}
+
+function activityRecordPriority(record: VeevaActivityRegistration) {
+  if (record.status === 'completed') return 4
+  if (record.status === 'pendingReview') return 3
+  if (record.status === 'rejected') return 2
+  if (record.status === 'registered') return 1
+  return 0
 }
 
 function shouldShowActivity(
@@ -257,6 +273,7 @@ function statusWeight(
   record?: VeevaActivityRegistration,
 ) {
   if (record?.status === 'registered') return 0
+  if (record?.status === 'pendingReview') return 0
   if (activityPhase(activity) === 'open') return 1
   if (activityPhase(activity) === 'upcoming') return 2
   if (record?.status === 'completed') return 3

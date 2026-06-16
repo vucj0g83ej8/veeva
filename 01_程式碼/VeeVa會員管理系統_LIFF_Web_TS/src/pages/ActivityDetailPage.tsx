@@ -19,7 +19,7 @@ import {
 import { useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import type { VeevaAppState } from "../hooks/useVeevaApp";
-import type { VeevaActivity } from "../types/veeva";
+import type { VeevaActivity, VeevaActivityRegistration } from "../types/veeva";
 import { activityFlowFor } from "../utils/activityFlow";
 
 interface PageProps {
@@ -79,9 +79,14 @@ function ActivityDetailContent({
     registrationStatus === "registered" || registrationStatus === "completed";
   const surveyCompleted =
     activity.type === "survey" && memberActivityRecord?.status === "completed";
+  const surveyPendingReview =
+    activity.type === "survey" &&
+    memberActivityRecord?.status === "pendingReview";
   const primaryButtonLabel =
-    surveyCompleted
-      ? "已填寫完成"
+    surveyPendingReview
+      ? "審核中"
+      : surveyCompleted
+      ? "已填寫"
       : registrationStatus === "completed"
       ? "已完成"
       : registrationStatus === "registered"
@@ -94,7 +99,7 @@ function ActivityDetailContent({
     setMessage("");
 
     if (activity.type === "survey") {
-      if (surveyCompleted) {
+      if (surveyCompleted || surveyPendingReview) {
         return;
       }
       if (!activity.surveyUrl) {
@@ -258,11 +263,19 @@ function ActivityDetailContent({
         <div className="activity-detail-actions">
           <button
             className="activity-detail-primary-button"
-            disabled={busy || app.busy || registrationLocked || surveyCompleted}
+            disabled={
+              busy ||
+              app.busy ||
+              registrationLocked ||
+              surveyCompleted ||
+              surveyPendingReview
+            }
             type="button"
             onClick={() => void handlePrimaryAction()}
           >
-            {registrationLocked || surveyCompleted ? (
+            {surveyPendingReview ? (
+              <Clock3 size={18} />
+            ) : registrationLocked || surveyCompleted ? (
               <CheckCircle2 size={18} />
             ) : (
               buttonIconFor(activity)
@@ -384,10 +397,16 @@ function buttonIconFor(activity: VeevaActivity) {
 
 function activityStatusLabel(
   activity: VeevaActivity,
-  record?: { status: "registered" | "completed" },
+  record?: VeevaActivityRegistration,
 ) {
   if (activity.type === "survey" && record?.status === "completed") {
-    return "已填寫完成";
+    return "已填寫";
+  }
+  if (activity.type === "survey" && record?.status === "pendingReview") {
+    return "審核中";
+  }
+  if (activity.type === "survey") {
+    return "填寫問卷";
   }
   if (record?.status === "completed") return "已完成";
   if (record?.status === "registered") return "已報名";
@@ -395,7 +414,6 @@ function activityStatusLabel(
   if (activity.label.includes("即將")) return "即將開始";
   if (activity.label.includes("報名")) return "報名中";
   if (activity.type === "registration") return "報名中";
-  if (activity.type === "survey") return "進行中";
   return activity.label || "進行中";
 }
 

@@ -28,6 +28,8 @@ abstract class VeevaRepository {
 
   Future<void> approveReview(VeevaReview review);
 
+  Future<void> rejectActivityCompletion(VeevaActivityRecord record);
+
   Future<void> saveReward(VeevaReward reward);
 
   Future<int> importRewardVoucherLinks({
@@ -299,6 +301,51 @@ class FirestoreVeevaRepository implements VeevaRepository {
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true)),
     ]);
+  }
+
+  @override
+  Future<void> rejectActivityCompletion(VeevaActivityRecord record) async {
+    final pendingRewards = await _memberRewards
+        .where('activityId', isEqualTo: record.activityId)
+        .limit(200)
+        .get();
+    final batch = firestore.batch();
+
+    batch.set(
+      _activityCompletions.doc(record.id),
+      {
+        'status': 'rejected',
+        'completedAt': FieldValue.delete(),
+        'rejectedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+
+    for (final doc in pendingRewards.docs) {
+      final data = doc.data();
+      if (data['status']?.toString() != 'pending') {
+        continue;
+      }
+      final source = data['source']?.toString();
+      final isParticipantReward = source == 'activityCompletion' &&
+          data['memberId']?.toString() == record.memberId;
+      final isReferrerReward = source == 'referralActivityCompletion' &&
+          data['sourceMemberId']?.toString() == record.memberId;
+      if (isParticipantReward || isReferrerReward) {
+        batch.set(
+          doc.reference,
+          {
+            'status': 'rejected',
+            'rejectedAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      }
+    }
+
+    await batch.commit();
   }
 
   @override
@@ -592,6 +639,26 @@ class FirestoreVeevaRepository implements VeevaRepository {
             },
             SetOptions(merge: true));
       }
+      if (normalizedSource == 'activityCompletion' && activity != null) {
+        transaction.set(
+            _activityCompletions.doc(_activityCompletionDocumentId(
+              memberId: member.id,
+              activityId: activity.id,
+            )),
+            {
+              'activityId': activity.id,
+              'activityTitle': activity.title,
+              'activityType': activity.type.name,
+              'memberId': member.id,
+              'memberName': member.name,
+              'memberAvatarUrl': member.avatarUrl,
+              'memberLineUserId': member.lineUserId,
+              'status': 'completed',
+              'approvedAt': FieldValue.serverTimestamp(),
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true));
+      }
     });
   }
 
@@ -692,6 +759,9 @@ class DemoVeevaRepository implements VeevaRepository {
 
   @override
   Future<void> approveReview(VeevaReview review) async {}
+
+  @override
+  Future<void> rejectActivityCompletion(VeevaActivityRecord record) async {}
 
   @override
   Future<void> saveReward(VeevaReward reward) async {}
@@ -803,6 +873,13 @@ String _rewardGrantDocumentId({
     source,
     sourceMemberId ?? 'self',
   ].map(_firestoreDocumentSegment).join('_');
+}
+
+String _activityCompletionDocumentId({
+  required String memberId,
+  required String activityId,
+}) {
+  return [memberId, activityId].map(_firestoreDocumentSegment).join('_');
 }
 
 String _firestoreDocumentSegment(String value) {

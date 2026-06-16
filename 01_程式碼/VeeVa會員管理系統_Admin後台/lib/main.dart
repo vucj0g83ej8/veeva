@@ -1001,7 +1001,12 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
 
   Widget _buildContent() {
     final content = switch (tab) {
-      AdminTab.dashboard => _DashboardContent(reviews: reviews),
+      AdminTab.dashboard => _DashboardContent(
+          reviews: reviews,
+          rewards: rewards,
+          members: members,
+          activityRecords: activityRecords,
+        ),
       AdminTab.members => _MemberManagement(
           members: members,
           reviews: reviews,
@@ -1025,6 +1030,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
           activityRecords: activityRecords,
           memberRewards: memberRewards,
           onGrantReward: _grantRewardToMember,
+          onRejectActivityCompletion: _rejectActivityCompletion,
         ),
       AdminTab.news => _NewsManagement(
           news: news,
@@ -1079,6 +1085,62 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
         item.status = ReviewStatus.pending;
         backendError = '審核更新失敗：請確認 Firestore API 與 rules 已啟用。';
       });
+    }
+  }
+
+  Future<void> _rejectActivityCompletion(
+    backend.VeevaActivityRecord record,
+  ) async {
+    final previousRecords = [...activityRecords];
+    final previousMemberRewards = [...memberRewards];
+    final rejectedRecord = backend.VeevaActivityRecord(
+      id: record.id,
+      activityId: record.activityId,
+      activityTitle: record.activityTitle,
+      activityType: record.activityType,
+      memberId: record.memberId,
+      memberName: record.memberName,
+      memberAvatarUrl: record.memberAvatarUrl,
+      memberLineUserId: record.memberLineUserId,
+      status: 'rejected',
+      registeredAt: record.registeredAt,
+      updatedAt: DateTime.now(),
+    );
+
+    setState(() {
+      final index = activityRecords.indexWhere((item) => item.id == record.id);
+      if (index == -1) {
+        activityRecords.add(rejectedRecord);
+      } else {
+        activityRecords[index] = rejectedRecord;
+      }
+      memberRewards.removeWhere((item) {
+        if (item.status != 'pending' || item.activityId != record.activityId) {
+          return false;
+        }
+        final isParticipantReward = item.source == 'activityCompletion' &&
+            item.memberId == record.memberId;
+        final isReferrerReward = item.source == 'referralActivityCompletion' &&
+            item.sourceMemberId == record.memberId;
+        return isParticipantReward || isReferrerReward;
+      });
+      backendError = null;
+    });
+
+    try {
+      await repository.rejectActivityCompletion(record);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        activityRecords
+          ..clear()
+          ..addAll(previousRecords);
+        memberRewards
+          ..clear()
+          ..addAll(previousMemberRewards);
+        backendError = '不允許更新失敗：請確認 Firestore rules 已部署。';
+      });
+      rethrow;
     }
   }
 
@@ -2484,6 +2546,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
 
     final previousMembers = [...members];
     final previousMemberRewards = [...memberRewards];
+    final previousActivityRecords = [...activityRecords];
     final previousRewards = [
       for (final item in rewards)
         item.copyWith(
@@ -2561,6 +2624,38 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
           );
         }
       }
+      if (source == 'activityCompletion' && activity != null) {
+        final recordIndex = activityRecords.indexWhere(
+          (item) =>
+              item.activityId == activity.id && item.memberId == member.id,
+        );
+        final completedRecord = backend.VeevaActivityRecord(
+          id: _activityCompletionDocumentId(
+            memberId: member.id,
+            activityId: activity.id,
+          ),
+          activityId: activity.id,
+          activityTitle: activity.title,
+          activityType: activity.type.name,
+          memberId: member.id,
+          memberName: member.name,
+          memberAvatarUrl: member.avatarUrl,
+          memberLineUserId: member.lineUserId,
+          status: 'completed',
+          registeredAt: recordIndex == -1
+              ? null
+              : activityRecords[recordIndex].registeredAt,
+          completedAt: recordIndex == -1
+              ? now
+              : activityRecords[recordIndex].completedAt ?? now,
+          updatedAt: now,
+        );
+        if (recordIndex == -1) {
+          activityRecords.add(completedRecord);
+        } else {
+          activityRecords[recordIndex] = completedRecord;
+        }
+      }
       backendError = null;
     });
 
@@ -2589,6 +2684,9 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
         memberRewards
           ..clear()
           ..addAll(previousMemberRewards);
+        activityRecords
+          ..clear()
+          ..addAll(previousActivityRecords);
         rewards
           ..clear()
           ..addAll(previousRewards);
@@ -5240,9 +5338,17 @@ class _AdminAvatar extends StatelessWidget {
 }
 
 class _DashboardContent extends StatelessWidget {
-  const _DashboardContent({required this.reviews});
+  const _DashboardContent({
+    required this.reviews,
+    required this.rewards,
+    required this.members,
+    required this.activityRecords,
+  });
 
   final List<AdminReviewItem> reviews;
+  final List<AdminRewardItem> rewards;
+  final List<backend.VeevaMember> members;
+  final List<backend.VeevaActivityRecord> activityRecords;
 
   @override
   Widget build(BuildContext context) {
@@ -5251,10 +5357,15 @@ class _DashboardContent extends StatelessWidget {
         reviews.where((item) => item.status == ReviewStatus.pending).length;
     final approved =
         reviews.where((item) => item.status == ReviewStatus.approved).length;
+    final completedQuestionnaires = _completedQuestionnaireCount;
+    final availableRewardStock = rewards
+        .where((item) => item.status == RewardStatus.active)
+        .fold<int>(0, (total, reward) => total + reward.stock);
+    final memberStatusSummary = _memberStatusSummary;
     final metrics = [
-      const _MetricCard(
+      _MetricCard(
         label: '問卷完成',
-        value: '128',
+        value: '$completedQuestionnaires',
         icon: Icons.assignment_turned_in_outlined,
       ),
       _MetricCard(
@@ -5267,9 +5378,9 @@ class _DashboardContent extends StatelessWidget {
         value: '$approved',
         icon: Icons.verified_user_outlined,
       ),
-      const _MetricCard(
+      _MetricCard(
         label: '兌換券庫存',
-        value: '342',
+        value: '$availableRewardStock',
         icon: Icons.inventory_2_outlined,
       ),
     ];
@@ -5306,7 +5417,7 @@ class _DashboardContent extends StatelessWidget {
                 compact: true,
               ),
               const SizedBox(height: 16),
-              const _StatusPanel(),
+              _StatusPanel(summary: memberStatusSummary),
             ],
           )
         else
@@ -5323,12 +5434,92 @@ class _DashboardContent extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 16),
-              const Expanded(child: _StatusPanel()),
+              Expanded(child: _StatusPanel(summary: memberStatusSummary)),
             ],
           ),
       ],
     );
   }
+
+  int get _completedQuestionnaireCount {
+    final keys = <String>{};
+
+    for (final review in reviews) {
+      keys.add('review:${review.id}');
+    }
+
+    for (final record in activityRecords) {
+      if (!record.isCompleted || !_isSurveyRecord(record)) {
+        continue;
+      }
+      final activityKey = record.activityId.trim().isEmpty
+          ? record.id
+          : '${record.memberId}:${record.activityId}';
+      keys.add('completion:$activityKey');
+    }
+
+    return keys.length;
+  }
+
+  bool _isSurveyRecord(backend.VeevaActivityRecord record) {
+    final type = record.activityType.trim().toLowerCase();
+    final title = record.activityTitle.trim().toLowerCase();
+    return type == backend.VeevaActivityType.survey.name ||
+        type.contains('survey') ||
+        type.contains('問卷') ||
+        title.contains('survey') ||
+        title.contains('問卷');
+  }
+
+  _DashboardStatusSummary get _memberStatusSummary {
+    if (members.isEmpty) {
+      final pendingCount =
+          reviews.where((item) => item.status == ReviewStatus.pending).length;
+      final approvedCount =
+          reviews.where((item) => item.status == ReviewStatus.approved).length;
+      final incompleteCount =
+          reviews.where((item) => item.status == ReviewStatus.rejected).length;
+      return _DashboardStatusSummary(
+        approved: approvedCount,
+        pending: pendingCount,
+        incomplete: incompleteCount,
+      );
+    }
+
+    var approvedCount = 0;
+    var pendingCount = 0;
+    var incompleteCount = 0;
+    for (final member in members) {
+      switch (member.status) {
+        case backend.VeevaMemberStatus.verified:
+          approvedCount += 1;
+        case backend.VeevaMemberStatus.pendingReview:
+          pendingCount += 1;
+        case backend.VeevaMemberStatus.loggedIn:
+        case backend.VeevaMemberStatus.guest:
+          incompleteCount += 1;
+      }
+    }
+    return _DashboardStatusSummary(
+      approved: approvedCount,
+      pending: pendingCount,
+      incomplete: incompleteCount,
+    );
+  }
+}
+
+class _DashboardStatusSummary {
+  const _DashboardStatusSummary({
+    required this.approved,
+    required this.pending,
+    required this.incomplete,
+  });
+
+  final int approved;
+  final int pending;
+  final int incomplete;
+
+  int get total => approved + pending + incomplete;
 }
 
 class _MetricCard extends StatelessWidget {
@@ -5421,6 +5612,7 @@ class _ReviewListBody extends StatelessWidget {
     required this.rows,
     required this.compact,
     this.emptyMessage = '目前沒有符合條件的資料。',
+    this.showHospitalDepartment = true,
     this.onApprove,
   });
 
@@ -5428,6 +5620,7 @@ class _ReviewListBody extends StatelessWidget {
   final ValueChanged<AdminReviewItem>? onApprove;
   final bool compact;
   final String emptyMessage;
+  final bool showHospitalDepartment;
 
   @override
   Widget build(BuildContext context) {
@@ -5441,18 +5634,28 @@ class _ReviewListBody extends StatelessWidget {
       return Column(
         children: [
           for (final item in rows)
-            _MobileReviewCard(item: item, onApprove: onApprove),
+            _MobileReviewCard(
+              item: item,
+              showHospitalDepartment: showHospitalDepartment,
+              onApprove: onApprove,
+            ),
         ],
       );
     }
 
     return _FullWidthDataTable(
-      minWidth: compact ? 620 : 760,
+      minWidth: compact
+          ? showHospitalDepartment
+              ? 620
+              : 500
+          : showHospitalDepartment
+              ? 760
+              : 620,
       child: DataTable(
         headingRowColor: WidgetStateProperty.all(const Color(0xFFF5F7F8)),
         columns: [
           const DataColumn(label: Text('姓名')),
-          const DataColumn(label: Text('院所 / 科別')),
+          if (showHospitalDepartment) const DataColumn(label: Text('院所 / 科別')),
           if (!compact) const DataColumn(label: Text('完成時間')),
           const DataColumn(label: Text('狀態')),
           if (onApprove != null) const DataColumn(label: Text('操作')),
@@ -5462,7 +5665,8 @@ class _ReviewListBody extends StatelessWidget {
             DataRow(
               cells: [
                 DataCell(Text(item.name)),
-                DataCell(Text('${item.hospital} / ${item.department}')),
+                if (showHospitalDepartment)
+                  DataCell(Text('${item.hospital} / ${item.department}')),
                 if (!compact) DataCell(Text(item.completedAt)),
                 DataCell(_StatusChip(status: item.status)),
                 if (onApprove != null)
@@ -5483,10 +5687,12 @@ class _ReviewListBody extends StatelessWidget {
 class _MobileReviewCard extends StatelessWidget {
   const _MobileReviewCard({
     required this.item,
+    required this.showHospitalDepartment,
     this.onApprove,
   });
 
   final AdminReviewItem item;
+  final bool showHospitalDepartment;
   final ValueChanged<AdminReviewItem>? onApprove;
 
   @override
@@ -5514,8 +5720,10 @@ class _MobileReviewCard extends StatelessWidget {
               _StatusChip(status: item.status),
             ],
           ),
-          const SizedBox(height: 8),
-          Text('${item.hospital} / ${item.department}'),
+          if (showHospitalDepartment) ...[
+            const SizedBox(height: 8),
+            Text('${item.hospital} / ${item.department}'),
+          ],
           const SizedBox(height: 4),
           Text(
             item.completedAt,
@@ -5555,22 +5763,36 @@ class _StatusChip extends StatelessWidget {
 }
 
 class _StatusPanel extends StatelessWidget {
-  const _StatusPanel();
+  const _StatusPanel({required this.summary});
+
+  final _DashboardStatusSummary summary;
 
   @override
   Widget build(BuildContext context) {
-    return const Card(
+    final total = summary.total;
+    double ratio(int value) => total == 0 ? 0 : value / total;
+
+    return Card(
       child: Padding(
-        padding: EdgeInsets.all(18),
+        padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('名單狀態分布',
+            const Text('名單狀態分布',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
-            SizedBox(height: 16),
-            _ProgressRow(label: '已通過', value: .62),
-            _ProgressRow(label: '待審核', value: .22),
-            _ProgressRow(label: '未完成', value: .16),
+            const SizedBox(height: 16),
+            _ProgressRow(
+              label: '已通過 (${summary.approved})',
+              value: ratio(summary.approved),
+            ),
+            _ProgressRow(
+              label: '待審核 (${summary.pending})',
+              value: ratio(summary.pending),
+            ),
+            _ProgressRow(
+              label: '未完成 (${summary.incomplete})',
+              value: ratio(summary.incomplete),
+            ),
           ],
         ),
       ),
@@ -5811,6 +6033,7 @@ class _MemberManagementState extends State<_MemberManagement> {
                   _ReviewListBody(
                     rows: pagedReviewRows,
                     compact: isCompact,
+                    showHospitalDepartment: false,
                     emptyMessage: normalizedQuery.isEmpty
                         ? selectedTab == MemberManagementTab.pendingReview
                             ? '目前沒有待審核會員。'
@@ -7513,6 +7736,13 @@ String _rewardGrantDocumentId({
   ].map(_firestoreDocumentSegment).join('_');
 }
 
+String _activityCompletionDocumentId({
+  required String memberId,
+  required String activityId,
+}) {
+  return [memberId, activityId].map(_firestoreDocumentSegment).join('_');
+}
+
 String _firestoreDocumentSegment(String value) {
   final segment = value.trim().replaceAll(RegExp(r'[/#?\[\]]'), '_');
   return segment.isEmpty ? 'unknown' : segment;
@@ -7831,6 +8061,7 @@ class _RewardDistributionManagement extends StatefulWidget {
     required this.activityRecords,
     required this.memberRewards,
     required this.onGrantReward,
+    required this.onRejectActivityCompletion,
   });
 
   final List<backend.VeevaActivity> activities;
@@ -7848,6 +8079,8 @@ class _RewardDistributionManagement extends StatefulWidget {
     String source,
     bool preventDuplicate,
   }) onGrantReward;
+  final Future<void> Function(backend.VeevaActivityRecord record)
+      onRejectActivityCompletion;
 
   @override
   State<_RewardDistributionManagement> createState() =>
@@ -7857,6 +8090,7 @@ class _RewardDistributionManagement extends StatefulWidget {
 class _RewardDistributionManagementState
     extends State<_RewardDistributionManagement> {
   Set<String> issuingParticipantIds = {};
+  Set<String> rejectingParticipantIds = {};
 
   @override
   Widget build(BuildContext context) {
@@ -7997,7 +8231,9 @@ class _RewardDistributionManagementState
         continue;
       }
       final existing = byMemberId[record.memberId];
-      if (existing == null || record.isCompleted) {
+      if (existing == null ||
+          _activityRecordPriority(record) >=
+              _activityRecordPriority(existing)) {
         byMemberId[record.memberId] = record;
       }
     }
@@ -8015,6 +8251,14 @@ class _RewardDistributionManagementState
       return a.member.name.compareTo(b.member.name);
     });
     return participants;
+  }
+
+  int _activityRecordPriority(backend.VeevaActivityRecord record) {
+    if (record.isCompleted) return 4;
+    if (record.status == 'pendingReview') return 3;
+    if (record.status == 'rejected') return 2;
+    if (record.status == 'registered') return 1;
+    return 0;
   }
 
   backend.VeevaMember _memberForRecord(backend.VeevaActivityRecord record) {
@@ -8098,7 +8342,7 @@ class _RewardDistributionManagementState
   }
 
   bool _isIssuedGrant(backend.VeevaMemberReward item) {
-    return item.status != 'pending';
+    return item.status == 'issued' || item.status == 'redeemed';
   }
 
   bool _hasIssuedCompletionReward(
@@ -8163,7 +8407,7 @@ class _RewardDistributionManagementState
   }
 
   Future<void> _openDistributionDialog(backend.VeevaActivity activity) async {
-    final participants = _participantsFor(activity);
+    var participants = _participantsFor(activity);
     String? formError;
 
     await showDialog<void>(
@@ -8222,6 +8466,10 @@ class _RewardDistributionManagementState
                                       activity: activity,
                                       participant: participant,
                                       setDialogState: setDialogState,
+                                      refreshParticipants: () {
+                                        participants =
+                                            _participantsFor(activity);
+                                      },
                                       setFormError: (value) {
                                         formError = value;
                                       },
@@ -8254,6 +8502,7 @@ class _RewardDistributionManagementState
     required backend.VeevaActivity activity,
     required _DistributionParticipant participant,
     required StateSetter setDialogState,
+    required VoidCallback refreshParticipants,
     required ValueChanged<String?> setFormError,
   }) {
     final completionRewardGrant = _completionRewardGrant(activity, participant);
@@ -8263,96 +8512,165 @@ class _RewardDistributionManagementState
         completionRewardGrant != null && !_isIssuedGrant(completionRewardGrant);
     final completionReward = _rewardFor(activity.completionRewardId);
     final isIssuing = issuingParticipantIds.contains(participant.member.id);
+    final isRejecting = rejectingParticipantIds.contains(participant.member.id);
     final isReadyForReward = participant.record.isCompleted ||
         activity.type == backend.VeevaActivityType.registration ||
         hasPendingCompletionReward;
     final canIssue =
         isReadyForReward && completionReward != null && !hasCompletionReward;
+    final canReject = (participant.record.status == 'pendingReview' ||
+            participant.record.isCompleted) &&
+        !hasCompletionReward &&
+        !isIssuing &&
+        !isRejecting;
     return DataRow(
       cells: [
         DataCell(_DistributionMemberCell(member: participant.member)),
-        DataCell(Text(participant.record.isCompleted ? '已完成' : '已參加')),
+        DataCell(Text(_participantStatusText(participant.record))),
         DataCell(
           Text(
             activity.completionRewardId == null
                 ? '未設定'
-                : hasCompletionReward
-                    ? '已發放'
-                    : hasPendingCompletionReward
-                        ? '待確認'
-                        : !isReadyForReward
-                            ? '尚未完成'
-                            : completionReward == null
-                                ? '找不到兌換券'
-                                : completionReward.name,
+                : participant.record.status == 'rejected'
+                    ? '可重新填寫'
+                    : hasCompletionReward
+                        ? '已發放'
+                        : hasPendingCompletionReward
+                            ? '待確認'
+                            : !isReadyForReward
+                                ? '尚未完成'
+                                : completionReward == null
+                                    ? '找不到兌換券'
+                                    : completionReward.name,
           ),
         ),
         DataCell(Text(_referrerRewardStatus(activity, participant.member))),
         DataCell(
-          FilledButton.icon(
-            onPressed: !canIssue || isIssuing
-                ? null
-                : () async {
-                    setDialogState(() {
-                      setFormError(null);
-                      issuingParticipantIds = {
-                        ...issuingParticipantIds,
-                        participant.member.id,
-                      };
-                    });
-                    try {
-                      final bonusText = await _grantActivityReward(
-                        activity,
-                        participant.member,
-                      );
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              '已發放 ${completionReward.name} 給 ${participant.member.name}$bonusText。',
-                            ),
-                          ),
-                        );
-                      }
-                    } catch (_) {
-                      setDialogState(() {
-                        setFormError('發放失敗，請確認庫存、兌換券狀態與 Firestore 設定。');
-                      });
-                    } finally {
-                      if (mounted) {
-                        setState(() {
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.icon(
+                onPressed: !canIssue || isIssuing || isRejecting
+                    ? null
+                    : () async {
+                        setDialogState(() {
+                          setFormError(null);
                           issuingParticipantIds = {
                             ...issuingParticipantIds,
-                          }..remove(participant.member.id);
+                            participant.member.id,
+                          };
                         });
-                      }
-                      setDialogState(() {});
-                    }
-                  },
-            icon: isIssuing
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Icon(
-                    hasCompletionReward
-                        ? Icons.check_circle_outline
-                        : Icons.card_giftcard_outlined,
-                  ),
-            label: Text(
-              hasCompletionReward
-                  ? '已發放'
-                  : isIssuing
-                      ? '發放中'
-                      : hasPendingCompletionReward
-                          ? '確認發放'
-                          : '發放',
-            ),
+                        try {
+                          final bonusText = await _grantActivityReward(
+                            activity,
+                            participant.member,
+                          );
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  '已發放 ${completionReward.name} 給 ${participant.member.name}$bonusText。',
+                                ),
+                              ),
+                            );
+                          }
+                        } catch (_) {
+                          setDialogState(() {
+                            setFormError('發放失敗，請確認庫存、兌換券狀態與 Firestore 設定。');
+                          });
+                        } finally {
+                          if (mounted) {
+                            setState(() {
+                              issuingParticipantIds = {
+                                ...issuingParticipantIds,
+                              }..remove(participant.member.id);
+                            });
+                          }
+                          setDialogState(() {});
+                        }
+                      },
+                icon: isIssuing
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Icon(
+                        hasCompletionReward
+                            ? Icons.check_circle_outline
+                            : Icons.card_giftcard_outlined,
+                      ),
+                label: Text(
+                  hasCompletionReward
+                      ? '已發放'
+                      : isIssuing
+                          ? '發放中'
+                          : hasPendingCompletionReward
+                              ? '確認發放'
+                              : '發放',
+                ),
+              ),
+              OutlinedButton.icon(
+                onPressed: !canReject
+                    ? null
+                    : () async {
+                        setDialogState(() {
+                          setFormError(null);
+                          rejectingParticipantIds = {
+                            ...rejectingParticipantIds,
+                            participant.member.id,
+                          };
+                        });
+                        try {
+                          await widget
+                              .onRejectActivityCompletion(participant.record);
+                          refreshParticipants();
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  '已將 ${participant.member.name} 標記為不允許，可重新填寫問卷。',
+                                ),
+                              ),
+                            );
+                          }
+                        } catch (_) {
+                          setDialogState(() {
+                            setFormError('不允許更新失敗，請確認 Firestore 設定。');
+                          });
+                        } finally {
+                          if (mounted) {
+                            setState(() {
+                              rejectingParticipantIds = {
+                                ...rejectingParticipantIds,
+                              }..remove(participant.member.id);
+                            });
+                          }
+                          setDialogState(() {});
+                        }
+                      },
+                icon: isRejecting
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.block_outlined),
+                label: Text(isRejecting ? '處理中' : '不允許'),
+              ),
+            ],
           ),
         ),
       ],
     );
+  }
+
+  String _participantStatusText(backend.VeevaActivityRecord record) {
+    if (record.status == 'rejected') return '不允許';
+    if (record.status == 'pendingReview') return '審核中';
+    if (record.isCompleted) return '已完成';
+    return '已參加';
   }
 
   Future<String> _grantActivityReward(

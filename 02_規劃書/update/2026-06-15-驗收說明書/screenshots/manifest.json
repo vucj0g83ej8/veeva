@@ -36,6 +36,12 @@
     "url": "https://vevva.web.app/news/who-product-alert?skipAutoLogin=1&t=manual-shot-1"
   },
   {
+    "name": "front-09-news-helpful",
+    "file": "/Users/ouyangtaisen/Documents/接案/專案/jay/VeeVa 會員管理系統/LINE_LIFF_會員系統_版本/02_規劃書/update/2026-06-15-驗收說明書/screenshots/front-09-news-helpful.png",
+    "title": "VeeVa 會員",
+    "url": "https://vevva.web.app/news/who-product-alert?skipAutoLogin=1&t=manual-news-helpful1"
+  },
+  {
     "name": "front-07-coupons",
     "file": "/Users/ouyangtaisen/Documents/接案/專案/jay/VeeVa 會員管理系統/LINE_LIFF_會員系統_版本/02_規劃書/update/2026-06-15-驗收說明書/screenshots/front-07-coupons.png",
     "title": "VeeVa 會員",
@@ -82,6 +88,12 @@
     "file": "/Users/ouyangtaisen/Documents/接案/專案/jay/VeeVa 會員管理系統/LINE_LIFF_會員系統_版本/02_規劃書/update/2026-06-15-驗收說明書/screenshots/admin-06-news.png",
     "title": "VeeVa Admin",
     "url": "https://veeva-admin.web.app/?adminTab=news&t=manual-shot-1"
+  },
+  {
+    "name": "admin-09-news-editor",
+    "file": "/Users/ouyangtaisen/Documents/接案/專案/jay/VeeVa 會員管理系統/LINE_LIFF_會員系統_版本/02_規劃書/update/2026-06-15-驗收說明書/screenshots/admin-09-news-editor.png",
+    "title": "VeeVa Admin",
+    "url": "https://veeva-admin.web.app/?adminTab=news&t=manual-news-editor-local2"
   },
   {
     "name": "admin-07-rewards",

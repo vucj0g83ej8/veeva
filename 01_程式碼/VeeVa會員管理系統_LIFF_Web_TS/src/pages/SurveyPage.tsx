@@ -23,10 +23,24 @@ export function SurveyPage({ app }: PageProps) {
   const completedRef = useRef(false)
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
-  const surveyCompleted = app.memberActivityRecords.some(
-    (record) =>
-      record.activityId === activity?.id && record.status === 'completed',
+  const [completionRecordedThisVisitFor, setCompletionRecordedThisVisitFor] =
+    useState<string | null>(null)
+  const surveyRecord = app.memberActivityRecords.find(
+    (record) => record.activityId === activity?.id,
   )
+  const backendSurveyCompleted = surveyRecord?.status === 'completed'
+  const backendSurveyPendingReview = surveyRecord?.status === 'pendingReview'
+  const surveyCompletedBeforeThisVisit =
+    backendSurveyCompleted && completionRecordedThisVisitFor !== activity?.id
+  const surveyPendingReviewBeforeThisVisit =
+    backendSurveyPendingReview && completionRecordedThisVisitFor !== activity?.id
+
+  useEffect(() => {
+    completedRef.current = false
+    setCompletionRecordedThisVisitFor(null)
+    setMessage('')
+    setBusy(false)
+  }, [activity?.id])
 
   const handleBehaviorCompleted = useCallback(
     async (engagement: VeevaSurveyEngagement) => {
@@ -49,7 +63,7 @@ export function SurveyPage({ app }: PageProps) {
           completionMethod: 'behaviorScore',
           surveyEngagement: engagement,
         })
-        await app.refreshMemberData()
+        setCompletionRecordedThisVisitFor(activity.id)
       } catch (error) {
         completedRef.current = false
         setMessage(
@@ -115,15 +129,28 @@ export function SurveyPage({ app }: PageProps) {
         >
           <ArrowLeft size={24} />
         </Link>
-        <strong>{surveyCompleted ? '已填寫完成' : '填寫問卷'}</strong>
+        <strong>
+          {surveyPendingReviewBeforeThisVisit
+            ? '審核中'
+            : surveyCompletedBeforeThisVisit
+              ? '已填寫'
+              : '填寫問卷'}
+        </strong>
         <span aria-hidden="true" />
       </div>
 
       <section className="survey-shell">
-        {surveyCompleted && (
+        {surveyPendingReviewBeforeThisVisit && (
+          <section className="empty-state compact survey-completed-state">
+            <LoaderCircle size={30} />
+            <h2>審核中</h2>
+          </section>
+        )}
+
+        {surveyCompletedBeforeThisVisit && (
           <section className="empty-state compact survey-completed-state">
             <CheckCircle2 size={30} />
-            <h2>已填寫完成</h2>
+            <h2>已填寫</h2>
           </section>
         )}
 
@@ -138,7 +165,7 @@ export function SurveyPage({ app }: PageProps) {
           </div>
         )}
 
-        {!surveyCompleted && (
+        {!surveyPendingReviewBeforeThisVisit && !surveyCompletedBeforeThisVisit && (
           <EmbeddedSurveyFrame
             activity={activity}
             onBehaviorCompleted={handleBehaviorCompleted}
