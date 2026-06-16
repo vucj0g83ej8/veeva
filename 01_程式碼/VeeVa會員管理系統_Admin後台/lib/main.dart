@@ -704,6 +704,8 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
   String? backendError;
   List<backend.VeevaActivity> activities = defaultActivities;
   List<backend.VeevaNews> news = defaultNews;
+  backend.VeevaClientSettings clientSettings =
+      const backend.VeevaClientSettings();
   final reviews = <AdminReviewItem>[
     AdminReviewItem(
       id: 'demo-review-1',
@@ -872,6 +874,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
         if (bootstrap.news.isNotEmpty) {
           news = [...bootstrap.news];
         }
+        clientSettings = bootstrap.clientSettings;
         if (shouldUseBackendUserData || bootstrap.reviews.isNotEmpty) {
           reviews
             ..clear()
@@ -1034,9 +1037,11 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
         ),
       AdminTab.news => _NewsManagement(
           news: news,
+          newsEnabled: clientSettings.newsEnabled,
           onCreate: () => _showNewsDialog(),
           onEdit: (item) => _showNewsDialog(newsItem: item),
           onStatusChanged: _setNewsStatus,
+          onNewsEnabledChanged: _setNewsEnabled,
         ),
       AdminTab.rewards => _RewardsManagement(
           rewards: rewards,
@@ -2155,6 +2160,31 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
           news[index] = previous;
         }
         backendError = errorMessage;
+      });
+    }
+  }
+
+  Future<void> _setNewsEnabled(bool enabled) async {
+    final previous = clientSettings;
+    final next = backend.VeevaClientSettings(newsEnabled: enabled);
+    setState(() {
+      clientSettings = next;
+      backendError = null;
+    });
+
+    try {
+      await repository.saveClientSettings(next);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(enabled ? '前端已顯示最新資訊頁面。' : '前端已隱藏最新資訊頁面。'),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        clientSettings = previous;
+        backendError = '最新資訊頁面顯示設定更新失敗：請確認 Firestore rules 已部署。';
       });
     }
   }
@@ -9826,18 +9856,22 @@ class _ActivityDetailLine extends StatelessWidget {
 class _NewsManagement extends StatefulWidget {
   const _NewsManagement({
     required this.news,
+    required this.newsEnabled,
     required this.onCreate,
     required this.onEdit,
     required this.onStatusChanged,
+    required this.onNewsEnabledChanged,
   });
 
   final List<backend.VeevaNews> news;
+  final bool newsEnabled;
   final VoidCallback onCreate;
   final ValueChanged<backend.VeevaNews> onEdit;
   final Future<void> Function(
     backend.VeevaNews item,
     backend.VeevaContentStatus status,
   ) onStatusChanged;
+  final Future<void> Function(bool enabled) onNewsEnabledChanged;
 
   @override
   State<_NewsManagement> createState() => _NewsManagementState();
@@ -9913,7 +9947,11 @@ class _NewsManagementState extends State<_NewsManagement> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _NewsHeader(onCreate: widget.onCreate),
+                _NewsHeader(
+                  newsEnabled: widget.newsEnabled,
+                  onCreate: widget.onCreate,
+                  onNewsEnabledChanged: widget.onNewsEnabledChanged,
+                ),
                 const SizedBox(height: 16),
                 _NewsFilters(
                   query: query,
@@ -10116,20 +10154,41 @@ class _NewsManagementState extends State<_NewsManagement> {
 }
 
 class _NewsHeader extends StatelessWidget {
-  const _NewsHeader({required this.onCreate});
+  const _NewsHeader({
+    required this.newsEnabled,
+    required this.onCreate,
+    required this.onNewsEnabledChanged,
+  });
 
+  final bool newsEnabled;
   final VoidCallback onCreate;
+  final Future<void> Function(bool enabled) onNewsEnabledChanged;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         const Icon(Icons.newspaper_outlined, color: Color(0xFF216B57)),
-        const SizedBox(width: 10),
-        const Expanded(
-          child: Text(
-            '最新資訊管理',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+        const Text(
+          '最新資訊管理',
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+        ),
+        ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 230),
+          child: SwitchListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            value: newsEnabled,
+            onChanged: onNewsEnabledChanged,
+            title: const Text(
+              '前端顯示最新資訊',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+            subtitle: Text(newsEnabled ? '會員端會顯示最新資訊頁面' : '會員端會隱藏最新資訊頁面'),
+            activeColor: const Color(0xFF216B57),
           ),
         ),
         FilledButton.icon(

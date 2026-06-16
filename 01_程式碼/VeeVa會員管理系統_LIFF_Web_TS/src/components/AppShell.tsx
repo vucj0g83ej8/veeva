@@ -17,7 +17,11 @@ interface AppShellProps extends PropsWithChildren {
 
 export function AppShell({ app, children }: AppShellProps) {
   const location = useLocation()
-  const title = titleForPath(location.pathname)
+  const newsEnabled = app.bootstrap.clientSettings.newsEnabled
+  const visibleNavItems = newsEnabled
+    ? navItems
+    : navItems.filter((item) => item.to !== '/news')
+  const title = titleForPath(location.pathname, newsEnabled)
   const mainClassName = location.pathname.startsWith('/news/')
     ? 'app-main article-main'
     : 'app-main'
@@ -43,8 +47,12 @@ export function AppShell({ app, children }: AppShellProps) {
         )}
       </main>
 
-      <nav className="bottom-nav" aria-label="主要導覽">
-        {navItems.map((item) => {
+      <nav
+        className="bottom-nav"
+        aria-label="主要導覽"
+        style={{ gridTemplateColumns: `repeat(${visibleNavItems.length}, 1fr)` }}
+      >
+        {visibleNavItems.map((item) => {
           const Icon = item.icon
           return (
             <NavLink
@@ -62,8 +70,8 @@ export function AppShell({ app, children }: AppShellProps) {
   )
 }
 
-function titleForPath(pathname: string) {
-  if (pathname.startsWith('/news')) return '最新資訊'
+function titleForPath(pathname: string, newsEnabled: boolean) {
+  if (pathname.startsWith('/news') && newsEnabled) return '最新資訊'
   if (pathname.startsWith('/coupons')) return '兌換券'
   if (pathname.startsWith('/member') || pathname.startsWith('/r/')) return '會員中心'
   return '活動'

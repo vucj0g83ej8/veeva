@@ -29,6 +29,9 @@ const emptyBootstrap: BootstrapData = {
   activities: [],
   news: [],
   rewards: [],
+  clientSettings: {
+    newsEnabled: true,
+  },
 }
 
 export function useVeevaApp() {

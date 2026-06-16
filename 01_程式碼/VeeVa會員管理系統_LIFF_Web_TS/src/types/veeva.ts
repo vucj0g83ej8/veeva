@@ -220,4 +220,9 @@ export interface BootstrapData {
   activities: VeevaActivity[];
   news: VeevaNews[];
   rewards: VeevaReward[];
+  clientSettings: VeevaClientSettings;
+}
+
+export interface VeevaClientSettings {
+  newsEnabled: boolean;
 }

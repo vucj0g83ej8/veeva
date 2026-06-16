@@ -12,6 +12,7 @@ import { SurveyPage } from '../pages/SurveyPage'
 
 export function App() {
   const app = useVeevaApp()
+  const newsEnabled = app.bootstrap.clientSettings.newsEnabled
 
   return (
     <AppShell app={app}>
@@ -28,8 +29,22 @@ export function App() {
           path="/activities/:activityId"
           element={<ActivityDetailPage app={app} />}
         />
-        <Route path="/news" element={<NewsPage app={app} />} />
-        <Route path="/news/:newsId" element={<NewsDetailPage app={app} />} />
+        <Route
+          path="/news"
+          element={
+            newsEnabled ? <NewsPage app={app} /> : <Navigate to="/activities" replace />
+          }
+        />
+        <Route
+          path="/news/:newsId"
+          element={
+            newsEnabled ? (
+              <NewsDetailPage app={app} />
+            ) : (
+              <Navigate to="/activities" replace />
+            )
+          }
+        />
         <Route path="/coupons" element={<CouponsPage app={app} />} />
         <Route path="/member" element={<MemberPage app={app} />} />
         <Route path="*" element={<Navigate to="/activities" replace />} />

@@ -44,6 +44,8 @@ abstract class VeevaRepository {
 
   Future<void> saveNews(VeevaNews news);
 
+  Future<void> saveClientSettings(VeevaClientSettings settings);
+
   Future<void> saveAdminUser(VeevaAdminUser adminUser);
 
   Future<void> saveMemberSettings({
@@ -95,6 +97,8 @@ class FirestoreVeevaRepository implements VeevaRepository {
       firestore.collection('memberRewards');
   CollectionReference<Map<String, dynamic>> get _memberNotifications =>
       firestore.collection('memberNotifications');
+  CollectionReference<Map<String, dynamic>> get _systemSettings =>
+      firestore.collection('systemSettings');
   CollectionReference<Map<String, dynamic>> get _rewardVouchers =>
       firestore.collection('rewardVouchers');
   CollectionReference<Map<String, dynamic>> get _activityRegistrations =>
@@ -104,6 +108,7 @@ class FirestoreVeevaRepository implements VeevaRepository {
 
   @override
   Future<VeevaBootstrap> loadBootstrap() async {
+    final clientSettingsFuture = _systemSettings.doc('clientApp').get();
     final results = await Future.wait([
       _activities.orderBy('active', descending: true).limit(20).get(),
       _news.limit(30).get(),
@@ -115,6 +120,7 @@ class FirestoreVeevaRepository implements VeevaRepository {
       _activityCompletions.limit(300).get(),
       _memberRewards.limit(500).get(),
     ]);
+    final clientSettingsDoc = await clientSettingsFuture;
 
     return VeevaBootstrap(
       activities: results[0]
@@ -161,6 +167,8 @@ class FirestoreVeevaRepository implements VeevaRepository {
           .docs
           .map((doc) => VeevaMemberReward.fromMap(doc.id, doc.data()))
           .toList(),
+      clientSettings:
+          VeevaClientSettings.fromMap(clientSettingsDoc.data() ?? const {}),
     );
   }
 
@@ -449,6 +457,13 @@ class FirestoreVeevaRepository implements VeevaRepository {
   @override
   Future<void> saveNews(VeevaNews news) {
     return _news.doc(news.id).set(news.toMap(), SetOptions(merge: true));
+  }
+
+  @override
+  Future<void> saveClientSettings(VeevaClientSettings settings) {
+    return _systemSettings
+        .doc('clientApp')
+        .set(settings.toMap(), SetOptions(merge: true));
   }
 
   @override
@@ -756,6 +771,7 @@ class DemoVeevaRepository implements VeevaRepository {
       adminUsers: [],
       activityRecords: [],
       memberRewards: [],
+      clientSettings: VeevaClientSettings(),
     );
   }
 
@@ -839,6 +855,9 @@ class DemoVeevaRepository implements VeevaRepository {
 
   @override
   Future<void> saveNews(VeevaNews news) async {}
+
+  @override
+  Future<void> saveClientSettings(VeevaClientSettings settings) async {}
 
   @override
   Future<void> saveAdminUser(VeevaAdminUser adminUser) async {}

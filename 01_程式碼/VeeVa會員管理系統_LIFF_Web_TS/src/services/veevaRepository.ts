@@ -40,11 +40,13 @@ interface RewardQueueResult {
 }
 
 export async function loadBootstrap(): Promise<BootstrapData> {
-  const [activitySnap, newsSnap, rewardSnap] = await Promise.all([
-    getDocs(query(collection(firestore, "activities"), limit(60))),
-    getDocs(query(collection(firestore, "news"), limit(60))),
-    getDocs(query(collection(firestore, "rewards"), limit(80))),
-  ]);
+  const [activitySnap, newsSnap, rewardSnap, clientSettingsSnap] =
+    await Promise.all([
+      getDocs(query(collection(firestore, "activities"), limit(60))),
+      getDocs(query(collection(firestore, "news"), limit(60))),
+      getDocs(query(collection(firestore, "rewards"), limit(80))),
+      getDoc(doc(firestore, "systemSettings", "clientApp")),
+    ]);
 
   return {
     activities: activitySnap.docs.map((item) =>
@@ -54,6 +56,7 @@ export async function loadBootstrap(): Promise<BootstrapData> {
     rewards: rewardSnap.docs.map((item) =>
       rewardFromData(item.id, item.data()),
     ),
+    clientSettings: clientSettingsFromData(clientSettingsSnap.data() ?? {}),
   };
 }
 
@@ -862,6 +865,12 @@ function rewardFromData(
     expiresAt: dateValue(data.expiresAt),
     imageUrl: optionalString(data.imageUrl),
     description: optionalString(data.description),
+  };
+}
+
+function clientSettingsFromData(data: Record<string, unknown>) {
+  return {
+    newsEnabled: data.newsEnabled !== false,
   };
 }
 

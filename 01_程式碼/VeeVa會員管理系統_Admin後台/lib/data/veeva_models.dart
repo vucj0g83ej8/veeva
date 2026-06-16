@@ -105,6 +105,7 @@ class VeevaBootstrap {
     required this.adminUsers,
     required this.activityRecords,
     required this.memberRewards,
+    required this.clientSettings,
   });
 
   final List<VeevaActivity> activities;
@@ -115,6 +116,28 @@ class VeevaBootstrap {
   final List<VeevaAdminUser> adminUsers;
   final List<VeevaActivityRecord> activityRecords;
   final List<VeevaMemberReward> memberRewards;
+  final VeevaClientSettings clientSettings;
+}
+
+class VeevaClientSettings {
+  const VeevaClientSettings({
+    this.newsEnabled = true,
+  });
+
+  factory VeevaClientSettings.fromMap(Map<String, Object?> data) {
+    return VeevaClientSettings(
+      newsEnabled: data['newsEnabled'] != false,
+    );
+  }
+
+  final bool newsEnabled;
+
+  Map<String, Object?> toMap() {
+    return {
+      'newsEnabled': newsEnabled,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+  }
 }
 
 class VeevaMember {
