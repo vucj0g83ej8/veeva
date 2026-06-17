@@ -72,6 +72,7 @@ export interface VeevaActivity {
   location?: string;
   activityTime?: string;
   organizer?: string;
+  noticeItems?: string[];
 }
 
 export interface VeevaActivityRegistration {

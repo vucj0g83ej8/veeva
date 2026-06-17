@@ -1006,6 +1006,11 @@ final defaultActivities = <VeevaActivity>[
     active: true,
     periodText: '2026/05/01 - 2026/06/30',
     note: '完成問卷後發放兌換券',
+    noticeItems: [
+      '完成問卷後，系統會依活動規則確認紀錄。',
+      '若活動包含兌換券，將於人工確認後發放。',
+      '如有任何問題，請聯繫主辦單位。',
+    ],
   ),
   const VeevaActivity(
     id: 'seminar-reminder',
@@ -1018,6 +1023,11 @@ final defaultActivities = <VeevaActivity>[
     active: false,
     periodText: '2026/06/15 - 2026/07/15',
     note: '醫學會活動報名通知',
+    noticeItems: [
+      '本活動名額有限，請盡早完成報名。',
+      '完成報名後，活動前一週將寄發行前通知。',
+      '如有任何問題，請聯繫主辦單位。',
+    ],
   ),
   const VeevaActivity(
     id: 'hospital-mission',
@@ -1030,6 +1040,11 @@ final defaultActivities = <VeevaActivity>[
     active: false,
     periodText: '未設定',
     note: '指定院所會員任務',
+    noticeItems: [
+      '請依活動說明完成指定流程。',
+      '活動紀錄將以系統實際完成狀態為準。',
+      '如有任何問題，請聯繫主辦單位。',
+    ],
   ),
 ];
 

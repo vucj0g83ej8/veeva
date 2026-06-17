@@ -36,10 +36,6 @@ export function ActivitiesPage({ app }: PageProps) {
   const activities = useMemo(
     () =>
       app.bootstrap.activities
-        .filter(
-          (activity) =>
-            activity.status === 'published' || activity.status === 'archived',
-        )
         .filter((activity) =>
           shouldShowActivity(activity, activityRecordById.get(activity.id)),
         )
@@ -243,6 +239,8 @@ function shouldShowActivity(
   record?: VeevaActivityRegistration,
 ) {
   if (record) return true
+  if (!activity.active) return false
+  if (activity.status === 'draft' || activity.status === 'archived') return false
   return activityPhase(activity) !== 'ended'
 }
 

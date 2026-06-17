@@ -180,6 +180,37 @@ export function useVeevaApp() {
     void initialize()
   }, [initialize])
 
+  useEffect(() => {
+    let disposed = false
+    let unsubscribe: (() => void) | undefined
+
+    void import('../services/veevaRepository').then((repository) => {
+      if (disposed) return
+      unsubscribe = repository.subscribeActivities(
+        (activities) => {
+          setState((current) => ({
+            ...current,
+            bootstrap: {
+              ...current.bootstrap,
+              activities,
+            },
+          }))
+        },
+        (error) => {
+          setState((current) => ({
+            ...current,
+            error: error.message,
+          }))
+        },
+      )
+    })
+
+    return () => {
+      disposed = true
+      unsubscribe?.()
+    }
+  }, [])
+
   const login = useCallback(async () => {
     setState((current) => ({ ...current, busy: true, error: undefined }))
     try {

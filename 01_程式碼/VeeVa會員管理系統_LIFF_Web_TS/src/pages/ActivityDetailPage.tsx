@@ -72,6 +72,20 @@ function ActivityDetailContent({
       ),
     [activity.id, app.memberActivityRecords],
   );
+  if (!shouldShowActivityDetail(activity, memberActivityRecord)) {
+    return (
+      <section className="empty-state">
+        <Megaphone size={30} />
+        <h2>活動尚未開放</h2>
+        <p>這個活動目前未上架或已封存。</p>
+        <Link className="secondary-button" to="/activities">
+          <ArrowLeft size={18} />
+          回活動列表
+        </Link>
+      </section>
+    );
+  }
+
   const statusLabel = activityStatusLabel(activity, memberActivityRecord);
   const registrationStatus =
     activity.type === "registration" ? memberActivityRecord?.status : undefined;
@@ -82,6 +96,7 @@ function ActivityDetailContent({
   const surveyPendingReview =
     activity.type === "survey" &&
     memberActivityRecord?.status === "pendingReview";
+  const noticeItems = noticeItemsFor(activity);
   const primaryButtonLabel =
     surveyPendingReview
       ? "審核中"
@@ -335,17 +350,19 @@ function ActivityDetailContent({
             <ChevronDown size={18} />
           </div>
           <p>{activity.description}</p>
-          <p>{activity.note ?? flow.nextStep}</p>
+          {activity.note && <p>{activity.note}</p>}
         </section>
 
-        <section className="activity-detail-card">
-          <h3>注意事項</h3>
-          <ul className="activity-detail-notes">
-            {noticeItemsFor(activity).map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-        </section>
+        {noticeItems.length > 0 && (
+          <section className="activity-detail-card">
+            <h3>注意事項</h3>
+            <ul className="activity-detail-notes">
+              {noticeItems.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </section>
+        )}
       </div>
     </article>
   );
@@ -424,28 +441,17 @@ function fallbackLocation(activity: VeevaActivity) {
   return "活動地點待通知";
 }
 
+function shouldShowActivityDetail(
+  activity: VeevaActivity,
+  record?: VeevaActivityRegistration,
+) {
+  if (record) return true;
+  if (!activity.active) return false;
+  return activity.status !== "draft" && activity.status !== "archived";
+}
+
 function noticeItemsFor(activity: VeevaActivity) {
-  if (activity.type === "survey") {
-    return [
-      "完成問卷後，系統會依活動規則確認紀錄。",
-      "若活動包含兌換券，將於人工確認後發放。",
-      "如有任何問題，請聯繫主辦單位。",
-    ];
-  }
-
-  if (activity.type === "registration") {
-    return [
-      "本活動名額有限，請盡早完成報名。",
-      "完成報名後，活動前一週將寄發行前通知。",
-      "如有任何問題，請聯繫主辦單位。",
-    ];
-  }
-
-  return [
-    "請依活動說明完成指定流程。",
-    "活動紀錄將以系統實際完成狀態為準。",
-    "如有任何問題，請聯繫主辦單位。",
-  ];
+  return activity.noticeItems ?? [];
 }
 
 async function copyTextToClipboard(text: string) {

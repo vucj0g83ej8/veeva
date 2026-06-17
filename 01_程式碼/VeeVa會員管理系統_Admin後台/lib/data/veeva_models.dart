@@ -592,6 +592,7 @@ class VeevaActivity {
     this.activityTime,
     this.organizer,
     this.note,
+    this.noticeItems = const [],
     this.imageUrl,
   });
 
@@ -621,6 +622,7 @@ class VeevaActivity {
       activityTime: data['activityTime']?.toString(),
       organizer: data['organizer']?.toString(),
       note: data['note']?.toString(),
+      noticeItems: _readStringList(data['noticeItems']),
       imageUrl: data['imageUrl']?.toString(),
     );
   }
@@ -643,6 +645,7 @@ class VeevaActivity {
   final String? activityTime;
   final String? organizer;
   final String? note;
+  final List<String> noticeItems;
   final String? imageUrl;
 
   Map<String, Object?> toMap() {
@@ -664,6 +667,7 @@ class VeevaActivity {
       'activityTime': activityTime,
       'organizer': organizer,
       'note': note,
+      'noticeItems': noticeItems,
       'imageUrl': imageUrl,
       'updatedAt': FieldValue.serverTimestamp(),
     };

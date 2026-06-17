@@ -5,6 +5,7 @@ import {
   getDocs,
   increment,
   limit,
+  onSnapshot,
   query,
   runTransaction,
   serverTimestamp,
@@ -58,6 +59,21 @@ export async function loadBootstrap(): Promise<BootstrapData> {
     ),
     clientSettings: clientSettingsFromData(clientSettingsSnap.data() ?? {}),
   };
+}
+
+export function subscribeActivities(
+  onActivities: (activities: VeevaActivity[]) => void,
+  onError?: (error: Error) => void,
+) {
+  return onSnapshot(
+    query(collection(firestore, "activities"), limit(80)),
+    (snapshot) => {
+      onActivities(
+        snapshot.docs.map((item) => activityFromData(item.id, item.data())),
+      );
+    },
+    (error) => onError?.(error),
+  );
 }
 
 export async function loadMember(memberId: string) {
@@ -827,6 +843,7 @@ function activityFromData(
     location: optionalString(data.location),
     activityTime: optionalString(data.activityTime),
     organizer: optionalString(data.organizer),
+    noticeItems: stringListValue(data.noticeItems),
   };
 }
 

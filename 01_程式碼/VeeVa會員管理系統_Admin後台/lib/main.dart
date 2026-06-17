@@ -1192,6 +1192,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       activityTime: activity.activityTime,
       organizer: activity.organizer,
       note: activity.note,
+      noticeItems: activity.noticeItems,
       imageUrl: activity.imageUrl,
       surveyUrl: activity.surveyUrl,
       actionUrl: activity.actionUrl,
@@ -1216,6 +1217,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       activityTime: activity.activityTime,
       organizer: activity.organizer,
       note: activity.note,
+      noticeItems: activity.noticeItems,
       imageUrl: activity.imageUrl,
       surveyUrl: activity.surveyUrl,
       actionUrl: activity.actionUrl,
@@ -1278,6 +1280,9 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
     final organizerController =
         TextEditingController(text: activity?.organizer ?? 'VeeVa Member');
     final noteController = TextEditingController(text: activity?.note ?? '');
+    final noticeItemsController = TextEditingController(
+      text: activity == null ? '' : activity.noticeItems.join('\n'),
+    );
     final imageController =
         TextEditingController(text: activity?.imageUrl ?? '');
     final surveyUrlController = TextEditingController(
@@ -1319,7 +1324,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
               );
               final description = _fallbackText(
                 descriptionController.text,
-                isDraft ? '尚未填寫活動說明。' : '',
+                isDraft ? '尚未填寫活動內容。' : '',
               );
               final reward = _fallbackText(
                 rewardController.text,
@@ -1350,6 +1355,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                 activityTime: _optionalText(activityTimeController.text),
                 organizer: _optionalText(organizerController.text),
                 note: _optionalText(noteController.text),
+                noticeItems: _stringLines(noticeItemsController.text),
                 imageUrl: _optionalText(imageController.text),
                 surveyUrl: activityType == backend.VeevaActivityType.survey
                     ? surveyUrl
@@ -1367,7 +1373,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
               final surveyUrl = _optionalText(surveyUrlController.text);
               final actionUrl = _optionalText(actionUrlController.text);
               if (!draft && (title.isEmpty || description.isEmpty)) {
-                setDialogState(() => formError = '請至少填寫活動名稱與活動說明。');
+                setDialogState(() => formError = '請至少填寫活動名稱與活動內容。');
                 return false;
               }
               if (!draft &&
@@ -1464,7 +1470,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                             ),
                             _ActivityDetailLine(
                               icon: Icons.date_range_outlined,
-                              label: '期間',
+                              label: '活動日期',
                               value: preview.periodText ?? '未設定',
                             ),
                             _ActivityDetailLine(
@@ -1482,6 +1488,12 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                               label: '主辦單位',
                               value: preview.organizer ?? 'VeeVa Member',
                             ),
+                            if (preview.noticeItems.isNotEmpty)
+                              _ActivityDetailLine(
+                                icon: Icons.info_outline,
+                                label: '注意事項',
+                                value: preview.noticeItems.join('、'),
+                              ),
                           ],
                         ),
                       ),
@@ -1794,14 +1806,14 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                                       const SizedBox(height: 10),
                                       linkField,
                                       const SizedBox(height: 16),
-                                      const _ActivityFieldLabel(text: '活動說明'),
+                                      const _ActivityFieldLabel(text: '活動內容'),
                                       TextField(
                                         controller: descriptionController,
                                         minLines: 3,
                                         maxLines: 5,
                                         maxLength: 500,
                                         decoration: _activityInputDecoration(
-                                          hintText: '請輸入活動說明，讓會員了解活動內容...',
+                                          hintText: '請輸入前台活動內容第一段...',
                                           icon: Icons.notes_outlined,
                                         ),
                                       ),
@@ -1835,11 +1847,12 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      const _ActivityFieldLabel(text: '活動期間'),
+                                      const _ActivityFieldLabel(text: '活動日期'),
                                       TextField(
                                         controller: periodController,
                                         decoration: _activityInputDecoration(
-                                          hintText: '開始日期  ~  結束日期',
+                                          hintText:
+                                              '例如：2026/06/15 - 2026/07/15',
                                           icon: Icons.calendar_month_outlined,
                                           suffixIcon: const Icon(
                                             Icons.event_outlined,
@@ -2092,15 +2105,40 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                             ),
                             _ActivityFormSection(
                               number: 4,
-                              title: '備註',
-                              child: TextField(
-                                controller: noteController,
-                                minLines: 3,
-                                maxLines: 4,
-                                maxLength: 200,
-                                decoration: _activityInputDecoration(
-                                  hintText: '請輸入備註（選填）',
-                                ),
+                              title: '活動內容與注意事項',
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  const _ActivityFieldLabel(
+                                    text: '活動內容第二段',
+                                  ),
+                                  TextField(
+                                    controller: noteController,
+                                    minLines: 3,
+                                    maxLines: 4,
+                                    maxLength: 200,
+                                    decoration: _activityInputDecoration(
+                                      hintText: '會顯示在前台「活動內容」區塊（選填）',
+                                      icon: Icons.sticky_note_2_outlined,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  const _ActivityFieldLabel(
+                                    text: '注意事項',
+                                  ),
+                                  TextField(
+                                    controller: noticeItemsController,
+                                    minLines: 4,
+                                    maxLines: 6,
+                                    maxLength: 400,
+                                    decoration: _activityInputDecoration(
+                                      hintText:
+                                          '每行一項，例如：\n本活動名額有限，請盡早完成報名。\n如有任何問題，請聯繫主辦單位。',
+                                      icon: Icons.info_outline,
+                                      helperText: '前台「注意事項」會依照每一行顯示為一個項目。',
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ],
@@ -2130,6 +2168,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
     activityTimeController.dispose();
     organizerController.dispose();
     noteController.dispose();
+    noticeItemsController.dispose();
     imageController.dispose();
     surveyUrlController.dispose();
     actionUrlController.dispose();
@@ -9089,6 +9128,7 @@ class _ActivityManagementState extends State<_ActivityManagement> {
           activity.location,
           activity.organizer,
           activity.note,
+          ...activity.noticeItems,
           _activityStatusLabel(activity),
         ].whereType<String>().any((value) {
           return value.toLowerCase().contains(keyword);
@@ -9168,7 +9208,7 @@ class _ActivityManagementState extends State<_ActivityManagement> {
                     ),
                   _ActivityDetailLine(
                     icon: Icons.date_range_outlined,
-                    label: '期間',
+                    label: '活動日期',
                     value: activity.periodText ?? '未設定',
                   ),
                   _ActivityDetailLine(
@@ -9189,8 +9229,14 @@ class _ActivityManagementState extends State<_ActivityManagement> {
                   if (activity.note?.isNotEmpty == true)
                     _ActivityDetailLine(
                       icon: Icons.sticky_note_2_outlined,
-                      label: '備註',
+                      label: '內容補充',
                       value: activity.note!,
+                    ),
+                  if (activity.noticeItems.isNotEmpty)
+                    _ActivityDetailLine(
+                      icon: Icons.info_outline,
+                      label: '注意事項',
+                      value: activity.noticeItems.join('、'),
                     ),
                   if (activity.imageUrl?.isNotEmpty == true)
                     _ActivityDetailLine(
@@ -9515,8 +9561,8 @@ class _ActivityDataTable extends StatelessWidget {
           DataColumn(label: Text('類型')),
           DataColumn(label: Text('狀態')),
           DataColumn(label: Text('獎勵')),
-          DataColumn(label: Text('活動期間')),
-          DataColumn(label: Text('備註')),
+          DataColumn(label: Text('活動日期')),
+          DataColumn(label: Text('內容補充')),
           DataColumn(label: Text('操作')),
         ],
         rows: [
@@ -9611,13 +9657,13 @@ class _ActivityMobileCard extends StatelessWidget {
           ),
           _ActivityDetailLine(
             icon: Icons.date_range_outlined,
-            label: '期間',
+            label: '活動日期',
             value: activity.periodText ?? '未設定',
           ),
           if (activity.note?.isNotEmpty == true)
             _ActivityDetailLine(
               icon: Icons.sticky_note_2_outlined,
-              label: '備註',
+              label: '內容補充',
               value: activity.note!,
             ),
           const SizedBox(height: 10),
@@ -10606,6 +10652,14 @@ String _fallbackText(String value, String fallback) {
 String? _optionalText(String value) {
   final text = value.trim();
   return text.isEmpty ? null : text;
+}
+
+List<String> _stringLines(String value) {
+  return value
+      .split(RegExp(r'\r?\n'))
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)
+      .toList();
 }
 
 bool _isHttpUrl(String? value) {
