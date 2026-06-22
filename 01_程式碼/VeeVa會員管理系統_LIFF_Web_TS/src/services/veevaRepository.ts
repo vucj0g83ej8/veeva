@@ -838,6 +838,7 @@ function activityFromData(
     periodText: optionalString(data.periodText),
     note: optionalString(data.note),
     imageUrl: optionalString(data.imageUrl),
+    shareImageUrl: optionalString(data.shareImageUrl),
     surveyUrl: optionalString(data.surveyUrl),
     actionUrl: optionalString(data.actionUrl),
     location: optionalString(data.location),

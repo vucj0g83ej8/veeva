@@ -344,14 +344,15 @@ function ActivityDetailContent({
           />
         </section>
 
-        <section className="activity-detail-card">
-          <div className="activity-detail-card-title-row">
-            <h3>活動內容</h3>
-            <ChevronDown size={18} />
-          </div>
-          <p>{activity.description}</p>
-          {activity.note && <p>{activity.note}</p>}
-        </section>
+        {activity.note && (
+          <section className="activity-detail-card">
+            <div className="activity-detail-card-title-row">
+              <h3>活動內容</h3>
+              <ChevronDown size={18} />
+            </div>
+            <p>{activity.note}</p>
+          </section>
+        )}
 
         {noticeItems.length > 0 && (
           <section className="activity-detail-card">

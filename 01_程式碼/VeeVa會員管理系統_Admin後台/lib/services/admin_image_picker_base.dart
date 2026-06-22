@@ -13,6 +13,10 @@ class PickedAdminImage {
     this.width,
     this.height,
     this.quality,
+    this.shareName,
+    this.shareBytes,
+    this.shareContentType,
+    this.shareQuality,
   });
 
   final String name;
@@ -22,9 +26,17 @@ class PickedAdminImage {
   final int? width;
   final int? height;
   final double? quality;
+  final String? shareName;
+  final Uint8List? shareBytes;
+  final String? shareContentType;
+  final double? shareQuality;
 
   int get sizeBytes => bytes.lengthInBytes;
   int get originalSizeBytes => sourceSizeBytes ?? sizeBytes;
   bool get wasCompressed =>
       sourceSizeBytes != null && sourceSizeBytes != sizeBytes;
+  bool get hasShareVariant =>
+      shareBytes != null &&
+      shareBytes!.isNotEmpty &&
+      (shareContentType?.isNotEmpty ?? false);
 }

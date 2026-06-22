@@ -289,12 +289,16 @@ export async function shareActivityCard(activity: VeevaActivity) {
 }
 
 function activityShareImageUrl(activity: VeevaActivity) {
+  const configuredImageUrl = lineCompatibleActivityImageUrl(activity)
+  if (configuredImageUrl) {
+    return configuredImageUrl
+  }
+
   const key = [
     activity.id,
     activity.type,
     activity.title,
     activity.description,
-    activity.imageUrl ?? '',
   ]
     .join(' ')
     .toLowerCase()
@@ -322,6 +326,33 @@ function activityShareImageUrl(activity: VeevaActivity) {
     return absoluteAssetUrl('/assets/share/activity-webinar.png')
   }
   return absoluteAssetUrl('/assets/share/activity-seminar.png')
+}
+
+function lineCompatibleActivityImageUrl(activity: VeevaActivity) {
+  const candidates = [activity.shareImageUrl, activity.imageUrl]
+  for (const candidate of candidates) {
+    if (isLineShareImageUrl(candidate)) {
+      return candidate!.trim()
+    }
+  }
+  return undefined
+}
+
+function isLineShareImageUrl(value?: string) {
+  const text = value?.trim()
+  if (!text) return false
+  try {
+    const url = new URL(text)
+    if (url.protocol !== 'https:') return false
+    const path = decodeURIComponent(url.pathname).toLowerCase()
+    if (path.endsWith('.webp') || path.endsWith('.gif')) return false
+    if (path.endsWith('.jpg') || path.endsWith('.jpeg') || path.endsWith('.png')) {
+      return true
+    }
+    return true
+  } catch {
+    return false
+  }
 }
 
 function absoluteAssetUrl(path: string) {

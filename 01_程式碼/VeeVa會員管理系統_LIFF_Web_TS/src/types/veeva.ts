@@ -67,6 +67,7 @@ export interface VeevaActivity {
   periodText?: string;
   note?: string;
   imageUrl?: string;
+  shareImageUrl?: string;
   surveyUrl?: string;
   actionUrl?: string;
   location?: string;

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   CalendarDays,
   ChevronRight,
@@ -137,7 +137,7 @@ function ActivityCard({
     >
       <div className="activity-thumb-frame">
         {activity.imageUrl ? (
-          <img src={activity.imageUrl} alt="" loading="lazy" />
+          <ActivityThumbnailImage imageUrl={activity.imageUrl} />
         ) : (
           <div className={`activity-thumb-fallback ${activity.type}`}>
             <ActivityThumbnailIcon type={activity.type} />
@@ -164,6 +164,44 @@ function ActivityCard({
       <ChevronRight className="activity-card-chevron" size={24} />
     </Link>
   )
+}
+
+function ActivityThumbnailImage({ imageUrl }: { imageUrl: string }) {
+  const [densityClass, setDensityClass] = useState('unknown')
+
+  useEffect(() => {
+    const image = new Image()
+    image.onload = () => {
+      setDensityClass(
+        thumbnailDensityClassFor(image.naturalWidth, image.naturalHeight),
+      )
+    }
+    image.onerror = () => setDensityClass('unknown')
+    image.src = imageUrl
+  }, [imageUrl])
+
+  return (
+    <img
+      src={imageUrl}
+      alt=""
+      className={`activity-thumb-image ${densityClass}`}
+      loading="lazy"
+      onLoad={(event) => {
+        const image = event.currentTarget
+        setDensityClass(
+          thumbnailDensityClassFor(image.naturalWidth, image.naturalHeight),
+        )
+      }}
+    />
+  )
+}
+
+function thumbnailDensityClassFor(width: number, height: number) {
+  const ratio = width / height
+  if (!Number.isFinite(ratio) || ratio <= 0) return 'unknown'
+  if (ratio > 1.12) return 'wide'
+  if (ratio < 0.88) return 'tall'
+  return 'poster'
 }
 
 function ActivityThumbnailIcon({ type }: { type: VeevaActivity['type'] }) {

@@ -594,6 +594,7 @@ class VeevaActivity {
     this.note,
     this.noticeItems = const [],
     this.imageUrl,
+    this.shareImageUrl,
   });
 
   factory VeevaActivity.fromMap(String id, Map<String, Object?> data) {
@@ -624,6 +625,7 @@ class VeevaActivity {
       note: data['note']?.toString(),
       noticeItems: _readStringList(data['noticeItems']),
       imageUrl: data['imageUrl']?.toString(),
+      shareImageUrl: data['shareImageUrl']?.toString(),
     );
   }
 
@@ -647,6 +649,7 @@ class VeevaActivity {
   final String? note;
   final List<String> noticeItems;
   final String? imageUrl;
+  final String? shareImageUrl;
 
   Map<String, Object?> toMap() {
     return {
@@ -669,6 +672,7 @@ class VeevaActivity {
       'note': note,
       'noticeItems': noticeItems,
       'imageUrl': imageUrl,
+      'shareImageUrl': shareImageUrl,
       'updatedAt': FieldValue.serverTimestamp(),
     };
   }

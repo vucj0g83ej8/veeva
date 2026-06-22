@@ -44,10 +44,13 @@ Future<PickedAdminImage?> _compressForMobile(html.File file) async {
     final canvas = html.CanvasElement(width: width, height: height);
     final context = canvas.context2D
       ..imageSmoothingEnabled = true
-      ..imageSmoothingQuality = 'high';
+      ..imageSmoothingQuality = 'high'
+      ..fillStyle = '#FFFFFF';
+    context.fillRect(0, 0, width, height);
     context.drawImageScaled(image, 0, 0, width, height);
 
     final encoded = _encodeMobileWebp(canvas);
+    final shareEncoded = _encodeLineShareJpeg(canvas);
     return PickedAdminImage(
       name: _webpFileName(file.name),
       bytes: encoded.bytes,
@@ -56,6 +59,10 @@ Future<PickedAdminImage?> _compressForMobile(html.File file) async {
       width: width,
       height: height,
       quality: encoded.quality,
+      shareName: _jpgFileName(file.name),
+      shareBytes: shareEncoded.bytes,
+      shareContentType: shareEncoded.contentType,
+      shareQuality: shareEncoded.quality,
     );
   } finally {
     html.Url.revokeObjectUrl(sourceUrl);
@@ -111,6 +118,23 @@ _EncodedAdminImage _encodeMobileWebp(html.CanvasElement canvas) {
   return fallback!;
 }
 
+_EncodedAdminImage _encodeLineShareJpeg(html.CanvasElement canvas) {
+  const qualities = [0.82, 0.76, 0.70, 0.64];
+  _EncodedAdminImage? fallback;
+  for (final quality in qualities) {
+    final encoded = _dataUrlToImage(canvas.toDataUrl('image/jpeg', quality));
+    fallback = _EncodedAdminImage(
+      bytes: encoded.bytes,
+      contentType: encoded.contentType,
+      quality: quality,
+    );
+    if (encoded.bytes.lengthInBytes <= adminImageTargetBytes * 2) {
+      return fallback;
+    }
+  }
+  return fallback!;
+}
+
 _DataUrlImage _dataUrlToImage(String dataUrl) {
   final match =
       RegExp(r'^data:([^;]+);base64,(.*)$').firstMatch(dataUrl.trim());
@@ -124,6 +148,14 @@ _DataUrlImage _dataUrlToImage(String dataUrl) {
 }
 
 String _webpFileName(String fileName) {
+  return '${_sanitizedImageBaseName(fileName)}.webp';
+}
+
+String _jpgFileName(String fileName) {
+  return '${_sanitizedImageBaseName(fileName)}-line-share.jpg';
+}
+
+String _sanitizedImageBaseName(String fileName) {
   final sanitized = fileName
       .split(RegExp(r'[/\\]'))
       .last
@@ -133,9 +165,9 @@ String _webpFileName(String fileName) {
       .replaceAll(RegExp(r'-+'), '-')
       .replaceAll(RegExp(r'^[-.]+|[-.]+$'), '');
   if (sanitized.isEmpty) {
-    return 'image.webp';
+    return 'image';
   }
-  return '$sanitized.webp';
+  return sanitized;
 }
 
 class _EncodedAdminImage {

@@ -44,13 +44,19 @@ flutter build web --dart-define=LIFF_ID=2010298394-7PwRtpTY
 - LIFF ID：`2010298394-7PwRtpTY`
 - LIFF URL：`https://liff.line.me/2010298394-7PwRtpTY`
 - LINE Official Account：`@896pwyxc` / `veeva 測試`
-- 測試 rich menu ID：`richmenu-332486f0cedb701fcb794dc9568b59a2`
+- 目前 rich menu ID：`richmenu-3e7f1936d878241daddba1b3b9756c97`
+- 舊版測試 rich menu ID：`richmenu-332486f0cedb701fcb794dc9568b59a2`
 
-目前 LINE@ 預設圖文選單已透過 Messaging API 設為測試入口，點擊後會開啟 LIFF URL。
-測試圖產生腳本與輸出圖檔在：
+目前 LINE@ 預設圖文選單已透過 Messaging API 設為 OPENPOINT 問卷入口，點擊後會開啟 LIFF 問卷活動頁：
+
+- `https://liff.line.me/2010298394-7PwRtpTY/activities/survey-coffee`
+
+目前圖文選單圖檔與套用腳本在：
 
 - `tools/create_rich_menu_test_image.mjs`
 - `tools/veeva-rich-menu-test.png`
+- `tools/rich-menu/veeva-openpoint-rich-menu.jpg`
+- `tools/rich-menu/setup-openpoint-rich-menu.mjs`
 
 ## 目前登入流程
 

@@ -1194,6 +1194,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       note: activity.note,
       noticeItems: activity.noticeItems,
       imageUrl: activity.imageUrl,
+      shareImageUrl: activity.shareImageUrl,
       surveyUrl: activity.surveyUrl,
       actionUrl: activity.actionUrl,
     );
@@ -1219,6 +1220,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       note: activity.note,
       noticeItems: activity.noticeItems,
       imageUrl: activity.imageUrl,
+      shareImageUrl: activity.shareImageUrl,
       surveyUrl: activity.surveyUrl,
       actionUrl: activity.actionUrl,
     );
@@ -1285,6 +1287,8 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
     );
     final imageController =
         TextEditingController(text: activity?.imageUrl ?? '');
+    final shareImageController =
+        TextEditingController(text: activity?.shareImageUrl ?? '');
     final surveyUrlController = TextEditingController(
         text: activity?.surveyUrl ?? defaultVeevaSurveyUrl);
     final actionUrlController = TextEditingController(
@@ -1324,7 +1328,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
               );
               final description = _fallbackText(
                 descriptionController.text,
-                isDraft ? '尚未填寫活動內容。' : '',
+                isDraft ? '尚未填寫活動概述。' : '',
               );
               final reward = _fallbackText(
                 rewardController.text,
@@ -1357,6 +1361,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                 note: _optionalText(noteController.text),
                 noticeItems: _stringLines(noticeItemsController.text),
                 imageUrl: _optionalText(imageController.text),
+                shareImageUrl: _optionalText(shareImageController.text),
                 surveyUrl: activityType == backend.VeevaActivityType.survey
                     ? surveyUrl
                     : null,
@@ -1373,7 +1378,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
               final surveyUrl = _optionalText(surveyUrlController.text);
               final actionUrl = _optionalText(actionUrlController.text);
               if (!draft && (title.isEmpty || description.isEmpty)) {
-                setDialogState(() => formError = '請至少填寫活動名稱與活動內容。');
+                setDialogState(() => formError = '請至少填寫活動名稱與活動概述。');
                 return false;
               }
               if (!draft &&
@@ -1447,12 +1452,18 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                                 fontWeight: FontWeight.w900,
                               ),
                             ),
-                            const SizedBox(height: 10),
-                            Text(
-                              preview.description,
-                              style: const TextStyle(height: 1.5),
-                            ),
                             const SizedBox(height: 14),
+                            _ActivityDetailLine(
+                              icon: Icons.notes_outlined,
+                              label: '活動概述',
+                              value: preview.description,
+                            ),
+                            if (preview.note?.isNotEmpty == true)
+                              _ActivityDetailLine(
+                                icon: Icons.sticky_note_2_outlined,
+                                label: '活動內容',
+                                value: preview.note!,
+                              ),
                             _ActivityDetailLine(
                               icon: Icons.redeem_outlined,
                               label: '完成獎勵',
@@ -1806,15 +1817,41 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                                       const SizedBox(height: 10),
                                       linkField,
                                       const SizedBox(height: 16),
-                                      const _ActivityFieldLabel(text: '活動內容'),
+                                      const _ActivityFieldLabel(text: '活動概述'),
                                       TextField(
                                         controller: descriptionController,
                                         minLines: 3,
                                         maxLines: 5,
                                         maxLength: 500,
                                         decoration: _activityInputDecoration(
-                                          hintText: '請輸入前台活動內容第一段...',
+                                          hintText: '請輸入活動列表與上方摘要使用的活動概述...',
                                           icon: Icons.notes_outlined,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 16),
+                                      const _ActivityFieldLabel(text: '活動內容'),
+                                      TextField(
+                                        controller: noteController,
+                                        minLines: 4,
+                                        maxLines: 7,
+                                        maxLength: 600,
+                                        decoration: _activityInputDecoration(
+                                          hintText: '請輸入活動詳情頁「活動內容」區塊文字...',
+                                          icon: Icons.sticky_note_2_outlined,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 16),
+                                      const _ActivityFieldLabel(text: '注意事項'),
+                                      TextField(
+                                        controller: noticeItemsController,
+                                        minLines: 4,
+                                        maxLines: 6,
+                                        maxLength: 400,
+                                        decoration: _activityInputDecoration(
+                                          hintText:
+                                              '每行一項，例如：\n本活動名額有限，請盡早完成報名。\n如有任何問題，請聯繫主辦單位。',
+                                          icon: Icons.info_outline,
+                                          helperText: '前台「注意事項」會依照每一行顯示為一個項目。',
                                         ),
                                       ),
                                     ],
@@ -2098,47 +2135,10 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                               title: '活動圖片',
                               child: _ActivityImageUploadSection(
                                 controller: imageController,
+                                shareController: shareImageController,
                                 storageFolder:
                                     'public/activities/$activityId/cover',
                                 onUpload: repository.uploadImage,
-                              ),
-                            ),
-                            _ActivityFormSection(
-                              number: 4,
-                              title: '活動內容與注意事項',
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  const _ActivityFieldLabel(
-                                    text: '活動內容第二段',
-                                  ),
-                                  TextField(
-                                    controller: noteController,
-                                    minLines: 3,
-                                    maxLines: 4,
-                                    maxLength: 200,
-                                    decoration: _activityInputDecoration(
-                                      hintText: '會顯示在前台「活動內容」區塊（選填）',
-                                      icon: Icons.sticky_note_2_outlined,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  const _ActivityFieldLabel(
-                                    text: '注意事項',
-                                  ),
-                                  TextField(
-                                    controller: noticeItemsController,
-                                    minLines: 4,
-                                    maxLines: 6,
-                                    maxLength: 400,
-                                    decoration: _activityInputDecoration(
-                                      hintText:
-                                          '每行一項，例如：\n本活動名額有限，請盡早完成報名。\n如有任何問題，請聯繫主辦單位。',
-                                      icon: Icons.info_outline,
-                                      helperText: '前台「注意事項」會依照每一行顯示為一個項目。',
-                                    ),
-                                  ),
-                                ],
                               ),
                             ),
                           ],
@@ -4292,11 +4292,13 @@ class _RewardImageEmptyState extends StatelessWidget {
 class _ActivityImageUploadSection extends StatefulWidget {
   const _ActivityImageUploadSection({
     required this.controller,
+    required this.shareController,
     required this.storageFolder,
     required this.onUpload,
   });
 
   final TextEditingController controller;
+  final TextEditingController shareController;
   final String storageFolder;
   final _AdminImageUploader onUpload;
 
@@ -4316,6 +4318,7 @@ class _ActivityImageUploadSectionState
   void initState() {
     super.initState();
     widget.controller.addListener(_onControllerChanged);
+    widget.shareController.addListener(_onControllerChanged);
   }
 
   @override
@@ -4325,11 +4328,16 @@ class _ActivityImageUploadSectionState
       oldWidget.controller.removeListener(_onControllerChanged);
       widget.controller.addListener(_onControllerChanged);
     }
+    if (oldWidget.shareController != widget.shareController) {
+      oldWidget.shareController.removeListener(_onControllerChanged);
+      widget.shareController.addListener(_onControllerChanged);
+    }
   }
 
   @override
   void dispose() {
     widget.controller.removeListener(_onControllerChanged);
+    widget.shareController.removeListener(_onControllerChanged);
     super.dispose();
   }
 
@@ -4450,6 +4458,7 @@ class _ActivityImageUploadSectionState
                           ? null
                           : () {
                               widget.controller.clear();
+                              widget.shareController.clear();
                               setState(() {
                                 _error = null;
                                 _uploadNote = null;
@@ -4480,7 +4489,7 @@ class _ActivityImageUploadSectionState
         ),
         const SizedBox(height: 8),
         const Text(
-          '支援 JPG、PNG、WebP、GIF。原圖上限 10MB，會自動壓縮成 WebP，最長邊 1280px，目標約 200KB。',
+          '支援 JPG、PNG、WebP、GIF。原圖上限 10MB，會自動壓縮成 WebP，並同步產生 LINE 分享用 JPG。',
           style: TextStyle(
             color: Color(0xFF71817A),
             fontSize: 12,
@@ -4539,11 +4548,29 @@ class _ActivityImageUploadSectionState
         bytes: image.bytes,
         contentType: image.contentType,
       );
+      String? shareUrl;
+      if (image.hasShareVariant) {
+        shareUrl = await widget.onUpload(
+          path: _imageStoragePath(
+            folder: '${widget.storageFolder}/share',
+            fileName: image.shareName ?? image.name,
+            contentType: image.shareContentType ?? 'image/jpeg',
+          ),
+          bytes: image.shareBytes!,
+          contentType: image.shareContentType ?? 'image/jpeg',
+        );
+        if (shareUrl.trim().isEmpty) {
+          throw StateError('empty share download url');
+        }
+      }
       if (url.trim().isEmpty) {
         throw StateError('empty download url');
       }
       if (!mounted) return;
       widget.controller.text = url;
+      if (shareUrl != null) {
+        widget.shareController.text = shareUrl;
+      }
       setState(() {
         _isUploading = false;
         _error = null;
@@ -9229,7 +9256,7 @@ class _ActivityManagementState extends State<_ActivityManagement> {
                   if (activity.note?.isNotEmpty == true)
                     _ActivityDetailLine(
                       icon: Icons.sticky_note_2_outlined,
-                      label: '內容補充',
+                      label: '活動內容',
                       value: activity.note!,
                     ),
                   if (activity.noticeItems.isNotEmpty)
@@ -9458,7 +9485,7 @@ class _ActivityFilters extends StatelessWidget {
     final search = TextField(
       onChanged: onQueryChanged,
       decoration: InputDecoration(
-        hintText: '搜尋活動名稱、標籤、獎勵、備註',
+        hintText: '搜尋活動名稱、標籤、獎勵、活動內容',
         prefixIcon: const Icon(Icons.search),
         isDense: true,
         filled: true,
@@ -9562,7 +9589,7 @@ class _ActivityDataTable extends StatelessWidget {
           DataColumn(label: Text('狀態')),
           DataColumn(label: Text('獎勵')),
           DataColumn(label: Text('活動日期')),
-          DataColumn(label: Text('內容補充')),
+          DataColumn(label: Text('活動內容')),
           DataColumn(label: Text('操作')),
         ],
         rows: [
@@ -9663,7 +9690,7 @@ class _ActivityMobileCard extends StatelessWidget {
           if (activity.note?.isNotEmpty == true)
             _ActivityDetailLine(
               icon: Icons.sticky_note_2_outlined,
-              label: '內容補充',
+              label: '活動內容',
               value: activity.note!,
             ),
           const SizedBox(height: 10),
@@ -10692,6 +10719,11 @@ String? _adminImageValidationError(PickedAdminImage image) {
   }
   if (image.sizeBytes > adminImageUploadMaxBytes) {
     return '壓縮後圖片仍超過 ${_formatBytes(adminImageUploadMaxBytes)}，'
+        '請換一張尺寸較小或內容較單純的圖片。';
+  }
+  final shareSizeBytes = image.shareBytes?.lengthInBytes ?? 0;
+  if (shareSizeBytes > adminImageUploadMaxBytes) {
+    return 'LINE 分享圖仍超過 ${_formatBytes(adminImageUploadMaxBytes)}，'
         '請換一張尺寸較小或內容較單純的圖片。';
   }
   return null;
