@@ -42,6 +42,11 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /phoneVerificationRateLimits/{phoneHash} {
+      allow read, create, update: if true;
+      allow delete: if false;
+    }
+
     match /activityRegistrations/{registrationId} {
       allow read, create, update: if true;
       allow delete: if false;

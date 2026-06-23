@@ -35,6 +35,10 @@ export interface VeevaMember {
   lineUserId?: string;
   avatarUrl?: string;
   email?: string;
+  phoneNumber?: string;
+  phoneVerified?: boolean;
+  phoneVerifiedAt?: Date;
+  firebasePhoneUid?: string;
   lineStatusMessage?: string;
   lineIdToken?: string;
   lineIdTokenUpdatedAt?: Date;

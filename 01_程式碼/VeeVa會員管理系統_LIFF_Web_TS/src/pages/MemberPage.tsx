@@ -403,7 +403,7 @@ function memberStatusMeta(member: VeevaMember, disabled: boolean) {
   if (disabled) return { label: '停用', tone: 'danger' }
   const statusMap: Record<VeevaMemberStatus, { label: string; tone: string }> = {
     guest: { label: '未登入', tone: 'muted' },
-    loggedIn: { label: '未完成', tone: 'warning' },
+    loggedIn: { label: '尚未驗證', tone: 'warning' },
     pendingReview: { label: '審核中', tone: 'pending' },
     verified: { label: '已驗證', tone: 'success' },
   }

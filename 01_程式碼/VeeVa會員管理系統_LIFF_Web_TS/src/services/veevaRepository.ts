@@ -174,6 +174,30 @@ export async function updateMemberProfile(input: {
   return updatedMember;
 }
 
+export async function updateMemberPhoneVerification(input: {
+  memberId: string;
+  phoneNumber: string;
+  firebasePhoneUid: string;
+}) {
+  await setDoc(
+    doc(firestore, "members", input.memberId),
+    {
+      phoneNumber: input.phoneNumber,
+      phoneVerified: true,
+      phoneVerifiedAt: serverTimestamp(),
+      firebasePhoneUid: input.firebasePhoneUid,
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true },
+  );
+
+  const updatedMember = await loadMember(input.memberId);
+  if (!updatedMember) {
+    throw new Error("手機驗證資料更新失敗");
+  }
+  return updatedMember;
+}
+
 export async function hasMemberMarkedNewsHelpful(input: {
   newsId: string;
   memberId: string;
@@ -795,6 +819,10 @@ function memberFromData(
     lineUserId: optionalString(data.lineUserId),
     avatarUrl: optionalString(data.avatarUrl),
     email: optionalString(data.email),
+    phoneNumber: optionalString(data.phoneNumber),
+    phoneVerified: data.phoneVerified === true,
+    phoneVerifiedAt: dateValue(data.phoneVerifiedAt),
+    firebasePhoneUid: optionalString(data.firebasePhoneUid),
     lineStatusMessage: optionalString(data.lineStatusMessage),
     lineIdToken: optionalString(data.lineIdToken),
     lineIdTokenUpdatedAt: dateValue(data.lineIdTokenUpdatedAt),

@@ -3,6 +3,7 @@ import type { PropsWithChildren } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import type { VeevaAppState } from '../hooks/useVeevaApp'
 import { NotificationCenter } from './NotificationCenter'
+import { PhoneVerificationGate } from './PhoneVerificationGate'
 
 const navItems = [
   { to: '/activities', label: '活動', icon: CalendarDays },
@@ -25,6 +26,12 @@ export function AppShell({ app, children }: AppShellProps) {
   const mainClassName = location.pathname.startsWith('/news/')
     ? 'app-main article-main'
     : 'app-main'
+  const requiresPhoneVerification = Boolean(
+    app.member &&
+      app.memberProfileReady &&
+      !app.disabled &&
+      !app.member.phoneVerified,
+  )
 
   return (
     <div className="app-shell">
@@ -42,6 +49,8 @@ export function AppShell({ app, children }: AppShellProps) {
             <span className="loading-dot" />
             <span>{app.authenticating ? '正在前往 LINE 登入' : '正在確認登入'}</span>
           </div>
+        ) : requiresPhoneVerification ? (
+          <PhoneVerificationGate app={app} />
         ) : (
           children
         )}

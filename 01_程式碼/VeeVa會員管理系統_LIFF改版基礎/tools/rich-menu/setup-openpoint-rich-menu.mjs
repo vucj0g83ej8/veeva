@@ -3,9 +3,16 @@ import { fileURLToPath } from 'node:url';
 
 const CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const IMAGE_PATH = fileURLToPath(new URL('./veeva-openpoint-rich-menu.jpg', import.meta.url));
-const LIFF_URL =
+const SURVEY_URL =
+  process.env.VEEVA_RICH_MENU_SURVEY_URL ||
   process.env.VEEVA_RICH_MENU_URL ||
   'https://liff.line.me/2010298394-7PwRtpTY/activities/survey-coffee';
+const INVITE_URL =
+  process.env.VEEVA_RICH_MENU_INVITE_URL ||
+  'https://liff.line.me/2010298394-7PwRtpTY/activities/survey-coffee?share=1';
+const MEMBER_URL =
+  process.env.VEEVA_RICH_MENU_MEMBER_URL ||
+  'https://liff.line.me/2010298394-7PwRtpTY/member';
 
 if (!CHANNEL_ACCESS_TOKEN) {
   console.error('Missing LINE_CHANNEL_ACCESS_TOKEN.');
@@ -40,7 +47,7 @@ async function main() {
       height: 1686,
     },
     selected: true,
-    name: 'VeeVa OPENPOINT 問卷選單',
+    name: 'VeeVa OPENPOINT 問卷選單 v2',
     chatBarText: '填問卷送點數',
     areas: [
       {
@@ -48,11 +55,47 @@ async function main() {
           x: 0,
           y: 0,
           width: 2500,
-          height: 1686,
+          height: 966,
         },
         action: {
           type: 'uri',
-          uri: LIFF_URL,
+          uri: SURVEY_URL,
+        },
+      },
+      {
+        bounds: {
+          x: 0,
+          y: 966,
+          width: 833,
+          height: 720,
+        },
+        action: {
+          type: 'uri',
+          uri: SURVEY_URL,
+        },
+      },
+      {
+        bounds: {
+          x: 833,
+          y: 966,
+          width: 834,
+          height: 720,
+        },
+        action: {
+          type: 'uri',
+          uri: INVITE_URL,
+        },
+      },
+      {
+        bounds: {
+          x: 1667,
+          y: 966,
+          width: 833,
+          height: 720,
+        },
+        action: {
+          type: 'uri',
+          uri: MEMBER_URL,
         },
       },
     ],
@@ -81,7 +124,9 @@ async function main() {
 
   console.log(`Created rich menu: ${created.richMenuId}`);
   console.log(`Set as default rich menu.`);
-  console.log(`Action URL: ${LIFF_URL}`);
+  console.log(`Survey URL: ${SURVEY_URL}`);
+  console.log(`Invite URL: ${INVITE_URL}`);
+  console.log(`Member URL: ${MEMBER_URL}`);
 }
 
 main().catch((error) => {

@@ -16,7 +16,7 @@ import {
   UserRound,
   UsersRound,
 } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import type { VeevaAppState } from "../hooks/useVeevaApp";
 import type { VeevaActivity, VeevaActivityRegistration } from "../types/veeva";
@@ -62,6 +62,8 @@ function ActivityDetailContent({
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
+  const autoShareHandledRef = useRef(false);
+  const autoShareRequested = isAutoShareRequested();
   const location = activity.location ?? fallbackLocation(activity);
   const activityTime = activity.activityTime ?? "依活動公告為準";
   const organizer = activity.organizer ?? "VeeVa Member";
@@ -231,6 +233,29 @@ function ActivityDetailContent({
       setShareBusy(false);
     }
   }
+
+  useEffect(() => {
+    if (
+      !autoShareRequested ||
+      autoShareHandledRef.current ||
+      !app.memberProfileReady ||
+      app.initializing ||
+      app.authenticating ||
+      shareBusy
+    ) {
+      return;
+    }
+
+    autoShareHandledRef.current = true;
+    clearAutoShareSearchParams();
+    void handleShareAction();
+  }, [
+    app.authenticating,
+    app.initializing,
+    app.memberProfileReady,
+    autoShareRequested,
+    shareBusy,
+  ]);
 
   return (
     <article className="activity-detail-page">
@@ -449,6 +474,24 @@ function shouldShowActivityDetail(
   if (record) return true;
   if (!activity.active) return false;
   return activity.status !== "draft" && activity.status !== "archived";
+}
+
+function isAutoShareRequested() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("share") === "1" || params.get("open") === "share";
+}
+
+function clearAutoShareSearchParams() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete("share");
+  if (url.searchParams.get("open") === "share") {
+    url.searchParams.delete("open");
+  }
+  window.history.replaceState(
+    null,
+    "",
+    `${url.pathname}${url.search}${url.hash}`,
+  );
 }
 
 function noticeItemsFor(activity: VeevaActivity) {

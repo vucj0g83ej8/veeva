@@ -3020,6 +3020,131 @@ button:disabled {
   font-weight: 850;
 }
 
+.phone-verification-page {
+  min-height: calc(100dvh - 190px);
+  display: grid;
+  place-items: center;
+  padding: 24px 16px 40px;
+}
+
+.phone-verification-panel {
+  width: min(100%, 440px);
+  border: 1px solid rgba(100, 116, 108, 0.16);
+  border-radius: 22px;
+  background: #ffffff;
+  box-shadow: 0 18px 42px rgba(20, 64, 48, 0.1);
+  padding: 28px 24px;
+}
+
+.phone-verification-icon {
+  width: 62px;
+  height: 62px;
+  display: grid;
+  place-items: center;
+  border-radius: 20px;
+  background: #e5f5ed;
+  color: #08795f;
+  margin-bottom: 18px;
+}
+
+.phone-verification-panel h2 {
+  margin: 4px 0 12px;
+  color: #111b18;
+  font-size: 1.55rem;
+  line-height: 1.28;
+  letter-spacing: 0;
+}
+
+.phone-verification-copy {
+  margin: 0 0 22px;
+  color: #63756e;
+  font-size: 0.98rem;
+  line-height: 1.7;
+}
+
+.phone-verification-form {
+  display: grid;
+  gap: 14px;
+}
+
+.phone-verification-field {
+  display: grid;
+  gap: 8px;
+  color: #263b34;
+  font-size: 0.94rem;
+  font-weight: 850;
+}
+
+.phone-verification-field span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.phone-verification-field svg {
+  color: #08795f;
+}
+
+.phone-verification-field input {
+  width: 100%;
+  min-height: 50px;
+  border: 1px solid rgba(100, 116, 108, 0.24);
+  border-radius: 14px;
+  background: #fbfdfc;
+  color: #14201c;
+  font: inherit;
+  font-size: 1rem;
+  padding: 0 15px;
+  outline: none;
+}
+
+.phone-verification-field input:focus {
+  border-color: #0b8064;
+  box-shadow: 0 0 0 3px rgba(11, 128, 100, 0.12);
+}
+
+.phone-verification-field input:disabled {
+  color: #71817b;
+  background: #f3f7f5;
+}
+
+.phone-verification-button {
+  width: 100%;
+  min-height: 52px;
+  justify-content: center;
+  gap: 8px;
+}
+
+.phone-verification-reset {
+  justify-self: center;
+}
+
+.phone-verification-hint,
+.phone-verification-message,
+.phone-verification-error {
+  margin: 14px 0 0;
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.phone-verification-hint {
+  color: #60746d;
+}
+
+.phone-verification-message {
+  color: #08795f;
+  font-weight: 850;
+}
+
+.phone-verification-error {
+  color: #b42318;
+  font-weight: 850;
+}
+
+#phone-recaptcha-container {
+  min-height: 1px;
+}
+
 .primary-button.compact {
   width: auto;
   margin-top: 0;

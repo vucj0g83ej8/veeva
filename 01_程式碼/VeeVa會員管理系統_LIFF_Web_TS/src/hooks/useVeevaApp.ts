@@ -17,6 +17,7 @@ import {
 interface AppState {
   initializing: boolean
   authenticating: boolean
+  memberProfileReady: boolean
   busy: boolean
   error?: string
   liffSession?: LiffSession
@@ -43,6 +44,7 @@ export function useVeevaApp() {
   const [state, setState] = useState<AppState>({
     initializing: true,
     authenticating: false,
+    memberProfileReady: false,
     busy: false,
     bootstrap: emptyBootstrap,
     memberActivityRecords: [],
@@ -89,6 +91,7 @@ export function useVeevaApp() {
       ...current,
       initializing: true,
       authenticating: false,
+      memberProfileReady: false,
       error: undefined,
     }))
     try {
@@ -110,6 +113,7 @@ export function useVeevaApp() {
           initializing: true,
           authenticating: true,
           liffSession,
+          memberProfileReady: false,
         }))
         await liffApi.loginWithLine()
         return
@@ -131,6 +135,7 @@ export function useVeevaApp() {
         ...current,
         initializing: false,
         authenticating: false,
+        memberProfileReady: !member,
         bootstrap,
         liffSession,
         member,
@@ -153,12 +158,14 @@ export function useVeevaApp() {
             setState((current) => ({
               ...current,
               member: updatedMember,
+              memberProfileReady: true,
             }))
             await refreshMemberDetails(updatedMember)
           })
           .catch((error) => {
             setState((current) => ({
               ...current,
+              memberProfileReady: true,
               error: error instanceof Error ? error.message : String(error),
             }))
           })
@@ -169,6 +176,7 @@ export function useVeevaApp() {
         ...current,
         initializing: false,
         authenticating: false,
+        memberProfileReady: true,
         error: error instanceof Error ? error.message : String(error),
       }))
     }
@@ -232,6 +240,7 @@ export function useVeevaApp() {
       setState((current) => ({
         ...current,
         busy: false,
+        memberProfileReady: true,
         liffSession,
         member,
         memberActivityRecords: [],
@@ -334,6 +343,42 @@ export function useVeevaApp() {
     [refreshMemberDetails, state.member],
   )
 
+  const completePhoneVerification = useCallback(
+    async (input: { phoneNumber: string; firebasePhoneUid: string }) => {
+      if (!state.member) {
+        throw new Error('請先登入會員')
+      }
+      setState((current) => ({ ...current, busy: true, error: undefined }))
+      try {
+        const { updateMemberPhoneVerification } = await import(
+          '../services/veevaRepository'
+        )
+        const member = await updateMemberPhoneVerification({
+          memberId: state.member.id,
+          phoneNumber: input.phoneNumber,
+          firebasePhoneUid: input.firebasePhoneUid,
+        })
+        setState((current) => ({
+          ...current,
+          busy: false,
+          member,
+          memberProfileReady: true,
+        }))
+        await refreshMemberDetails(member)
+        return member
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        setState((current) => ({
+          ...current,
+          busy: false,
+          error: message,
+        }))
+        throw new Error(message, { cause: error })
+      }
+    },
+    [refreshMemberDetails, state.member],
+  )
+
   const shareInvite = useCallback(async () => {
     if (!state.member) {
       await login()
@@ -366,10 +411,12 @@ export function useVeevaApp() {
       refreshNotifications,
       shareInvite,
       markNotificationsRead,
+      completePhoneVerification,
       updateMemberProfile,
     }),
     [
       disabled,
+      completePhoneVerification,
       initialize,
       login,
       logout,

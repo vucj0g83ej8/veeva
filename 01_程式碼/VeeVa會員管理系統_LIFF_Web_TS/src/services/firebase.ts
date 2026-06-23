@@ -1,4 +1,5 @@
 import { initializeApp } from 'firebase/app'
+import { getAuth } from 'firebase/auth'
 import { getFirestore } from 'firebase/firestore'
 import { getStorage } from 'firebase/storage'
 
@@ -20,6 +21,7 @@ export const firebaseConfig = {
 }
 
 export const firebaseApp = initializeApp(firebaseConfig)
+export const firebaseAuth = getAuth(firebaseApp)
+firebaseAuth.languageCode = 'zh-TW'
 export const firestore = getFirestore(firebaseApp)
 export const storage = getStorage(firebaseApp)
-
