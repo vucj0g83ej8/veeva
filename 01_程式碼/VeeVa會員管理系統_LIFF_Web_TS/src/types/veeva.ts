@@ -53,6 +53,10 @@ export interface VeevaMember {
   referralRewardGrantedAt?: Date;
   isAdmin?: boolean;
   adminRole?: string;
+  isEmployee?: boolean;
+  employeeStatus?: string;
+  employeeCode?: string;
+  employeeCreatedAt?: Date;
 }
 
 export interface VeevaActivity {
@@ -198,6 +202,24 @@ export interface VeevaReferralRecord {
   lastCompletedAt?: Date;
   rewardedActivityCount?: number;
   createdAt?: Date;
+}
+
+export interface VeevaEmployeeActivityLink {
+  id: string;
+  code: string;
+  employeeMemberId: string;
+  employeeName: string;
+  employeeAvatarUrl?: string;
+  activityId: string;
+  activityTitle: string;
+  url: string;
+  status: string;
+  visitCount: number;
+  registeredCount: number;
+  phoneVerifiedCount: number;
+  lastVisitedAt?: Date;
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 export interface LiffProfile {

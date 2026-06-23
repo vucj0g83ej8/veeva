@@ -105,6 +105,7 @@ class VeevaBootstrap {
     required this.adminUsers,
     required this.activityRecords,
     required this.memberRewards,
+    required this.employeeLinks,
     required this.clientSettings,
   });
 
@@ -116,6 +117,7 @@ class VeevaBootstrap {
   final List<VeevaAdminUser> adminUsers;
   final List<VeevaActivityRecord> activityRecords;
   final List<VeevaMemberReward> memberRewards;
+  final List<VeevaEmployeeActivityLink> employeeLinks;
   final VeevaClientSettings clientSettings;
 }
 
@@ -168,6 +170,10 @@ class VeevaMember {
     this.referralRewardGrantedAt,
     this.isAdmin = false,
     this.adminRole,
+    this.isEmployee = false,
+    this.employeeStatus,
+    this.employeeCode,
+    this.employeeCreatedAt,
     this.updatedAt,
   });
 
@@ -210,6 +216,10 @@ class VeevaMember {
       referralRewardGrantedAt: _readDate(data['referralRewardGrantedAt']),
       isAdmin: data['isAdmin'] == true,
       adminRole: data['adminRole']?.toString(),
+      isEmployee: data['isEmployee'] == true,
+      employeeStatus: data['employeeStatus']?.toString(),
+      employeeCode: data['employeeCode']?.toString(),
+      employeeCreatedAt: _readDate(data['employeeCreatedAt']),
       updatedAt: _readDate(data['updatedAt']),
     );
   }
@@ -240,6 +250,10 @@ class VeevaMember {
   final DateTime? referralRewardGrantedAt;
   final bool isAdmin;
   final String? adminRole;
+  final bool isEmployee;
+  final String? employeeStatus;
+  final String? employeeCode;
+  final DateTime? employeeCreatedAt;
   final DateTime? updatedAt;
 
   Map<String, Object?> toMap() {
@@ -274,9 +288,74 @@ class VeevaMember {
           : Timestamp.fromDate(referralRewardGrantedAt!),
       'isAdmin': isAdmin,
       'adminRole': adminRole,
+      'isEmployee': isEmployee,
+      'employeeStatus': employeeStatus,
+      'employeeCode': employeeCode,
+      'employeeCreatedAt': employeeCreatedAt == null
+          ? null
+          : Timestamp.fromDate(employeeCreatedAt!),
       'updatedAt': FieldValue.serverTimestamp(),
     };
   }
+}
+
+class VeevaEmployeeActivityLink {
+  const VeevaEmployeeActivityLink({
+    required this.id,
+    required this.code,
+    required this.employeeMemberId,
+    required this.employeeName,
+    required this.activityId,
+    required this.activityTitle,
+    required this.url,
+    this.employeeAvatarUrl,
+    this.status = 'active',
+    this.visitCount = 0,
+    this.registeredCount = 0,
+    this.phoneVerifiedCount = 0,
+    this.lastVisitedAt,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  factory VeevaEmployeeActivityLink.fromMap(
+    String id,
+    Map<String, Object?> data,
+  ) {
+    return VeevaEmployeeActivityLink(
+      id: id,
+      code: data['code']?.toString() ?? id,
+      employeeMemberId: data['employeeMemberId']?.toString() ?? '',
+      employeeName: data['employeeName']?.toString() ?? '員工',
+      employeeAvatarUrl: data['employeeAvatarUrl']?.toString(),
+      activityId: data['activityId']?.toString() ?? '',
+      activityTitle: data['activityTitle']?.toString() ?? '活動',
+      url: data['url']?.toString() ?? '',
+      status: data['status']?.toString() ?? 'active',
+      visitCount: _readInt(data['visitCount']),
+      registeredCount: _readInt(data['registeredCount']),
+      phoneVerifiedCount: _readInt(data['phoneVerifiedCount']),
+      lastVisitedAt: _readDate(data['lastVisitedAt']),
+      createdAt: _readDate(data['createdAt']),
+      updatedAt: _readDate(data['updatedAt']),
+    );
+  }
+
+  final String id;
+  final String code;
+  final String employeeMemberId;
+  final String employeeName;
+  final String? employeeAvatarUrl;
+  final String activityId;
+  final String activityTitle;
+  final String url;
+  final String status;
+  final int visitCount;
+  final int registeredCount;
+  final int phoneVerifiedCount;
+  final DateTime? lastVisitedAt;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
 }
 
 class VeevaActivityRecord {

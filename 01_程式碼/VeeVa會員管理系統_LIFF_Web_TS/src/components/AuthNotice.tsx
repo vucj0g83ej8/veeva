@@ -11,7 +11,8 @@ export function AuthNotice({ app }: AuthNoticeProps) {
   const hasPageLoginPanel =
     location.pathname === '/member' ||
     location.pathname === '/coupons' ||
-    location.pathname.startsWith('/r/')
+    location.pathname.startsWith('/r/') ||
+    location.pathname.startsWith('/e/')
 
   if (app.disabled) {
     return (

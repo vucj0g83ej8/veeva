@@ -1,6 +1,6 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import 'data/firebase_bootstrap.dart';
 import 'data/veeva_models.dart' as backend;
@@ -91,6 +91,7 @@ class VeevaAdminApp extends StatelessWidget {
       'news' => AdminTab.news,
       'rewards' => AdminTab.rewards,
       'permissions' => AdminTab.permissions,
+      'employees' || 'staff' => AdminTab.employees,
       'settings' => AdminTab.settings,
       _ => AdminTab.dashboard,
     };
@@ -105,6 +106,7 @@ enum AdminTab {
   news,
   rewards,
   permissions,
+  employees,
   settings,
 }
 
@@ -851,6 +853,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
   ];
   final activityRecords = <backend.VeevaActivityRecord>[];
   final memberRewards = <backend.VeevaMemberReward>[];
+  final employeeLinks = <backend.VeevaEmployeeActivityLink>[];
 
   @override
   void initState() {
@@ -904,6 +907,11 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
           memberRewards
             ..clear()
             ..addAll(bootstrap.memberRewards);
+        }
+        if (shouldUseBackendUserData || bootstrap.employeeLinks.isNotEmpty) {
+          employeeLinks
+            ..clear()
+            ..addAll(bootstrap.employeeLinks);
         }
         isLoading = false;
       });
@@ -991,6 +999,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       AdminTab.news => '最新資訊管理',
       AdminTab.rewards => '兌換券管理',
       AdminTab.permissions => '權限管理',
+      AdminTab.employees => '員工管理',
       AdminTab.settings => '系統設定',
     };
   }
@@ -998,6 +1007,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
   IconData? _titleIconFor(AdminTab tab) {
     return switch (tab) {
       AdminTab.permissions => Icons.verified_user_outlined,
+      AdminTab.employees => Icons.badge_outlined,
       _ => null,
     };
   }
@@ -1057,6 +1067,13 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
           members: members,
           adminUsers: adminUsers,
           onSaveAdminUser: _saveAdminUser,
+        ),
+      AdminTab.employees => _EmployeeManagement(
+          members: members,
+          activities: activities,
+          employeeLinks: employeeLinks,
+          onSaveEmployeeStatus: _saveEmployeeStatus,
+          onCreateEmployeeActivityLink: _createEmployeeActivityLink,
         ),
       AdminTab.settings => const _PlaceholderPanel(
           icon: Icons.settings_outlined,
@@ -2528,6 +2545,10 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
           referralRewardGrantedAt: member.referralRewardGrantedAt,
           isAdmin: isActive,
           adminRole: isActive ? adminUser.role.name : null,
+          isEmployee: member.isEmployee,
+          employeeStatus: member.employeeStatus,
+          employeeCode: member.employeeCode,
+          employeeCreatedAt: member.employeeCreatedAt,
           updatedAt: member.updatedAt,
         );
       }
@@ -2591,6 +2612,72 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
           ..addAll(previousAdminUsers);
         backendError = '會員設定更新失敗：請確認 Firestore rules 已部署。';
       });
+    }
+  }
+
+  Future<void> _saveEmployeeStatus({
+    required backend.VeevaMember member,
+    required bool enabled,
+  }) async {
+    final previousMembers = [...members];
+    final updatedMember = _memberWithEmployeeStatus(
+      member,
+      enabled: enabled,
+      employeeCode: member.employeeCode,
+      employeeCreatedAt: member.employeeCreatedAt,
+    );
+
+    setState(() {
+      final index = members.indexWhere((item) => item.id == member.id);
+      if (index == -1) {
+        members.add(updatedMember);
+      } else {
+        members[index] = updatedMember;
+      }
+      backendError = null;
+    });
+
+    try {
+      await repository.saveEmployeeStatus(member: member, enabled: enabled);
+      await _loadBackend();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        members
+          ..clear()
+          ..addAll(previousMembers);
+        backendError = '員工設定更新失敗：請確認 Firestore rules 已部署。';
+      });
+      rethrow;
+    }
+  }
+
+  Future<backend.VeevaEmployeeActivityLink> _createEmployeeActivityLink({
+    required backend.VeevaMember employee,
+    required backend.VeevaActivity activity,
+  }) async {
+    try {
+      final link = await repository.createEmployeeActivityLink(
+        employee: employee,
+        activity: activity,
+      );
+      if (mounted) {
+        setState(() {
+          final index = employeeLinks.indexWhere((item) => item.id == link.id);
+          if (index == -1) {
+            employeeLinks.add(link);
+          } else {
+            employeeLinks[index] = link;
+          }
+          backendError = null;
+        });
+      }
+      return link;
+    } catch (_) {
+      if (mounted) {
+        setState(() => backendError = 'QR Code 建立失敗：請確認 Firestore rules 已部署。');
+      }
+      rethrow;
     }
   }
 
@@ -5020,6 +5107,12 @@ class _AdminSidebarState extends State<_AdminSidebar> {
             selected: widget.selected == AdminTab.members,
             onTap: () => widget.onSelected(AdminTab.members),
           ),
+          _SidebarItem(
+            icon: Icons.badge_outlined,
+            label: '員工管理',
+            selected: widget.selected == AdminTab.employees,
+            onTap: () => widget.onSelected(AdminTab.employees),
+          ),
           _SidebarGroupHeader(
             icon: Icons.campaign_outlined,
             label: '活動管理',
@@ -7063,6 +7156,880 @@ class _EmptyListMessage extends StatelessWidget {
   }
 }
 
+class _EmployeeManagement extends StatefulWidget {
+  const _EmployeeManagement({
+    required this.members,
+    required this.activities,
+    required this.employeeLinks,
+    required this.onSaveEmployeeStatus,
+    required this.onCreateEmployeeActivityLink,
+  });
+
+  final List<backend.VeevaMember> members;
+  final List<backend.VeevaActivity> activities;
+  final List<backend.VeevaEmployeeActivityLink> employeeLinks;
+  final Future<void> Function({
+    required backend.VeevaMember member,
+    required bool enabled,
+  }) onSaveEmployeeStatus;
+  final Future<backend.VeevaEmployeeActivityLink> Function({
+    required backend.VeevaMember employee,
+    required backend.VeevaActivity activity,
+  }) onCreateEmployeeActivityLink;
+
+  @override
+  State<_EmployeeManagement> createState() => _EmployeeManagementState();
+}
+
+class _EmployeeManagementState extends State<_EmployeeManagement> {
+  final searchController = TextEditingController();
+  String searchQuery = '';
+
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isCompact = MediaQuery.sizeOf(context).width < 760;
+    final employees = widget.members
+        .where(
+            (member) => member.isEmployee || member.employeeStatus == 'active')
+        .where((member) => _employeeMatchesSearch(member, searchQuery))
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+    final activeEmployees =
+        employees.where((member) => member.employeeStatus != 'disabled').length;
+    final totalVisitCount = widget.employeeLinks.fold<int>(
+      0,
+      (total, link) => total + link.visitCount,
+    );
+    final totalRegisteredCount = widget.employeeLinks.fold<int>(
+      0,
+      (total, link) => total + link.registeredCount,
+    );
+    final totalPhoneVerifiedCount = widget.employeeLinks.fold<int>(
+      0,
+      (total, link) => total + link.phoneVerifiedCount,
+    );
+    final metrics = [
+      _MetricCard(
+        label: '員工總數',
+        value: '${employees.length}',
+        icon: Icons.badge_outlined,
+      ),
+      _MetricCard(
+        label: '啟用員工',
+        value: '$activeEmployees',
+        icon: Icons.verified_user_outlined,
+      ),
+      _MetricCard(
+        label: 'QR 進站',
+        value: '$totalVisitCount',
+        icon: Icons.qr_code_2_outlined,
+      ),
+      _MetricCard(
+        label: '電話驗證',
+        value: '$totalPhoneVerifiedCount',
+        icon: Icons.phone_android_outlined,
+      ),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (isCompact)
+          Column(
+            children: [
+              for (final metric in metrics)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: metric,
+                ),
+            ],
+          )
+        else
+          Row(
+            children: [
+              for (var index = 0; index < metrics.length; index++) ...[
+                Expanded(child: metrics[index]),
+                if (index != metrics.length - 1) const SizedBox(width: 16),
+              ],
+            ],
+          ),
+        const SizedBox(height: 20),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    const Text(
+                      '員工管理',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    FilledButton.icon(
+                      onPressed: _openAddEmployeeDialog,
+                      icon: const Icon(Icons.person_add_alt_1_outlined),
+                      label: const Text('新增員工'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                _MemberSearchField(
+                  controller: searchController,
+                  onChanged: (value) => setState(() => searchQuery = value),
+                  onClear: searchQuery.trim().isEmpty
+                      ? null
+                      : () => setState(() {
+                            searchController.clear();
+                            searchQuery = '';
+                          }),
+                ),
+                const SizedBox(height: 16),
+                if (employees.isEmpty)
+                  const _EmptyListMessage(
+                    message: '目前尚未建立員工。請從已登入會員中新增員工。',
+                  )
+                else if (isCompact)
+                  Column(
+                    children: [
+                      for (final employee in employees)
+                        _EmployeeCard(
+                          employee: employee,
+                          links: _linksForEmployee(employee),
+                          onQrCode: () => _openQrCodeDialog(employee),
+                          onPerformance: () => _openPerformanceDialog(employee),
+                          onToggle: () => _toggleEmployee(employee),
+                        ),
+                    ],
+                  )
+                else
+                  _EmployeeDataTable(
+                    employees: employees,
+                    linksForEmployee: _linksForEmployee,
+                    onQrCode: _openQrCodeDialog,
+                    onPerformance: _openPerformanceDialog,
+                    onToggle: _toggleEmployee,
+                  ),
+                if (totalRegisteredCount > 0 ||
+                    totalPhoneVerifiedCount > 0) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    '總註冊 $totalRegisteredCount 人，完成電話驗證 $totalPhoneVerifiedCount 人。',
+                    style: const TextStyle(color: Color(0xFF6B7671)),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  List<backend.VeevaEmployeeActivityLink> _linksForEmployee(
+    backend.VeevaMember employee,
+  ) {
+    return widget.employeeLinks
+        .where((link) => link.employeeMemberId == employee.id)
+        .toList()
+      ..sort((a, b) => a.activityTitle.compareTo(b.activityTitle));
+  }
+
+  Future<void> _openAddEmployeeDialog() async {
+    final candidates = widget.members
+        .where(
+            (member) => !member.isEmployee && member.employeeStatus != 'active')
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+    var query = '';
+    backend.VeevaMember? selected;
+    var isSaving = false;
+    String? formError;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final filtered = candidates
+                .where((member) => _employeeMatchesSearch(member, query))
+                .take(30)
+                .toList();
+            return AlertDialog(
+              title: const Text('新增員工'),
+              content: SizedBox(
+                width: 560,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextField(
+                      decoration: const InputDecoration(
+                        labelText: '搜尋現有會員',
+                        prefixIcon: Icon(Icons.search),
+                      ),
+                      onChanged: (value) => setDialogState(() {
+                        query = value;
+                        selected = null;
+                      }),
+                    ),
+                    const SizedBox(height: 12),
+                    if (filtered.isEmpty)
+                      const _EmptyListMessage(message: '沒有可新增為員工的會員。')
+                    else
+                      Flexible(
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: filtered.length,
+                          separatorBuilder: (_, __) => const Divider(height: 1),
+                          itemBuilder: (context, index) {
+                            final member = filtered[index];
+                            final checked = selected?.id == member.id;
+                            return ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: _MemberAvatar(member: member),
+                              title: Text(member.name),
+                              subtitle: Text(member.email ?? 'LINE 會員'),
+                              trailing: checked
+                                  ? const Icon(
+                                      Icons.check_circle,
+                                      color: Color(0xFF216B57),
+                                    )
+                                  : null,
+                              onTap: isSaving
+                                  ? null
+                                  : () => setDialogState(() {
+                                        selected = member;
+                                        formError = null;
+                                      }),
+                            );
+                          },
+                        ),
+                      ),
+                    if (formError != null) ...[
+                      const SizedBox(height: 12),
+                      _InlineError(message: formError!),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed:
+                      isSaving ? null : () => Navigator.of(dialogContext).pop(),
+                  child: const Text('取消'),
+                ),
+                FilledButton.icon(
+                  onPressed: isSaving
+                      ? null
+                      : () async {
+                          final member = selected;
+                          if (member == null) {
+                            setDialogState(() => formError = '請先選擇一位會員。');
+                            return;
+                          }
+                          setDialogState(() {
+                            isSaving = true;
+                            formError = null;
+                          });
+                          try {
+                            await widget.onSaveEmployeeStatus(
+                              member: member,
+                              enabled: true,
+                            );
+                            if (dialogContext.mounted) {
+                              Navigator.of(dialogContext).pop();
+                            }
+                          } catch (_) {
+                            if (!dialogContext.mounted) return;
+                            setDialogState(() {
+                              isSaving = false;
+                              formError = '新增員工失敗，請稍後再試。';
+                            });
+                          }
+                        },
+                  icon: isSaving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.save_outlined),
+                  label: Text(isSaving ? '新增中' : '新增員工'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _openQrCodeDialog(backend.VeevaMember employee) async {
+    final selectableActivities = widget.activities
+        .where((activity) =>
+            activity.status != backend.VeevaContentStatus.archived &&
+            activity.active)
+        .toList()
+      ..sort((a, b) => a.title.compareTo(b.title));
+    backend.VeevaActivity? selectedActivity =
+        selectableActivities.isEmpty ? null : selectableActivities.first;
+    backend.VeevaEmployeeActivityLink? currentLink;
+    var isCreating = false;
+    String? formError;
+
+    backend.VeevaEmployeeActivityLink? existingFor(
+      backend.VeevaActivity? activity,
+    ) {
+      if (activity == null) return null;
+      for (final link in widget.employeeLinks) {
+        if (link.employeeMemberId == employee.id &&
+            link.activityId == activity.id) {
+          return link;
+        }
+      }
+      return null;
+    }
+
+    currentLink = existingFor(selectedActivity);
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text('${employee.name} 的 QR Code'),
+              content: SizedBox(
+                width: 600,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _EmployeeHeader(member: employee),
+                      const SizedBox(height: 16),
+                      if (selectableActivities.isEmpty)
+                        const _EmptyListMessage(
+                            message: '目前沒有可建立 QR Code 的啟用活動。')
+                      else ...[
+                        DropdownButtonFormField<backend.VeevaActivity>(
+                          value: selectedActivity,
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            labelText: '選擇活動',
+                            prefixIcon: Icon(Icons.event_available_outlined),
+                          ),
+                          items: [
+                            for (final activity in selectableActivities)
+                              DropdownMenuItem(
+                                value: activity,
+                                child: Text(activity.title),
+                              ),
+                          ],
+                          onChanged: isCreating
+                              ? null
+                              : (activity) => setDialogState(() {
+                                    selectedActivity = activity;
+                                    currentLink = existingFor(activity);
+                                    formError = null;
+                                  }),
+                        ),
+                        const SizedBox(height: 16),
+                        if (currentLink == null)
+                          const _EmptyListMessage(
+                            message: '這位員工尚未建立此活動的 QR Code。點擊建立後，該活動會和員工績效綁定。',
+                          )
+                        else
+                          _EmployeeQrPreview(link: currentLink!),
+                      ],
+                      if (formError != null) ...[
+                        const SizedBox(height: 12),
+                        _InlineError(message: formError!),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isCreating
+                      ? null
+                      : () => Navigator.of(dialogContext).pop(),
+                  child: const Text('關閉'),
+                ),
+                if (selectableActivities.isNotEmpty)
+                  FilledButton.icon(
+                    onPressed: isCreating
+                        ? null
+                        : () async {
+                            final activity = selectedActivity;
+                            if (activity == null) return;
+                            setDialogState(() {
+                              isCreating = true;
+                              formError = null;
+                            });
+                            try {
+                              final link =
+                                  await widget.onCreateEmployeeActivityLink(
+                                employee: employee,
+                                activity: activity,
+                              );
+                              if (!dialogContext.mounted) return;
+                              setDialogState(() {
+                                currentLink = link;
+                                isCreating = false;
+                              });
+                            } catch (_) {
+                              if (!dialogContext.mounted) return;
+                              setDialogState(() {
+                                isCreating = false;
+                                formError = 'QR Code 建立失敗，請稍後再試。';
+                              });
+                            }
+                          },
+                    icon: isCreating
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.qr_code_2_outlined),
+                    label: Text(currentLink == null ? '建立 QR Code' : '重新整理 QR'),
+                  ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _openPerformanceDialog(backend.VeevaMember employee) async {
+    final links = _linksForEmployee(employee);
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text('${employee.name} 的績效紀錄'),
+          content: SizedBox(
+            width: 760,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _EmployeeHeader(member: employee),
+                  const SizedBox(height: 16),
+                  if (links.isEmpty)
+                    const _EmptyListMessage(message: '尚未建立任何活動 QR Code。')
+                  else
+                    _EmployeePerformanceTable(links: links),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('關閉'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _toggleEmployee(backend.VeevaMember employee) async {
+    final enabled = employee.employeeStatus == 'disabled';
+    await widget.onSaveEmployeeStatus(member: employee, enabled: enabled);
+  }
+
+  bool _employeeMatchesSearch(backend.VeevaMember member, String query) {
+    final normalized = _normalizeMemberSearch(query);
+    if (normalized.isEmpty) return true;
+    final haystack = [
+      member.name,
+      member.email ?? '',
+      member.lineUserId ?? '',
+      member.employeeCode ?? '',
+    ].join(' ').toLowerCase();
+    return haystack.contains(normalized);
+  }
+}
+
+class _EmployeeDataTable extends StatelessWidget {
+  const _EmployeeDataTable({
+    required this.employees,
+    required this.linksForEmployee,
+    required this.onQrCode,
+    required this.onPerformance,
+    required this.onToggle,
+  });
+
+  final List<backend.VeevaMember> employees;
+  final List<backend.VeevaEmployeeActivityLink> Function(
+    backend.VeevaMember employee,
+  ) linksForEmployee;
+  final ValueChanged<backend.VeevaMember> onQrCode;
+  final ValueChanged<backend.VeevaMember> onPerformance;
+  final ValueChanged<backend.VeevaMember> onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    return _FullWidthDataTable(
+      minWidth: 980,
+      child: DataTable(
+        headingRowColor: WidgetStateProperty.all(const Color(0xFFF1F4F3)),
+        dataRowMinHeight: 78,
+        dataRowMaxHeight: 96,
+        columns: const [
+          DataColumn(label: Text('員工')),
+          DataColumn(label: Text('狀態')),
+          DataColumn(label: Text('QR 數')),
+          DataColumn(label: Text('進站')),
+          DataColumn(label: Text('註冊')),
+          DataColumn(label: Text('電話驗證')),
+          DataColumn(label: Text('操作')),
+        ],
+        rows: [
+          for (final employee in employees)
+            _employeeRow(employee, linksForEmployee(employee)),
+        ],
+      ),
+    );
+  }
+
+  DataRow _employeeRow(
+    backend.VeevaMember employee,
+    List<backend.VeevaEmployeeActivityLink> links,
+  ) {
+    final enabled = employee.employeeStatus != 'disabled';
+    final visits = links.fold<int>(0, (total, link) => total + link.visitCount);
+    final registered =
+        links.fold<int>(0, (total, link) => total + link.registeredCount);
+    final verified =
+        links.fold<int>(0, (total, link) => total + link.phoneVerifiedCount);
+    return DataRow(
+      cells: [
+        DataCell(_EmployeeHeader(member: employee)),
+        DataCell(_EmployeeStatusChip(enabled: enabled)),
+        DataCell(Text('${links.length}')),
+        DataCell(Text('$visits')),
+        DataCell(Text('$registered')),
+        DataCell(Text('$verified')),
+        DataCell(
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.tonalIcon(
+                onPressed: enabled ? () => onQrCode(employee) : null,
+                icon: const Icon(Icons.qr_code_2_outlined),
+                label: const Text('QR Code'),
+              ),
+              OutlinedButton.icon(
+                onPressed: () => onPerformance(employee),
+                icon: const Icon(Icons.insights_outlined),
+                label: const Text('績效'),
+              ),
+              TextButton.icon(
+                onPressed: () => onToggle(employee),
+                icon: Icon(enabled ? Icons.block_outlined : Icons.play_arrow),
+                label: Text(enabled ? '停用' : '啟用'),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _EmployeeCard extends StatelessWidget {
+  const _EmployeeCard({
+    required this.employee,
+    required this.links,
+    required this.onQrCode,
+    required this.onPerformance,
+    required this.onToggle,
+  });
+
+  final backend.VeevaMember employee;
+  final List<backend.VeevaEmployeeActivityLink> links;
+  final VoidCallback onQrCode;
+  final VoidCallback onPerformance;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = employee.employeeStatus != 'disabled';
+    final visits = links.fold<int>(0, (total, link) => total + link.visitCount);
+    final registered =
+        links.fold<int>(0, (total, link) => total + link.registeredCount);
+    final verified =
+        links.fold<int>(0, (total, link) => total + link.phoneVerifiedCount);
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFA),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE4E8EA)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(child: _EmployeeHeader(member: employee)),
+              _EmployeeStatusChip(enabled: enabled),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            children: [
+              _MiniInfo(label: 'QR 數', value: '${links.length}'),
+              _MiniInfo(label: '進站', value: '$visits'),
+              _MiniInfo(label: '註冊', value: '$registered'),
+              _MiniInfo(label: '電話驗證', value: '$verified'),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.tonalIcon(
+                onPressed: enabled ? onQrCode : null,
+                icon: const Icon(Icons.qr_code_2_outlined),
+                label: const Text('QR Code'),
+              ),
+              OutlinedButton.icon(
+                onPressed: onPerformance,
+                icon: const Icon(Icons.insights_outlined),
+                label: const Text('績效'),
+              ),
+              TextButton.icon(
+                onPressed: onToggle,
+                icon: Icon(enabled ? Icons.block_outlined : Icons.play_arrow),
+                label: Text(enabled ? '停用' : '啟用'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmployeeHeader extends StatelessWidget {
+  const _EmployeeHeader({required this.member});
+
+  final backend.VeevaMember member;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _MemberAvatar(member: member),
+        const SizedBox(width: 10),
+        Flexible(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                member.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w900),
+              ),
+              Text(
+                member.employeeCode ?? member.email ?? '員工',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Color(0xFF6B7671), fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MemberAvatar extends StatelessWidget {
+  const _MemberAvatar({required this.member});
+
+  final backend.VeevaMember member;
+
+  @override
+  Widget build(BuildContext context) {
+    final avatarUrl = member.avatarUrl;
+    return CircleAvatar(
+      radius: 20,
+      backgroundColor: const Color(0xFFEAF3EA),
+      backgroundImage: avatarUrl == null || avatarUrl.isEmpty
+          ? null
+          : NetworkImage(avatarUrl),
+      child: avatarUrl == null || avatarUrl.isEmpty
+          ? Text(
+              member.name.isEmpty ? '員' : member.name.characters.first,
+              style: const TextStyle(fontWeight: FontWeight.w900),
+            )
+          : null,
+    );
+  }
+}
+
+class _EmployeeStatusChip extends StatelessWidget {
+  const _EmployeeStatusChip({required this.enabled});
+
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    return Chip(
+      avatar: Icon(
+        enabled ? Icons.check_circle_outline : Icons.block_outlined,
+        size: 17,
+        color: enabled ? const Color(0xFF216B57) : const Color(0xFFAD3B24),
+      ),
+      label: Text(enabled ? '啟用' : '停用'),
+      backgroundColor:
+          enabled ? const Color(0xFFEAF3EA) : const Color(0xFFFFF4EF),
+      side: BorderSide.none,
+    );
+  }
+}
+
+class _EmployeeQrPreview extends StatelessWidget {
+  const _EmployeeQrPreview({required this.link});
+
+  final backend.VeevaEmployeeActivityLink link;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFA),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE4E8EA)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          QrImageView(
+            data: link.url,
+            version: QrVersions.auto,
+            size: 220,
+            backgroundColor: Colors.white,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            link.activityTitle,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 8),
+          SelectableText(
+            link.url,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Color(0xFF216B57)),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.center,
+            children: [
+              FilledButton.tonalIcon(
+                onPressed: () async {
+                  await Clipboard.setData(ClipboardData(text: link.url));
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('已複製 QR Code 連結')),
+                    );
+                  }
+                },
+                icon: const Icon(Icons.copy_outlined),
+                label: const Text('複製連結'),
+              ),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  await Clipboard.setData(ClipboardData(text: link.code));
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('已複製追蹤代碼')),
+                    );
+                  }
+                },
+                icon: const Icon(Icons.tag_outlined),
+                label: Text(link.code),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmployeePerformanceTable extends StatelessWidget {
+  const _EmployeePerformanceTable({required this.links});
+
+  final List<backend.VeevaEmployeeActivityLink> links;
+
+  @override
+  Widget build(BuildContext context) {
+    return _FullWidthDataTable(
+      minWidth: 700,
+      child: DataTable(
+        headingRowColor: WidgetStateProperty.all(const Color(0xFFF1F4F3)),
+        columns: const [
+          DataColumn(label: Text('活動')),
+          DataColumn(label: Text('進站')),
+          DataColumn(label: Text('註冊')),
+          DataColumn(label: Text('電話驗證')),
+          DataColumn(label: Text('最後進站')),
+        ],
+        rows: [
+          for (final link in links)
+            DataRow(
+              cells: [
+                DataCell(Text(link.activityTitle)),
+                DataCell(Text('${link.visitCount}')),
+                DataCell(Text('${link.registeredCount}')),
+                DataCell(Text('${link.phoneVerifiedCount}')),
+                DataCell(Text(_memberDateTimeLabel(link.lastVisitedAt))),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 class _PermissionsManagement extends StatefulWidget {
   const _PermissionsManagement({
     required this.members,
@@ -7877,6 +8844,10 @@ backend.VeevaMember _memberWithSettings(
     referralRewardGrantedAt: member.referralRewardGrantedAt,
     isAdmin: isAdmin,
     adminRole: adminRole,
+    isEmployee: member.isEmployee,
+    employeeStatus: member.employeeStatus,
+    employeeCode: member.employeeCode,
+    employeeCreatedAt: member.employeeCreatedAt,
     updatedAt: member.updatedAt,
   );
 }
@@ -7912,6 +8883,10 @@ backend.VeevaMember _memberWithEarnedCoupons(
     referralRewardGrantedAt: member.referralRewardGrantedAt,
     isAdmin: member.isAdmin,
     adminRole: member.adminRole,
+    isEmployee: member.isEmployee,
+    employeeStatus: member.employeeStatus,
+    employeeCode: member.employeeCode,
+    employeeCreatedAt: member.employeeCreatedAt,
     updatedAt: member.updatedAt,
   );
 }
@@ -7950,6 +8925,52 @@ backend.VeevaMember _memberWithReferralRewardGranted(
     referralRewardGrantedAt: grantedAt,
     isAdmin: member.isAdmin,
     adminRole: member.adminRole,
+    isEmployee: member.isEmployee,
+    employeeStatus: member.employeeStatus,
+    employeeCode: member.employeeCode,
+    employeeCreatedAt: member.employeeCreatedAt,
+    updatedAt: member.updatedAt,
+  );
+}
+
+backend.VeevaMember _memberWithEmployeeStatus(
+  backend.VeevaMember member, {
+  required bool enabled,
+  String? employeeCode,
+  DateTime? employeeCreatedAt,
+}) {
+  return backend.VeevaMember(
+    id: member.id,
+    name: member.name,
+    hospital: member.hospital,
+    department: member.department,
+    status: member.status,
+    accountStatus: member.accountStatus,
+    earnedCoupons: member.earnedCoupons,
+    invitedCount: member.invitedCount,
+    shareCode: member.shareCode,
+    lineUserId: member.lineUserId,
+    avatarUrl: member.avatarUrl,
+    email: member.email,
+    lineStatusMessage: member.lineStatusMessage,
+    lineIdToken: member.lineIdToken,
+    lineIdTokenUpdatedAt: member.lineIdTokenUpdatedAt,
+    createdAt: member.createdAt,
+    lastLineLoginAt: member.lastLineLoginAt,
+    referredByMemberId: member.referredByMemberId,
+    referredByShareCode: member.referredByShareCode,
+    referredAt: member.referredAt,
+    referralRewardGrantedActivityId: member.referralRewardGrantedActivityId,
+    referralRewardGrantedRewardId: member.referralRewardGrantedRewardId,
+    referralRewardGrantedReferrerId: member.referralRewardGrantedReferrerId,
+    referralRewardGrantedAt: member.referralRewardGrantedAt,
+    isAdmin: member.isAdmin,
+    adminRole: member.adminRole,
+    isEmployee: enabled,
+    employeeStatus: enabled ? 'active' : 'disabled',
+    employeeCode: employeeCode,
+    employeeCreatedAt:
+        enabled ? employeeCreatedAt ?? DateTime.now() : employeeCreatedAt,
     updatedAt: member.updatedAt,
   );
 }

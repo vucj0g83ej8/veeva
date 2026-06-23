@@ -5,6 +5,7 @@ import { useVeevaApp } from '../hooks/useVeevaApp'
 import { ActivityDetailPage } from '../pages/ActivityDetailPage'
 import { ActivitiesPage } from '../pages/ActivitiesPage'
 import { CouponsPage } from '../pages/CouponsPage'
+import { EmployeeQrRedirectPage } from '../pages/EmployeeQrRedirectPage'
 import { NewsDetailPage } from '../pages/NewsDetailPage'
 import { MemberPage } from '../pages/MemberPage'
 import { NewsPage } from '../pages/NewsPage'
@@ -20,6 +21,7 @@ export function App() {
       <Routes>
         <Route path="/" element={<Navigate to="/activities" replace />} />
         <Route path="/r/:shareCode" element={<Navigate to="/member" replace />} />
+        <Route path="/e/:code" element={<EmployeeQrRedirectPage app={app} />} />
         <Route path="/activities" element={<ActivitiesPage app={app} />} />
         <Route
           path="/activities/:activityId/survey"

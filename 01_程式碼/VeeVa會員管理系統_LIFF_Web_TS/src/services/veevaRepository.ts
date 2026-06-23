@@ -20,6 +20,7 @@ import type {
   LiffProfile,
   VeevaActivity,
   VeevaActivityRegistration,
+  VeevaEmployeeActivityLink,
   VeevaMember,
   VeevaMemberNotification,
   VeevaMemberReward,
@@ -29,6 +30,9 @@ import type {
   VeevaSurveyEngagement,
 } from "../types/veeva";
 import { shareCodeFromId } from "../utils/shareCode";
+
+const employeeQrSessionKey = "veeva_employee_qr_session_id";
+const pendingEmployeeQrAttributionKey = "veeva_pending_employee_qr_attribution";
 
 type RewardIssueSource =
   | "manualAdmin"
@@ -143,6 +147,10 @@ export async function upsertLineMember(input: {
     await createReferralIfNeeded(updatedMember, input.referralCode);
   }
 
+  await bindPendingEmployeeQrAttribution(updatedMember, "registered").catch(
+    () => undefined,
+  );
+
   return (await loadMember(input.profile.userId)) ?? updatedMember;
 }
 
@@ -195,7 +203,209 @@ export async function updateMemberPhoneVerification(input: {
   if (!updatedMember) {
     throw new Error("手機驗證資料更新失敗");
   }
+  await bindPendingEmployeeQrAttribution(
+    updatedMember,
+    "phoneVerified",
+  ).catch(() => undefined);
   return updatedMember;
+}
+
+export async function loadEmployeeActivityLink(code: string) {
+  const normalizedCode = normalizeEmployeeQrCode(code);
+  if (!normalizedCode) return undefined;
+  const linkDoc = await getDoc(
+    doc(firestore, "employeeActivityLinks", normalizedCode),
+  );
+  if (!linkDoc.exists()) return undefined;
+  return employeeActivityLinkFromData(linkDoc.id, linkDoc.data());
+}
+
+export async function recordEmployeeQrVisit(code: string) {
+  const link = await loadEmployeeActivityLink(code);
+  if (!link || link.status !== "active") {
+    throw new Error("此員工 QR Code 尚未啟用");
+  }
+  const visitSessionId = employeeQrVisitSessionId(link.code);
+  const visitRef = doc(firestore, "employeeQrVisits", visitSessionId);
+  const linkRef = doc(firestore, "employeeActivityLinks", link.code);
+
+  await runTransaction(firestore, async (transaction) => {
+    const visitSnap = await transaction.get(visitRef);
+    if (!visitSnap.exists()) {
+      transaction.set(visitRef, {
+        linkId: link.code,
+        code: link.code,
+        employeeMemberId: link.employeeMemberId,
+        employeeName: link.employeeName,
+        activityId: link.activityId,
+        activityTitle: link.activityTitle,
+        sessionId: employeeQrSessionId(),
+        firstVisitedAt: serverTimestamp(),
+        createdAt: serverTimestamp(),
+      });
+      transaction.set(
+        linkRef,
+        {
+          visitCount: increment(1),
+          lastVisitedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+    } else {
+      transaction.set(
+        visitRef,
+        {
+          lastVisitedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+      transaction.set(
+        linkRef,
+        {
+          lastVisitedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+    }
+  });
+
+  storePendingEmployeeQrAttribution({
+    code: link.code,
+    activityId: link.activityId,
+    employeeMemberId: link.employeeMemberId,
+    visitSessionId,
+    storedAt: new Date().toISOString(),
+  });
+  return link;
+}
+
+export async function bindPendingEmployeeQrAttribution(
+  member: VeevaMember,
+  stage: "registered" | "phoneVerified" = "registered",
+) {
+  const pending = readPendingEmployeeQrAttribution();
+  if (!pending) return;
+  const link = await loadEmployeeActivityLink(pending.code);
+  if (!link || link.status !== "active") {
+    clearPendingEmployeeQrAttribution();
+    return;
+  }
+
+  const attributionId = firestoreDocumentId([
+    member.id,
+    link.activityId,
+    "employeeQr",
+  ]);
+  const attributionRef = doc(
+    firestore,
+    "memberEmployeeAttributions",
+    attributionId,
+  );
+  const visitRef = doc(firestore, "employeeQrVisits", pending.visitSessionId);
+  const memberRef = doc(firestore, "members", member.id);
+  const linkRef = doc(firestore, "employeeActivityLinks", link.code);
+
+  await runTransaction(firestore, async (transaction) => {
+    const attributionSnap = await transaction.get(attributionRef);
+    const attributionData = attributionSnap.data();
+    const alreadyRegistered = attributionData?.registeredAt;
+    const alreadyPhoneVerified = attributionData?.phoneVerifiedAt;
+
+    if (!attributionSnap.exists()) {
+      transaction.set(attributionRef, {
+        memberId: member.id,
+        memberName: member.name,
+        memberLineUserId: member.lineUserId ?? member.id,
+        memberAvatarUrl: member.avatarUrl ?? null,
+        employeeLinkId: link.code,
+        employeeMemberId: link.employeeMemberId,
+        employeeName: link.employeeName,
+        activityId: link.activityId,
+        activityTitle: link.activityTitle,
+        source: "employeeQr",
+        visitSessionId: pending.visitSessionId,
+        registeredAt: serverTimestamp(),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      transaction.set(
+        linkRef,
+        {
+          registeredCount: increment(1),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+    } else if (!alreadyRegistered) {
+      transaction.set(
+        attributionRef,
+        {
+          registeredAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+      transaction.set(
+        linkRef,
+        {
+          registeredCount: increment(1),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+    }
+
+    if (stage === "phoneVerified" && !alreadyPhoneVerified) {
+      transaction.set(
+        attributionRef,
+        {
+          phoneVerifiedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+      transaction.set(
+        linkRef,
+        {
+          phoneVerifiedCount: increment(1),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+    }
+
+    transaction.set(
+      visitRef,
+      {
+        memberId: member.id,
+        memberName: member.name,
+        memberLineUserId: member.lineUserId ?? member.id,
+        phoneVerified: stage === "phoneVerified" || member.phoneVerified === true,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    );
+    transaction.set(
+      memberRef,
+      {
+        employeeQrAttribution: {
+          employeeLinkId: link.code,
+          employeeMemberId: link.employeeMemberId,
+          activityId: link.activityId,
+          source: "employeeQr",
+        },
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    );
+  });
+
+  if (stage === "phoneVerified") {
+    clearPendingEmployeeQrAttribution();
+  }
 }
 
 export async function hasMemberMarkedNewsHelpful(input: {
@@ -843,6 +1053,33 @@ function memberFromData(
     referralRewardGrantedAt: dateValue(data.referralRewardGrantedAt),
     isAdmin: data.isAdmin === true,
     adminRole: optionalString(data.adminRole),
+    isEmployee: data.isEmployee === true,
+    employeeStatus: optionalString(data.employeeStatus),
+    employeeCode: optionalString(data.employeeCode),
+    employeeCreatedAt: dateValue(data.employeeCreatedAt),
+  };
+}
+
+function employeeActivityLinkFromData(
+  id: string,
+  data: Record<string, unknown>,
+): VeevaEmployeeActivityLink {
+  return {
+    id,
+    code: stringValue(data.code, id),
+    employeeMemberId: stringValue(data.employeeMemberId),
+    employeeName: stringValue(data.employeeName, "員工"),
+    employeeAvatarUrl: optionalString(data.employeeAvatarUrl),
+    activityId: stringValue(data.activityId),
+    activityTitle: stringValue(data.activityTitle, "活動"),
+    url: stringValue(data.url),
+    status: stringValue(data.status, "active"),
+    visitCount: numberValue(data.visitCount),
+    registeredCount: numberValue(data.registeredCount),
+    phoneVerifiedCount: numberValue(data.phoneVerifiedCount),
+    lastVisitedAt: dateValue(data.lastVisitedAt),
+    createdAt: dateValue(data.createdAt),
+    updatedAt: dateValue(data.updatedAt),
   };
 }
 
@@ -1061,6 +1298,73 @@ function firestoreDocumentId(parts: string[]) {
 function firestoreDocumentSegment(value: string) {
   const segment = value.trim().replace(/[/#?[\]]/g, "_");
   return segment || "unknown";
+}
+
+function normalizeEmployeeQrCode(code: string) {
+  return code.replace(/[^a-zA-Z0-9_-]/g, "").trim();
+}
+
+function employeeQrSessionId() {
+  try {
+    const existing = window.localStorage.getItem(employeeQrSessionKey);
+    if (existing) return existing;
+    const sessionId = `eqr-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 10)}`;
+    window.localStorage.setItem(employeeQrSessionKey, sessionId);
+    return sessionId;
+  } catch {
+    return `eqr-${Date.now()}`;
+  }
+}
+
+function employeeQrVisitSessionId(code: string) {
+  return firestoreDocumentId([code, employeeQrSessionId()]);
+}
+
+interface PendingEmployeeQrAttribution {
+  code: string;
+  activityId: string;
+  employeeMemberId: string;
+  visitSessionId: string;
+  storedAt: string;
+}
+
+function storePendingEmployeeQrAttribution(input: PendingEmployeeQrAttribution) {
+  try {
+    window.localStorage.setItem(
+      pendingEmployeeQrAttributionKey,
+      JSON.stringify(input),
+    );
+  } catch {
+    return;
+  }
+}
+
+function readPendingEmployeeQrAttribution() {
+  try {
+    const raw = window.localStorage.getItem(pendingEmployeeQrAttributionKey);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as PendingEmployeeQrAttribution;
+    if (!parsed.code || !parsed.visitSessionId) return undefined;
+    const storedAt = new Date(parsed.storedAt).getTime();
+    if (!Number.isFinite(storedAt) || Date.now() - storedAt > 7 * 24 * 60 * 60 * 1000) {
+      clearPendingEmployeeQrAttribution();
+      return undefined;
+    }
+    return parsed;
+  } catch {
+    clearPendingEmployeeQrAttribution();
+    return undefined;
+  }
+}
+
+function clearPendingEmployeeQrAttribution() {
+  try {
+    window.localStorage.removeItem(pendingEmployeeQrAttributionKey);
+  } catch {
+    return;
+  }
 }
 
 function stringValue(value: unknown, fallback = "") {

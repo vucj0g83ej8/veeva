@@ -4,6 +4,7 @@ import type { VeevaAppState } from '../hooks/useVeevaApp'
 import {
   confirmPhoneVerificationCode,
   normalizePhoneNumber,
+  normalizeVerificationCode,
   sendPhoneVerificationCode,
 } from '../services/phoneVerification'
 
@@ -110,18 +111,24 @@ export function PhoneVerificationGate({ app }: PhoneVerificationGateProps) {
                   簡訊驗證碼
                 </span>
                 <input
+                  autoComplete="one-time-code"
                   inputMode="numeric"
-                  maxLength={8}
+                  maxLength={6}
+                  pattern="[0-9]*"
                   placeholder="輸入驗證碼"
                   value={verificationCode}
                   disabled={busy}
-                  onChange={(event) => setVerificationCode(event.target.value)}
+                  onChange={(event) =>
+                    setVerificationCode(
+                      normalizeVerificationCode(event.currentTarget.value),
+                    )
+                  }
                 />
               </label>
               <button
                 className="primary-button phone-verification-button"
                 type="button"
-                disabled={busy}
+                disabled={busy || verificationCode.length !== 6}
                 onClick={confirmCode}
               >
                 <ShieldCheck size={19} />

@@ -477,6 +477,7 @@ class _LargeMemberRepository extends DemoVeevaRepository {
       adminUsers: const [],
       activityRecords: const [],
       memberRewards: const [],
+      employeeLinks: const [],
       clientSettings: const backend.VeevaClientSettings(),
     );
   }
@@ -531,6 +532,7 @@ class _SingleActivityRepository extends DemoVeevaRepository {
       adminUsers: const [],
       activityRecords: const [],
       memberRewards: const [],
+      employeeLinks: const [],
       clientSettings: const backend.VeevaClientSettings(),
     );
   }
@@ -561,6 +563,7 @@ class _SingleNewsRepository extends DemoVeevaRepository {
       adminUsers: [],
       activityRecords: [],
       memberRewards: [],
+      employeeLinks: [],
       clientSettings: backend.VeevaClientSettings(),
     );
   }

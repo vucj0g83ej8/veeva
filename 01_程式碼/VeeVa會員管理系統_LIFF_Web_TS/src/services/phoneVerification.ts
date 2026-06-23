@@ -16,6 +16,7 @@ import { firebaseAuth, firestore } from './firebase'
 let recaptchaVerifier: RecaptchaVerifier | undefined
 let confirmationResult: ConfirmationResult | undefined
 const smsSendCooldownMs = 60_000
+const smsVerificationCodeLength = 6
 
 export interface ConfirmedPhoneVerification {
   phoneNumber: string
@@ -45,6 +46,12 @@ export function normalizePhoneNumber(input: string) {
   }
 
   throw new Error('請輸入台灣手機號碼，例如 0912345678')
+}
+
+export function normalizeVerificationCode(input: string) {
+  const firstSixDigitCode = input.match(/\d{6}/)?.[0]
+  if (firstSixDigitCode) return firstSixDigitCode
+  return input.replace(/\D/g, '').slice(0, smsVerificationCodeLength)
 }
 
 export async function sendPhoneVerificationCode(
@@ -77,9 +84,12 @@ export async function sendPhoneVerificationCode(
 export async function confirmPhoneVerificationCode(
   code: string,
 ): Promise<ConfirmedPhoneVerification> {
-  const verificationCode = code.trim()
+  const verificationCode = normalizeVerificationCode(code)
   if (!verificationCode) {
     throw new Error('請輸入驗證碼')
+  }
+  if (verificationCode.length !== smsVerificationCodeLength) {
+    throw new Error(`請輸入 ${smsVerificationCodeLength} 位數驗證碼`)
   }
   if (!confirmationResult) {
     throw new Error('請先取得簡訊驗證碼')

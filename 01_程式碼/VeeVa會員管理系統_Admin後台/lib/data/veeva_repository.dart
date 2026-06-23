@@ -53,6 +53,16 @@ abstract class VeevaRepository {
     VeevaAdminUser? adminUser,
   });
 
+  Future<void> saveEmployeeStatus({
+    required VeevaMember member,
+    required bool enabled,
+  });
+
+  Future<VeevaEmployeeActivityLink> createEmployeeActivityLink({
+    required VeevaMember employee,
+    required VeevaActivity activity,
+  });
+
   Future<void> grantRewardToMember({
     required VeevaMember member,
     required VeevaReward reward,
@@ -105,6 +115,8 @@ class FirestoreVeevaRepository implements VeevaRepository {
       firestore.collection('activityRegistrations');
   CollectionReference<Map<String, dynamic>> get _activityCompletions =>
       firestore.collection('activityCompletions');
+  CollectionReference<Map<String, dynamic>> get _employeeActivityLinks =>
+      firestore.collection('employeeActivityLinks');
 
   @override
   Future<VeevaBootstrap> loadBootstrap() async {
@@ -119,6 +131,7 @@ class FirestoreVeevaRepository implements VeevaRepository {
       _activityRegistrations.limit(300).get(),
       _activityCompletions.limit(300).get(),
       _memberRewards.limit(500).get(),
+      _employeeActivityLinks.limit(500).get(),
     ]);
     final clientSettingsDoc = await clientSettingsFuture;
 
@@ -166,6 +179,10 @@ class FirestoreVeevaRepository implements VeevaRepository {
       memberRewards: results[8]
           .docs
           .map((doc) => VeevaMemberReward.fromMap(doc.id, doc.data()))
+          .toList(),
+      employeeLinks: results[9]
+          .docs
+          .map((doc) => VeevaEmployeeActivityLink.fromMap(doc.id, doc.data()))
           .toList(),
       clientSettings:
           VeevaClientSettings.fromMap(clientSettingsDoc.data() ?? const {}),
@@ -258,6 +275,10 @@ class FirestoreVeevaRepository implements VeevaRepository {
       referralRewardGrantedAt: existing?.referralRewardGrantedAt,
       isAdmin: existing?.isAdmin ?? false,
       adminRole: existing?.adminRole,
+      isEmployee: existing?.isEmployee ?? false,
+      employeeStatus: existing?.employeeStatus,
+      employeeCode: existing?.employeeCode,
+      employeeCreatedAt: existing?.employeeCreatedAt,
     );
     final payload = member.toMap()
       ..['lastLineLoginAt'] = FieldValue.serverTimestamp()
@@ -519,6 +540,61 @@ class FirestoreVeevaRepository implements VeevaRepository {
   }
 
   @override
+  Future<void> saveEmployeeStatus({
+    required VeevaMember member,
+    required bool enabled,
+  }) {
+    final employeeCode = enabled
+        ? (member.employeeCode?.trim().isNotEmpty == true
+            ? member.employeeCode!.trim()
+            : _employeeCodeFromId(member.id))
+        : member.employeeCode;
+    return _members.doc(member.id).set({
+      'isEmployee': enabled,
+      'employeeStatus': enabled ? 'active' : 'disabled',
+      'employeeCode': employeeCode,
+      if (enabled && member.employeeCreatedAt == null)
+        'employeeCreatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  @override
+  Future<VeevaEmployeeActivityLink> createEmployeeActivityLink({
+    required VeevaMember employee,
+    required VeevaActivity activity,
+  }) async {
+    final code = _employeeActivityLinkCode(
+      employeeId: employee.id,
+      activityId: activity.id,
+      employeeCode: employee.employeeCode,
+    );
+    final linkRef = _employeeActivityLinks.doc(code);
+    final url = _employeeLiffUrlForCode(code);
+    final existingLink = await linkRef.get();
+    await linkRef.set({
+      'code': code,
+      'employeeMemberId': employee.id,
+      'employeeLineUserId': employee.lineUserId ?? employee.id,
+      'employeeName': employee.name,
+      'employeeAvatarUrl': employee.avatarUrl,
+      'activityId': activity.id,
+      'activityTitle': activity.title,
+      'activityType': activity.type.name,
+      'url': url,
+      'status': 'active',
+      'updatedAt': FieldValue.serverTimestamp(),
+      if (!existingLink.exists) 'createdAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    final snapshot = await linkRef.get();
+    return VeevaEmployeeActivityLink.fromMap(
+      snapshot.id,
+      snapshot.data() ?? const {},
+    );
+  }
+
+  @override
   Future<void> grantRewardToMember({
     required VeevaMember member,
     required VeevaReward reward,
@@ -771,6 +847,7 @@ class DemoVeevaRepository implements VeevaRepository {
       adminUsers: [],
       activityRecords: [],
       memberRewards: [],
+      employeeLinks: [],
       clientSettings: VeevaClientSettings(),
     );
   }
@@ -869,6 +946,34 @@ class DemoVeevaRepository implements VeevaRepository {
   }) async {}
 
   @override
+  Future<void> saveEmployeeStatus({
+    required VeevaMember member,
+    required bool enabled,
+  }) async {}
+
+  @override
+  Future<VeevaEmployeeActivityLink> createEmployeeActivityLink({
+    required VeevaMember employee,
+    required VeevaActivity activity,
+  }) async {
+    final code = _employeeActivityLinkCode(
+      employeeId: employee.id,
+      activityId: activity.id,
+      employeeCode: employee.employeeCode,
+    );
+    return VeevaEmployeeActivityLink(
+      id: code,
+      code: code,
+      employeeMemberId: employee.id,
+      employeeName: employee.name,
+      employeeAvatarUrl: employee.avatarUrl,
+      activityId: activity.id,
+      activityTitle: activity.title,
+      url: _employeeLiffUrlForCode(code),
+    );
+  }
+
+  @override
   Future<void> grantRewardToMember({
     required VeevaMember member,
     required VeevaReward reward,
@@ -900,6 +1005,32 @@ String _shareCodeFromId(String id) {
     return compact.substring(compact.length - 5);
   }
   return compact.padRight(5, 'X');
+}
+
+String _employeeCodeFromId(String id) {
+  final compact = id.replaceAll(RegExp('[^a-zA-Z0-9]'), '').toUpperCase();
+  if (compact.length >= 6) {
+    return 'EMP${compact.substring(compact.length - 6)}';
+  }
+  return 'EMP${compact.padRight(6, 'X')}';
+}
+
+String _employeeActivityLinkCode({
+  required String employeeId,
+  required String activityId,
+  String? employeeCode,
+}) {
+  final prefix = (employeeCode?.trim().isNotEmpty == true
+          ? employeeCode!.trim()
+          : _employeeCodeFromId(employeeId))
+      .replaceAll(RegExp('[^a-zA-Z0-9]'), '')
+      .toUpperCase();
+  final hash = _stableLinkHash('$employeeId|$activityId').toUpperCase();
+  return '$prefix${hash.substring(0, 6)}';
+}
+
+String _employeeLiffUrlForCode(String code) {
+  return 'https://liff.line.me/2010298394-7PwRtpTY/e/$code';
 }
 
 int _readIntLike(Object? value) {

@@ -57,6 +57,21 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /employeeActivityLinks/{linkId} {
+      allow read, create, update: if true;
+      allow delete: if false;
+    }
+
+    match /employeeQrVisits/{visitId} {
+      allow read, create, update: if true;
+      allow delete: if false;
+    }
+
+    match /memberEmployeeAttributions/{attributionId} {
+      allow read, create, update: if true;
+      allow delete: if false;
+    }
+
     match /adminUsers/{adminUserId} {
       allow read, create, update: if true;
       allow delete: if false;
