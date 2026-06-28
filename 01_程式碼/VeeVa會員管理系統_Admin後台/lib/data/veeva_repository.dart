@@ -269,6 +269,8 @@ class FirestoreVeevaRepository implements VeevaRepository {
       avatarUrl: avatarUrl ?? existing?.avatarUrl,
       email: email ?? existing?.email,
       phoneNumber: existing?.phoneNumber,
+      phoneVerified: existing?.phoneVerified ?? false,
+      phoneVerifiedAt: existing?.phoneVerifiedAt,
       lineStatusMessage: statusMessage ?? existing?.lineStatusMessage,
       lineIdToken:
           token == null || token.isEmpty ? existing?.lineIdToken : token,
@@ -521,6 +523,7 @@ class FirestoreVeevaRepository implements VeevaRepository {
   }) async {
     final isActiveAdmin = adminUser?.status == VeevaAdminStatus.active;
     final memberPayload = <String, Object?>{
+      'status': member.status.name,
       'accountStatus': member.accountStatus.name,
       'isAdmin': isActiveAdmin,
       'adminRole': isActiveAdmin ? adminUser!.role.name : null,

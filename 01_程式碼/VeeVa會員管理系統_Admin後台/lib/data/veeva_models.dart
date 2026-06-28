@@ -43,6 +43,12 @@ int _readInt(Object? value, [int fallback = 0]) {
   return fallback;
 }
 
+bool _readBool(Object? value) {
+  if (value is bool) return value;
+  final text = value?.toString().trim().toLowerCase();
+  return text == 'true' || text == '1' || text == 'yes';
+}
+
 T _readEnum<T extends Enum>(
   List<T> values,
   Object? value,
@@ -167,6 +173,8 @@ class VeevaMember {
     this.avatarUrl,
     this.email,
     this.phoneNumber,
+    this.phoneVerified = false,
+    this.phoneVerifiedAt,
     this.lineStatusMessage,
     this.lineIdToken,
     this.lineIdTokenUpdatedAt,
@@ -227,6 +235,9 @@ class VeevaMember {
         'firebasePhoneNumber',
         'smsPhoneNumber',
       ]),
+      phoneVerified: _readBool(data['phoneVerified']) ||
+          _readDate(data['phoneVerifiedAt']) != null,
+      phoneVerifiedAt: _readDate(data['phoneVerifiedAt']),
       lineStatusMessage: data['lineStatusMessage']?.toString(),
       lineIdToken: data['lineIdToken']?.toString(),
       lineIdTokenUpdatedAt: _readDate(data['lineIdTokenUpdatedAt']),
@@ -265,6 +276,8 @@ class VeevaMember {
   final String? avatarUrl;
   final String? email;
   final String? phoneNumber;
+  final bool phoneVerified;
+  final DateTime? phoneVerifiedAt;
   final String? lineStatusMessage;
   final String? lineIdToken;
   final DateTime? lineIdTokenUpdatedAt;
@@ -299,6 +312,9 @@ class VeevaMember {
       'avatarUrl': avatarUrl,
       'email': email,
       'phoneNumber': phoneNumber,
+      'phoneVerified': phoneVerified,
+      'phoneVerifiedAt':
+          phoneVerifiedAt == null ? null : Timestamp.fromDate(phoneVerifiedAt!),
       'lineStatusMessage': lineStatusMessage,
       'lineIdToken': lineIdToken,
       'lineIdTokenUpdatedAt': lineIdTokenUpdatedAt == null

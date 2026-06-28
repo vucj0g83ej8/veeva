@@ -385,7 +385,6 @@ function buildSurveyEngagement(
   })
   const requiredConditionsMet =
     iframeLoaded &&
-    draft.iframeFocusedCount > 0 &&
     visibleDurationMs >= SURVEY_MIN_VISIBLE_MS &&
     totalDurationMs >= SURVEY_MIN_TOTAL_MS &&
     !fastExit &&
@@ -424,11 +423,11 @@ function calculateSurveyScore(input: {
   parentInteractionCount: number
 }) {
   let score = 0
-  if (input.iframeLoaded) score += 15
-  if (input.iframeFocusedCount > 0) score += 25
-  if (input.visibleDurationMs >= SURVEY_MIN_VISIBLE_MS) score += 15
-  if (input.visibleDurationMs >= SURVEY_MIN_TOTAL_MS) score += 10
-  if (input.totalDurationMs >= SURVEY_MIN_TOTAL_MS) score += 15
+  if (input.iframeLoaded) score += 20
+  if (input.iframeFocusedCount > 0) score += 10
+  if (input.visibleDurationMs >= SURVEY_MIN_VISIBLE_MS) score += 20
+  if (input.visibleDurationMs >= SURVEY_MIN_TOTAL_MS) score += 20
+  if (input.totalDurationMs >= SURVEY_MIN_TOTAL_MS) score += 20
   if (input.totalDurationMs >= SURVEY_FAST_EXIT_MS) score += 10
   if (input.parentInteractionCount > 0) score += 10
   return Math.min(score, 100)
