@@ -202,7 +202,7 @@ class _RichArticleEditorState extends State<RichArticleEditor> {
         const Text(
           '文章內容',
           style: TextStyle(
-            color: Color(0xFF4C5F58),
+            color: Color(0xFF6F7073),
             fontSize: 13,
             fontWeight: FontWeight.w800,
           ),
@@ -908,7 +908,7 @@ void _ensureEditorStyles() {
 }
 .veeva-rich-editor blockquote {
   background: #f2f8f5;
-  border-left: 4px solid #216b57;
+  border-left: 4px solid #ff9812;
   border-radius: 8px;
   color: #3b5149;
   margin: 12px 0 16px;

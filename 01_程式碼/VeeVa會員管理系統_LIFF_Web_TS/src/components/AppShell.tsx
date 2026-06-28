@@ -36,8 +36,12 @@ export function AppShell({ app, children }: AppShellProps) {
   return (
     <div className="app-shell">
       <header className="app-header">
-        <div>
-          <p className="eyebrow">VeeVa Member</p>
+        <div className="app-title-block">
+          <img
+            className="brand-logo"
+            src="/assets/brand/veeva-logo.png"
+            alt="Veeva"
+          />
           <h1>{title}</h1>
         </div>
         <NotificationCenter app={app} />

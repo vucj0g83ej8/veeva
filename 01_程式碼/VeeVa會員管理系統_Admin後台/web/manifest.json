@@ -4,7 +4,7 @@
     "start_url": ".",
     "display": "standalone",
     "background_color": "#F5F7F8",
-    "theme_color": "#216B57",
+    "theme_color": "#FF9812",
     "description": "VeeVa 會員管理系統後台",
     "orientation": "any",
     "prefer_related_applications": false,

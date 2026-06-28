@@ -20,6 +20,13 @@ import 'services/admin_voucher_importer_base.dart';
 import 'services/admin_voucher_importer_stub.dart'
     if (dart.library.html) 'services/admin_voucher_importer_web.dart';
 
+class _BrandColors {
+  static const primary = Color(0xFFFF9812);
+  static const sidebar = Color(0xFF303236);
+  static const surface = Color(0xFFFFFAF3);
+  static const border = Color(0xFFEADFCE);
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final repository = await createVeevaRepository();
@@ -53,17 +60,17 @@ class VeevaAdminApp extends StatelessWidget {
           'sans-serif',
         ],
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF216B57),
-          primary: const Color(0xFF216B57),
-          surface: const Color(0xFFF5F7F8),
+          seedColor: _BrandColors.primary,
+          primary: _BrandColors.primary,
+          surface: _BrandColors.surface,
         ),
-        scaffoldBackgroundColor: const Color(0xFFF5F7F8),
+        scaffoldBackgroundColor: _BrandColors.surface,
         cardTheme: CardTheme(
           color: Colors.white,
           elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(8),
-            side: const BorderSide(color: Color(0xFFE4E8EA)),
+            side: const BorderSide(color: _BrandColors.border),
           ),
         ),
       ),
@@ -619,12 +626,12 @@ class _AdminAuthScreen extends StatelessWidget {
                     height: 52,
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
-                      color: const Color(0xFFE8F5EF),
+                      color: const Color(0xFFFFF2DF),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: const Icon(
                       Icons.admin_panel_settings_outlined,
-                      color: Color(0xFF216B57),
+                      color: Color(0xFFC66D00),
                       size: 28,
                     ),
                   ),
@@ -640,7 +647,7 @@ class _AdminAuthScreen extends StatelessWidget {
                   Text(
                     description,
                     style: const TextStyle(
-                      color: Color(0xFF61706A),
+                      color: Color(0xFF8A8D8F),
                       fontWeight: FontWeight.w600,
                       height: 1.5,
                     ),
@@ -703,9 +710,9 @@ class _AdminAuthProfile extends StatelessWidget {
         profile.displayName.trim().isEmpty ? 'LINE 會員' : profile.displayName;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: const Color(0xFFF5F7F8),
+        color: const Color(0xFFFFFAF3),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE4E8EA)),
+        border: Border.all(color: const Color(0xFFEADFCE)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -737,7 +744,7 @@ class _AdminAuthProfile extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      color: Color(0xFF61706A),
+                      color: Color(0xFF8A8D8F),
                       fontSize: 12,
                     ),
                   ),
@@ -1527,7 +1534,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                                 Text(
                                   preview.label,
                                   style: const TextStyle(
-                                    color: Color(0xFF61706A),
+                                    color: Color(0xFF8A8D8F),
                                     fontWeight: FontWeight.w800,
                                   ),
                                 ),
@@ -1644,7 +1651,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                       decoration: const BoxDecoration(
                         color: Colors.white,
                         border: Border(
-                          bottom: BorderSide(color: Color(0xFFE2E8E6)),
+                          bottom: BorderSide(color: Color(0xFFEADFCE)),
                         ),
                       ),
                       child: Row(
@@ -1656,7 +1663,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                                 Text(
                                   isEditing ? '編輯活動' : '新增活動',
                                   style: const TextStyle(
-                                    color: Color(0xFF172620),
+                                    color: Color(0xFF303236),
                                     fontSize: 28,
                                     fontWeight: FontWeight.w900,
                                   ),
@@ -1665,7 +1672,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                                 const Text(
                                   '新增一個活動並設定相關資訊，帶給會員更好的活動體驗。',
                                   style: TextStyle(
-                                    color: Color(0xFF6B7671),
+                                    color: Color(0xFF8A8D8F),
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
@@ -1677,7 +1684,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                             icon: const Icon(Icons.visibility_outlined),
                             label: const Text('預覽'),
                             style: OutlinedButton.styleFrom(
-                              foregroundColor: const Color(0xFF30443D),
+                              foregroundColor: const Color(0xFF303236),
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 22,
                                 vertical: 16,
@@ -1694,7 +1701,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                             ),
                             label: Text(isEditing ? '儲存' : '儲存草稿'),
                             style: FilledButton.styleFrom(
-                              backgroundColor: const Color(0xFF0D7A57),
+                              backgroundColor: const Color(0xFFFF9812),
                               foregroundColor: Colors.white,
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 24,
@@ -2075,9 +2082,9 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                                       Container(
                                         padding: const EdgeInsets.all(16),
                                         decoration: BoxDecoration(
-                                          color: const Color(0xFFF8FAFA),
+                                          color: const Color(0xFFFFFAF3),
                                           border: Border.all(
-                                            color: const Color(0xFFE3E8E6),
+                                            color: const Color(0xFFEADFCE),
                                           ),
                                           borderRadius:
                                               BorderRadius.circular(8),
@@ -2146,7 +2153,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                                               contentPadding: EdgeInsets.zero,
                                               value: enableReferrerReward,
                                               activeColor:
-                                                  const Color(0xFF0D7A57),
+                                                  const Color(0xFFFF9812),
                                               title: const Text(
                                                 '啟用邀請者加碼獎勵',
                                                 style: TextStyle(
@@ -3161,7 +3168,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                       decoration: const BoxDecoration(
                         color: Colors.white,
                         border: Border(
-                          bottom: BorderSide(color: Color(0xFFE2E8E6)),
+                          bottom: BorderSide(color: Color(0xFFEADFCE)),
                         ),
                       ),
                       child: Row(
@@ -3173,7 +3180,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                                 Text(
                                   isEditing ? '編輯兌換券' : '新增兌換券',
                                   style: const TextStyle(
-                                    color: Color(0xFF172620),
+                                    color: Color(0xFF303236),
                                     fontSize: 28,
                                     fontWeight: FontWeight.w900,
                                   ),
@@ -3182,7 +3189,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                                 const Text(
                                   '設定兌換券內容、庫存、兌換期限與圖片。',
                                   style: TextStyle(
-                                    color: Color(0xFF6B7671),
+                                    color: Color(0xFF8A8D8F),
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
@@ -3201,7 +3208,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                             ),
                             label: Text(isEditing ? '儲存' : '建立'),
                             style: FilledButton.styleFrom(
-                              backgroundColor: const Color(0xFF0D7A57),
+                              backgroundColor: const Color(0xFFFF9812),
                               foregroundColor: Colors.white,
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 24,
@@ -3289,7 +3296,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                                           hintText: '請選擇狀態',
                                           icon: Icons
                                               .check_circle_outline_outlined,
-                                          fillColor: const Color(0xFFF0F8F5),
+                                          fillColor: const Color(0xFFFFF7E8),
                                         ),
                                         items: const [
                                           DropdownMenuItem(
@@ -3637,7 +3644,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                       Text(
                         reward.category,
                         style: const TextStyle(
-                          color: Color(0xFF61706A),
+                          color: Color(0xFF8A8D8F),
                           fontWeight: FontWeight.w800,
                         ),
                       ),
@@ -3801,7 +3808,7 @@ class _ActivityFormSection extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE2E8E6)),
+        border: Border.all(color: const Color(0xFFEADFCE)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3813,7 +3820,7 @@ class _ActivityFormSection extends StatelessWidget {
                 height: 24,
                 alignment: Alignment.center,
                 decoration: const BoxDecoration(
-                  color: Color(0xFF0D7A57),
+                  color: Color(0xFFFF9812),
                   shape: BoxShape.circle,
                 ),
                 child: Text(
@@ -3829,7 +3836,7 @@ class _ActivityFormSection extends StatelessWidget {
               Text(
                 title,
                 style: const TextStyle(
-                  color: Color(0xFF1C3028),
+                  color: Color(0xFF303236),
                   fontSize: 17,
                   fontWeight: FontWeight.w900,
                 ),
@@ -3860,7 +3867,7 @@ class _ActivityFieldLabel extends StatelessWidget {
       child: RichText(
         text: TextSpan(
           style: const TextStyle(
-            color: Color(0xFF4C5F58),
+            color: Color(0xFF6F7073),
             fontSize: 13,
             fontWeight: FontWeight.w800,
           ),
@@ -3891,7 +3898,7 @@ class _RewardFormSection extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE2E8E6)),
+        border: Border.all(color: const Color(0xFFEADFCE)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3900,14 +3907,14 @@ class _RewardFormSection extends StatelessWidget {
             children: [
               Icon(
                 Icons.card_giftcard_outlined,
-                color: Color(0xFF0D7A57),
+                color: Color(0xFFFF9812),
                 size: 28,
               ),
               SizedBox(width: 12),
               Text(
                 '基本資訊',
                 style: TextStyle(
-                  color: Color(0xFF0D7A57),
+                  color: Color(0xFFFF9812),
                   fontSize: 22,
                   fontWeight: FontWeight.w900,
                 ),
@@ -3937,7 +3944,7 @@ class _RewardExpiryInfoBox extends StatelessWidget {
       constraints: const BoxConstraints(minHeight: 86),
       padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
       decoration: BoxDecoration(
-        color: const Color(0xFFF0F8F5),
+        color: const Color(0xFFFFF7E8),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
@@ -3945,7 +3952,7 @@ class _RewardExpiryInfoBox extends StatelessWidget {
         children: [
           const Icon(
             Icons.info_outline,
-            color: Color(0xFF0D7A57),
+            color: Color(0xFFFF9812),
             size: 24,
           ),
           const SizedBox(width: 14),
@@ -3953,7 +3960,7 @@ class _RewardExpiryInfoBox extends StatelessWidget {
             child: Text(
               message,
               style: const TextStyle(
-                color: Color(0xFF527068),
+                color: Color(0xFF8A8D8F),
                 fontSize: 15,
                 height: 1.7,
                 fontWeight: FontWeight.w800,
@@ -3991,7 +3998,7 @@ class _RewardVoucherImportSection extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE0E7E4)),
+        border: Border.all(color: const Color(0xFFEADFCE)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -4000,7 +4007,7 @@ class _RewardVoucherImportSection extends StatelessWidget {
             children: [
               const Icon(
                 Icons.table_chart_outlined,
-                color: Color(0xFF0D7A57),
+                color: Color(0xFFFF9812),
                 size: 28,
               ),
               const SizedBox(width: 12),
@@ -4008,7 +4015,7 @@ class _RewardVoucherImportSection extends StatelessWidget {
                 child: Text(
                   '批量兌換連結',
                   style: TextStyle(
-                    color: Color(0xFF263A34),
+                    color: Color(0xFF303236),
                     fontSize: 18,
                     fontWeight: FontWeight.w900,
                   ),
@@ -4031,7 +4038,7 @@ class _RewardVoucherImportSection extends StatelessWidget {
           const Text(
             '支援 .xlsx、.csv、.txt。系統會自動抓取檔案內所有 http / https 連結，發放時每位會員只會拿到一條未使用連結。',
             style: TextStyle(
-              color: Color(0xFF61706A),
+              color: Color(0xFF8A8D8F),
               fontSize: 13,
               height: 1.5,
               fontWeight: FontWeight.w700,
@@ -4062,7 +4069,7 @@ class _RewardVoucherImportSection extends StatelessWidget {
             const SizedBox(height: 16),
             DecoratedBox(
               decoration: BoxDecoration(
-                color: const Color(0xFFF0F8F5),
+                color: const Color(0xFFFFF7E8),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Padding(
@@ -4072,14 +4079,14 @@ class _RewardVoucherImportSection extends StatelessWidget {
                   children: [
                     const Icon(
                       Icons.check_circle_outline,
-                      color: Color(0xFF0D7A57),
+                      color: Color(0xFFFF9812),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
                         '${pending.fileName}：找到 ${pending.count} 筆兌換連結',
                         style: const TextStyle(
-                          color: Color(0xFF35564C),
+                          color: Color(0xFF6F7073),
                           fontWeight: FontWeight.w800,
                         ),
                       ),
@@ -4115,18 +4122,18 @@ class _VoucherPoolChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: highlight ? const Color(0xFFDCF5E9) : const Color(0xFFF1F3F2),
+        color: highlight ? const Color(0xFFFFF2DF) : const Color(0xFFF1F3F2),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 16, color: const Color(0xFF216B57)),
+          Icon(icon, size: 16, color: const Color(0xFFC66D00)),
           const SizedBox(width: 6),
           Text(
             label,
             style: const TextStyle(
-              color: Color(0xFF216B57),
+              color: Color(0xFFC66D00),
               fontWeight: FontWeight.w800,
             ),
           ),
@@ -4196,7 +4203,7 @@ class _RewardImageUploadSectionState extends State<_RewardImageUploadSection> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE0E7E4)),
+        border: Border.all(color: const Color(0xFFEADFCE)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -4205,7 +4212,7 @@ class _RewardImageUploadSectionState extends State<_RewardImageUploadSection> {
             children: [
               const Icon(
                 Icons.image_outlined,
-                color: Color(0xFF0D7A57),
+                color: Color(0xFFFF9812),
                 size: 28,
               ),
               const SizedBox(width: 12),
@@ -4213,7 +4220,7 @@ class _RewardImageUploadSectionState extends State<_RewardImageUploadSection> {
                 child: Text(
                   '兌換券圖片',
                   style: TextStyle(
-                    color: Color(0xFF263A34),
+                    color: Color(0xFF303236),
                     fontSize: 18,
                     fontWeight: FontWeight.w900,
                   ),
@@ -4222,7 +4229,7 @@ class _RewardImageUploadSectionState extends State<_RewardImageUploadSection> {
               const Text(
                 '建議上傳 JPG / PNG，建議尺寸 1280 × 720px',
                 style: TextStyle(
-                  color: Color(0xFF7A8984),
+                  color: Color(0xFF8A8D8F),
                   fontSize: 13,
                   fontWeight: FontWeight.w800,
                 ),
@@ -4290,11 +4297,11 @@ class _RewardImageUploadSectionState extends State<_RewardImageUploadSection> {
       height: hasImage ? 210 : 220,
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        color: _isDragging ? const Color(0xFFE8F5EF) : const Color(0xFFF8FAFA),
+        color: _isDragging ? const Color(0xFFFFF2DF) : const Color(0xFFFFFAF3),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color:
-              _isDragging ? const Color(0xFF0D7A57) : const Color(0xFFD8E1DE),
+              _isDragging ? const Color(0xFFFF9812) : const Color(0xFFEADFCE),
           width: _isDragging ? 1.6 : 1,
         ),
       ),
@@ -4350,12 +4357,12 @@ class _RewardImageUploadSectionState extends State<_RewardImageUploadSection> {
       children: [
         const Row(
           children: [
-            Icon(Icons.check_circle, color: Color(0xFF0D7A57), size: 28),
+            Icon(Icons.check_circle, color: Color(0xFFFF9812), size: 28),
             SizedBox(width: 10),
             Text(
               '已上傳圖片',
               style: TextStyle(
-                color: Color(0xFF0D7A57),
+                color: Color(0xFFFF9812),
                 fontSize: 18,
                 fontWeight: FontWeight.w900,
               ),
@@ -4366,7 +4373,7 @@ class _RewardImageUploadSectionState extends State<_RewardImageUploadSection> {
         Text(
           '檔案名稱：$fileName',
           style: const TextStyle(
-            color: Color(0xFF4C5F58),
+            color: Color(0xFF6F7073),
             fontSize: 14,
             height: 1.5,
             fontWeight: FontWeight.w700,
@@ -4376,7 +4383,7 @@ class _RewardImageUploadSectionState extends State<_RewardImageUploadSection> {
         Text(
           _uploadNote ?? '圖片連結已儲存。拖曳新圖片到左側可直接替換。',
           style: const TextStyle(
-            color: Color(0xFF4C5F58),
+            color: Color(0xFF6F7073),
             fontSize: 14,
             height: 1.5,
             fontWeight: FontWeight.w700,
@@ -4490,7 +4497,7 @@ class _RewardImageEmptyState extends StatelessWidget {
                   : Icons.cloud_upload_outlined,
               size: 42,
               color:
-                  hasError ? const Color(0xFFAD3B24) : const Color(0xFF0D7A57),
+                  hasError ? const Color(0xFFAD3B24) : const Color(0xFFFF9812),
             ),
             const SizedBox(height: 12),
             Text(
@@ -4501,7 +4508,7 @@ class _RewardImageEmptyState extends StatelessWidget {
                       : '拖曳圖片到這裡，或點擊選擇圖片',
               textAlign: TextAlign.center,
               style: const TextStyle(
-                color: Color(0xFF30443D),
+                color: Color(0xFF303236),
                 fontSize: 16,
                 fontWeight: FontWeight.w900,
               ),
@@ -4511,7 +4518,7 @@ class _RewardImageEmptyState extends StatelessWidget {
               '上傳後會用於兌換券內容或預覽畫面。',
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: Color(0xFF71817A),
+                color: Color(0xFF8A8D8F),
                 fontSize: 12,
                 height: 1.4,
                 fontWeight: FontWeight.w700,
@@ -4596,12 +4603,12 @@ class _ActivityImageUploadSectionState
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             color:
-                _isDragging ? const Color(0xFFE8F5EF) : const Color(0xFFFAFBFB),
+                _isDragging ? const Color(0xFFFFF2DF) : const Color(0xFFFFFAF3),
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
               color: _isDragging
-                  ? const Color(0xFF0D7A57)
-                  : const Color(0xFFD8E1DE),
+                  ? const Color(0xFFFF9812)
+                  : const Color(0xFFEADFCE),
               width: _isDragging ? 1.6 : 1,
             ),
           ),
@@ -4726,7 +4733,7 @@ class _ActivityImageUploadSectionState
         const Text(
           '支援 JPG、PNG、WebP、GIF。原圖上限 10MB，會自動壓縮成 WebP，並同步產生 LINE 分享用 JPG。',
           style: TextStyle(
-            color: Color(0xFF71817A),
+            color: Color(0xFF8A8D8F),
             fontSize: 12,
             height: 1.4,
             fontWeight: FontWeight.w700,
@@ -4748,7 +4755,7 @@ class _ActivityImageUploadSectionState
           Text(
             _uploadNote!,
             style: const TextStyle(
-              color: Color(0xFF216B57),
+              color: Color(0xFFC66D00),
               fontSize: 12,
               fontWeight: FontWeight.w800,
             ),
@@ -4844,7 +4851,7 @@ class _ActivityImageEmptyState extends StatelessWidget {
                   : Icons.cloud_upload_outlined,
               size: 42,
               color:
-                  hasError ? const Color(0xFFAD3B24) : const Color(0xFF0D7A57),
+                  hasError ? const Color(0xFFAD3B24) : const Color(0xFFFF9812),
             ),
             const SizedBox(height: 12),
             Text(
@@ -4855,7 +4862,7 @@ class _ActivityImageEmptyState extends StatelessWidget {
                       : '拖曳圖片到這裡，或點擊選擇圖片',
               textAlign: TextAlign.center,
               style: const TextStyle(
-                color: Color(0xFF30443D),
+                color: Color(0xFF303236),
                 fontSize: 16,
                 fontWeight: FontWeight.w900,
               ),
@@ -4865,7 +4872,7 @@ class _ActivityImageEmptyState extends StatelessWidget {
               '建議使用橫式圖片，前台活動列表與活動詳情會自動套用。',
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: Color(0xFF71817A),
+                color: Color(0xFF8A8D8F),
                 fontSize: 12,
                 height: 1.4,
                 fontWeight: FontWeight.w700,
@@ -4896,15 +4903,15 @@ InputDecoration _activityInputDecoration({
     contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
     border: OutlineInputBorder(
       borderRadius: BorderRadius.circular(8),
-      borderSide: const BorderSide(color: Color(0xFFD8E1DE)),
+      borderSide: const BorderSide(color: Color(0xFFEADFCE)),
     ),
     enabledBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(8),
-      borderSide: const BorderSide(color: Color(0xFFD8E1DE)),
+      borderSide: const BorderSide(color: Color(0xFFEADFCE)),
     ),
     focusedBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(8),
-      borderSide: const BorderSide(color: Color(0xFF0D7A57), width: 1.4),
+      borderSide: const BorderSide(color: Color(0xFFFF9812), width: 1.4),
     ),
   );
 }
@@ -4926,15 +4933,15 @@ InputDecoration _rewardInputDecoration({
     contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
     border: OutlineInputBorder(
       borderRadius: BorderRadius.circular(8),
-      borderSide: const BorderSide(color: Color(0xFFD8E1DE)),
+      borderSide: const BorderSide(color: Color(0xFFEADFCE)),
     ),
     enabledBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(8),
-      borderSide: const BorderSide(color: Color(0xFFD8E1DE)),
+      borderSide: const BorderSide(color: Color(0xFFEADFCE)),
     ),
     focusedBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(8),
-      borderSide: const BorderSide(color: Color(0xFF0D7A57), width: 1.4),
+      borderSide: const BorderSide(color: Color(0xFFFF9812), width: 1.4),
     ),
   );
 }
@@ -5004,22 +5011,22 @@ class _ImageUploadFieldState extends State<_ImageUploadField> {
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFFFAFBFB),
+        color: const Color(0xFFFFFAF3),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFDCE4E1)),
+        border: Border.all(color: const Color(0xFFEADFCE)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.image_outlined, color: Color(0xFF216B57)),
+              const Icon(Icons.image_outlined, color: Color(0xFFC66D00)),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   widget.label,
                   style: const TextStyle(
-                    color: Color(0xFF30443D),
+                    color: Color(0xFF303236),
                     fontWeight: FontWeight.w900,
                   ),
                 ),
@@ -5027,7 +5034,7 @@ class _ImageUploadFieldState extends State<_ImageUploadField> {
               Text(
                 '原圖上限 ${_formatBytes(adminImageSourceMaxBytes)}',
                 style: const TextStyle(
-                  color: Color(0xFF71817A),
+                  color: Color(0xFF8A8D8F),
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
                 ),
@@ -5039,7 +5046,7 @@ class _ImageUploadFieldState extends State<_ImageUploadField> {
             Text(
               '${widget.helperText!}\n會自動壓縮成 WebP，最長邊 1280px，目標約 ${_formatBytes(adminImageTargetBytes)}。',
               style: const TextStyle(
-                color: Color(0xFF71817A),
+                color: Color(0xFF8A8D8F),
                 fontSize: 12,
                 height: 1.35,
               ),
@@ -5118,7 +5125,7 @@ class _ImageUploadFieldState extends State<_ImageUploadField> {
             Text(
               _uploadNote!,
               style: const TextStyle(
-                color: Color(0xFF216B57),
+                color: Color(0xFFC66D00),
                 fontSize: 12,
                 fontWeight: FontWeight.w800,
               ),
@@ -5220,19 +5227,32 @@ class _AdminSidebarState extends State<_AdminSidebar> {
     final activityGroupSelected = _isActivityGroup(widget.selected);
     return Container(
       width: 232,
-      color: const Color(0xFF16241F),
+      color: _BrandColors.sidebar,
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-            child: Text(
-              'VeeVa Admin',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 20,
-                fontWeight: FontWeight.w900,
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: SizedBox(
+              width: double.infinity,
+              height: 64,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Image.asset(
+                  'assets/brand/veeva-logo.png',
+                  width: double.infinity,
+                  fit: BoxFit.contain,
+                  alignment: Alignment.center,
+                ),
               ),
             ),
           ),
@@ -5315,7 +5335,7 @@ class _AdminSidebarState extends State<_AdminSidebar> {
           const Spacer(),
           const Text(
             '活動問卷管理系統',
-            style: TextStyle(color: Color(0xFF93A09A), fontSize: 12),
+            style: TextStyle(color: Color(0xFFB2B0AA), fontSize: 12),
           ),
         ],
       ),
@@ -5343,7 +5363,7 @@ class _SidebarGroupHeader extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Material(
-        color: selected ? const Color(0xFF1D3B31) : Colors.transparent,
+        color: selected ? const Color(0xFF5A3A12) : Colors.transparent,
         borderRadius: BorderRadius.circular(8),
         child: InkWell(
           borderRadius: BorderRadius.circular(8),
@@ -5352,13 +5372,13 @@ class _SidebarGroupHeader extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
             child: Row(
               children: [
-                Icon(icon, color: const Color(0xFFC4CEC9)),
+                Icon(icon, color: const Color(0xFFD5D0C7)),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     label,
                     style: const TextStyle(
-                      color: Color(0xFFE7EFEC),
+                      color: Color(0xFFFFF2DF),
                       fontWeight: FontWeight.w900,
                     ),
                   ),
@@ -5369,7 +5389,7 @@ class _SidebarGroupHeader extends StatelessWidget {
                   curve: Curves.easeOutCubic,
                   child: const Icon(
                     Icons.expand_more,
-                    color: Color(0xFF93A09A),
+                    color: Color(0xFFB2B0AA),
                     size: 18,
                   ),
                 ),
@@ -5398,7 +5418,7 @@ class _SidebarSubItem extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(left: 28, bottom: 8),
       child: Material(
-        color: selected ? const Color(0xFF216B57) : Colors.transparent,
+        color: selected ? const Color(0xFFC66D00) : Colors.transparent,
         borderRadius: BorderRadius.circular(8),
         child: InkWell(
           borderRadius: BorderRadius.circular(8),
@@ -5411,7 +5431,7 @@ class _SidebarSubItem extends StatelessWidget {
                   width: 6,
                   height: 6,
                   decoration: BoxDecoration(
-                    color: selected ? Colors.white : const Color(0xFF93A09A),
+                    color: selected ? Colors.white : const Color(0xFFB2B0AA),
                     shape: BoxShape.circle,
                   ),
                 ),
@@ -5420,7 +5440,7 @@ class _SidebarSubItem extends StatelessWidget {
                   child: Text(
                     label,
                     style: TextStyle(
-                      color: selected ? Colors.white : const Color(0xFFC4CEC9),
+                      color: selected ? Colors.white : const Color(0xFFD5D0C7),
                       fontWeight: FontWeight.w800,
                     ),
                   ),
@@ -5452,7 +5472,7 @@ class _SidebarItem extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(
-        color: selected ? const Color(0xFF216B57) : Colors.transparent,
+        color: selected ? const Color(0xFFC66D00) : Colors.transparent,
         borderRadius: BorderRadius.circular(8),
         child: InkWell(
           borderRadius: BorderRadius.circular(8),
@@ -5462,12 +5482,12 @@ class _SidebarItem extends StatelessWidget {
             child: Row(
               children: [
                 Icon(icon,
-                    color: selected ? Colors.white : const Color(0xFFC4CEC9)),
+                    color: selected ? Colors.white : const Color(0xFFD5D0C7)),
                 const SizedBox(width: 12),
                 Text(
                   label,
                   style: TextStyle(
-                    color: selected ? Colors.white : const Color(0xFFC4CEC9),
+                    color: selected ? Colors.white : const Color(0xFFD5D0C7),
                     fontWeight: FontWeight.w800,
                   ),
                 ),
@@ -5502,13 +5522,13 @@ class _AdminPageTitle extends StatelessWidget {
             width: iconSize,
             height: iconSize,
             decoration: BoxDecoration(
-              color: const Color(0xFFE8F5EF),
+              color: const Color(0xFFFFF2DF),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(
               icon,
               size: compact ? 18 : 22,
-              color: const Color(0xFF216B57),
+              color: const Color(0xFFC66D00),
             ),
           ),
           SizedBox(width: compact ? 8 : 10),
@@ -5551,7 +5571,7 @@ class _AdminTopBar extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 24),
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(bottom: BorderSide(color: Color(0xFFE4E8EA))),
+        border: Border(bottom: BorderSide(color: Color(0xFFEADFCE))),
       ),
       child: Row(
         children: [
@@ -5566,7 +5586,7 @@ class _AdminTopBar extends StatelessWidget {
                   prefixIcon: const Icon(Icons.search),
                   isDense: true,
                   filled: true,
-                  fillColor: const Color(0xFFF5F7F8),
+                  fillColor: const Color(0xFFFFFAF3),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
                     borderSide: BorderSide.none,
@@ -5629,7 +5649,7 @@ class _AdminAccountMenu extends StatelessWidget {
                       Text(
                         _adminRoleLabel(user.role),
                         style: const TextStyle(
-                          color: Color(0xFF61706A),
+                          color: Color(0xFF8A8D8F),
                           fontSize: 12,
                         ),
                       ),
@@ -5882,17 +5902,17 @@ class _MetricCard extends StatelessWidget {
               height: 44,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: const Color(0xFFEAF3EA),
+                color: const Color(0xFFFFF2DF),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Icon(icon, color: const Color(0xFF216B57)),
+              child: Icon(icon, color: const Color(0xFFC66D00)),
             ),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label, style: const TextStyle(color: Color(0xFF6B7671))),
+                  Text(label, style: const TextStyle(color: Color(0xFF8A8D8F))),
                   const SizedBox(height: 4),
                   Text(
                     value,
@@ -5989,7 +6009,7 @@ class _ReviewListBody extends StatelessWidget {
               ? 760
               : 620,
       child: DataTable(
-        headingRowColor: WidgetStateProperty.all(const Color(0xFFF5F7F8)),
+        headingRowColor: WidgetStateProperty.all(const Color(0xFFFFFAF3)),
         columns: [
           const DataColumn(label: Text('姓名')),
           if (showHospitalDepartment) const DataColumn(label: Text('院所 / 科別')),
@@ -6038,9 +6058,9 @@ class _MobileReviewCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFA),
+        color: const Color(0xFFFFFAF3),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE4E8EA)),
+        border: Border.all(color: const Color(0xFFEADFCE)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -6064,7 +6084,7 @@ class _MobileReviewCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             item.completedAt,
-            style: const TextStyle(color: Color(0xFF6B7671), fontSize: 12),
+            style: const TextStyle(color: Color(0xFF8A8D8F), fontSize: 12),
           ),
           if (onApprove != null) ...[
             const SizedBox(height: 12),
@@ -6093,7 +6113,7 @@ class _StatusChip extends StatelessWidget {
     return Chip(
       label: Text(approved ? '已審核' : '待審核'),
       backgroundColor:
-          approved ? const Color(0xFFEAF3EA) : const Color(0xFFFFF4D9),
+          approved ? const Color(0xFFFFF2DF) : const Color(0xFFFFF4D9),
       side: BorderSide.none,
     );
   }
@@ -6326,7 +6346,7 @@ class _MemberManagementState extends State<_MemberManagement> {
                     ),
                     Text(
                       countText,
-                      style: const TextStyle(color: Color(0xFF6B7671)),
+                      style: const TextStyle(color: Color(0xFF8A8D8F)),
                     ),
                   ],
                 ),
@@ -6995,9 +7015,9 @@ class _LoggedInMemberCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFA),
+        color: const Color(0xFFFFFAF3),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE4E8EA)),
+        border: Border.all(color: const Color(0xFFEADFCE)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -7063,7 +7083,7 @@ class _MemberTimeLine extends StatelessWidget {
           width: 92,
           child: Text(
             label,
-            style: const TextStyle(color: Color(0xFF6B7671)),
+            style: const TextStyle(color: Color(0xFF8A8D8F)),
           ),
         ),
         Expanded(
@@ -7212,9 +7232,9 @@ class _RewardGrantSummary extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFA),
+        color: const Color(0xFFFFFAF3),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE4E8EA)),
+        border: Border.all(color: const Color(0xFFEADFCE)),
       ),
       child: Wrap(
         spacing: 18,
@@ -7258,20 +7278,20 @@ class _MemberSearchField extends StatelessWidget {
                 icon: const Icon(Icons.close),
               ),
         filled: true,
-        fillColor: const Color(0xFFF8FAFA),
+        fillColor: const Color(0xFFFFFAF3),
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Color(0xFFE4E8EA)),
+          borderSide: const BorderSide(color: Color(0xFFEADFCE)),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Color(0xFFE4E8EA)),
+          borderSide: const BorderSide(color: Color(0xFFEADFCE)),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Color(0xFF216B57), width: 1.4),
+          borderSide: const BorderSide(color: Color(0xFFC66D00), width: 1.4),
         ),
       ),
     );
@@ -7315,9 +7335,9 @@ class _MemberPaginationBar extends StatelessWidget {
           alignment: Alignment.center,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
-            color: const Color(0xFFF8FAFA),
+            color: const Color(0xFFFFFAF3),
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: const Color(0xFFE4E8EA)),
+            border: Border.all(color: const Color(0xFFEADFCE)),
           ),
           child: Text(
             pageText,
@@ -7334,7 +7354,7 @@ class _MemberPaginationBar extends StatelessWidget {
 
     final summary = Text(
       '每頁 $pageSize 筆 · $rangeText',
-      style: const TextStyle(color: Color(0xFF6B7671)),
+      style: const TextStyle(color: Color(0xFF8A8D8F)),
     );
 
     if (isCompact) {
@@ -7369,9 +7389,9 @@ class _EmptyListMessage extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFA),
+        color: const Color(0xFFFFFAF3),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE4E8EA)),
+        border: Border.all(color: const Color(0xFFEADFCE)),
       ),
       child: Text(message),
     );
@@ -7550,7 +7570,7 @@ class _EmployeeManagementState extends State<_EmployeeManagement> {
                   const SizedBox(height: 12),
                   Text(
                     '總註冊 $totalRegisteredCount 人，完成電話驗證 $totalPhoneVerifiedCount 人。',
-                    style: const TextStyle(color: Color(0xFF6B7671)),
+                    style: const TextStyle(color: Color(0xFF8A8D8F)),
                   ),
                 ],
               ],
@@ -7628,7 +7648,7 @@ class _EmployeeManagementState extends State<_EmployeeManagement> {
                               trailing: checked
                                   ? const Icon(
                                       Icons.check_circle,
-                                      color: Color(0xFF216B57),
+                                      color: Color(0xFFC66D00),
                                     )
                                   : null,
                               onTap: isSaving
@@ -8009,9 +8029,9 @@ class _EmployeeCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFA),
+        color: const Color(0xFFFFFAF3),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE4E8EA)),
+        border: Border.all(color: const Color(0xFFEADFCE)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -8088,7 +8108,7 @@ class _EmployeeHeader extends StatelessWidget {
                 member.employeeCode ?? member.email ?? '員工',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Color(0xFF6B7671), fontSize: 12),
+                style: const TextStyle(color: Color(0xFF8A8D8F), fontSize: 12),
               ),
             ],
           ),
@@ -8108,7 +8128,7 @@ class _MemberAvatar extends StatelessWidget {
     final avatarUrl = member.avatarUrl;
     return CircleAvatar(
       radius: 20,
-      backgroundColor: const Color(0xFFEAF3EA),
+      backgroundColor: const Color(0xFFFFF2DF),
       backgroundImage: avatarUrl == null || avatarUrl.isEmpty
           ? null
           : NetworkImage(avatarUrl),
@@ -8133,11 +8153,11 @@ class _EmployeeStatusChip extends StatelessWidget {
       avatar: Icon(
         enabled ? Icons.check_circle_outline : Icons.block_outlined,
         size: 17,
-        color: enabled ? const Color(0xFF216B57) : const Color(0xFFAD3B24),
+        color: enabled ? const Color(0xFFC66D00) : const Color(0xFFAD3B24),
       ),
       label: Text(enabled ? '啟用' : '停用'),
       backgroundColor:
-          enabled ? const Color(0xFFEAF3EA) : const Color(0xFFFFF4EF),
+          enabled ? const Color(0xFFFFF2DF) : const Color(0xFFFFF4EF),
       side: BorderSide.none,
     );
   }
@@ -8154,9 +8174,9 @@ class _EmployeeQrPreview extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFA),
+        color: const Color(0xFFFFFAF3),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE4E8EA)),
+        border: Border.all(color: const Color(0xFFEADFCE)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.center,
@@ -8177,7 +8197,7 @@ class _EmployeeQrPreview extends StatelessWidget {
           SelectableText(
             link.url,
             textAlign: TextAlign.center,
-            style: const TextStyle(color: Color(0xFF216B57)),
+            style: const TextStyle(color: Color(0xFFC66D00)),
           ),
           const SizedBox(height: 12),
           Wrap(
@@ -8523,12 +8543,12 @@ class _PermissionMobileMetricCard extends StatelessWidget {
               height: 42,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: const Color(0xFFEAF3EA),
+                color: const Color(0xFFFFF2DF),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Icon(
                 item.icon,
-                color: const Color(0xFF216B57),
+                color: const Color(0xFFC66D00),
                 size: 23,
               ),
             ),
@@ -8539,7 +8559,7 @@ class _PermissionMobileMetricCard extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                  color: Color(0xFF53635D),
+                  color: Color(0xFF6F7073),
                   fontSize: 15,
                   fontWeight: FontWeight.w800,
                 ),
@@ -8549,7 +8569,7 @@ class _PermissionMobileMetricCard extends StatelessWidget {
             Text(
               item.value,
               style: const TextStyle(
-                color: Color(0xFF17251F),
+                color: Color(0xFF303236),
                 fontSize: 26,
                 fontWeight: FontWeight.w900,
               ),
@@ -8596,7 +8616,7 @@ class _LineMemberAdminPanel extends StatelessWidget {
               children: [
                 const Icon(
                   Icons.admin_panel_settings_outlined,
-                  color: Color(0xFF216B57),
+                  color: Color(0xFFC66D00),
                 ),
                 const SizedBox(width: 10),
                 const Expanded(
@@ -8607,7 +8627,7 @@ class _LineMemberAdminPanel extends StatelessWidget {
                 ),
                 Text(
                   '共 ${adminRows.length} 位啟用管理者',
-                  style: const TextStyle(color: Color(0xFF6B7671)),
+                  style: const TextStyle(color: Color(0xFF8A8D8F)),
                 ),
               ],
             ),
@@ -8617,9 +8637,9 @@ class _LineMemberAdminPanel extends StatelessWidget {
                 width: double.infinity,
                 padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF8FAFA),
+                  color: const Color(0xFFFFFAF3),
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFFE4E8EA)),
+                  border: Border.all(color: const Color(0xFFEADFCE)),
                 ),
                 child: const Text('目前沒有啟用中的管理者。請到會員管理的已登入會員清單設定管理職位。'),
               )
@@ -8737,9 +8757,9 @@ class _LineMemberAdminCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFA),
+        color: const Color(0xFFFFFAF3),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE4E8EA)),
+        border: Border.all(color: const Color(0xFFEADFCE)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -8820,9 +8840,9 @@ class _MemberPermissionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFA),
+        color: const Color(0xFFFFFAF3),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE4E8EA)),
+        border: Border.all(color: const Color(0xFFEADFCE)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -8852,7 +8872,7 @@ class _AdminRoleChip extends StatelessWidget {
         active ? _adminRoleLabel(adminUser!.role) : '已停用',
       ),
       backgroundColor:
-          active ? const Color(0xFFEAF3EA) : const Color(0xFFFFF4D9),
+          active ? const Color(0xFFFFF2DF) : const Color(0xFFFFF4D9),
       side: BorderSide.none,
     );
   }
@@ -9323,7 +9343,7 @@ class _MemberStatusTabs extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: Color(0xFFE4E8EA))),
+        border: Border(bottom: BorderSide(color: Color(0xFFEADFCE))),
       ),
       child: Row(
         children: [
@@ -9366,7 +9386,7 @@ class _MemberStatusTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? const Color(0xFF216B57) : const Color(0xFF6B7671);
+    final color = selected ? const Color(0xFFC66D00) : const Color(0xFF8A8D8F);
     return InkWell(
       onTap: onTap,
       child: Padding(
@@ -9390,7 +9410,7 @@ class _MemberStatusTab extends StatelessWidget {
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
                     color: selected
-                        ? const Color(0xFFEAF3EA)
+                        ? const Color(0xFFFFF2DF)
                         : const Color(0xFFF1F3F2),
                     borderRadius: BorderRadius.circular(999),
                   ),
@@ -9410,7 +9430,7 @@ class _MemberStatusTab extends StatelessWidget {
               height: 3,
               width: 76,
               decoration: BoxDecoration(
-                color: selected ? const Color(0xFF216B57) : Colors.transparent,
+                color: selected ? const Color(0xFFC66D00) : Colors.transparent,
                 borderRadius: BorderRadius.circular(999),
               ),
             ),
@@ -9486,7 +9506,7 @@ class _RewardDistributionManagementState
                   children: [
                     const Icon(
                       Icons.card_giftcard_outlined,
-                      color: Color(0xFF216B57),
+                      color: Color(0xFFC66D00),
                     ),
                     const SizedBox(width: 10),
                     const Expanded(
@@ -9531,7 +9551,7 @@ class _RewardDistributionManagementState
                       horizontalMargin: 16,
                       columnSpacing: 24,
                       headingRowColor:
-                          WidgetStateProperty.all(const Color(0xFFF5F7F8)),
+                          WidgetStateProperty.all(const Color(0xFFFFFAF3)),
                       columns: const [
                         DataColumn(label: Text('活動')),
                         DataColumn(label: Text('類型')),
@@ -9835,7 +9855,7 @@ class _RewardDistributionManagementState
                                 horizontalMargin: 12,
                                 columnSpacing: 18,
                                 headingRowColor: WidgetStateProperty.all(
-                                  const Color(0xFFF5F7F8),
+                                  const Color(0xFFFFFAF3),
                                 ),
                                 columns: const [
                                   DataColumn(label: Text('參加者')),
@@ -10077,7 +10097,7 @@ class _RewardDistributionManagementState
                             horizontalMargin: 12,
                             columnSpacing: 18,
                             headingRowColor: WidgetStateProperty.all(
-                              const Color(0xFFF5F7F8),
+                              const Color(0xFFFFFAF3),
                             ),
                             columns: const [
                               DataColumn(label: Text('選取')),
@@ -10564,9 +10584,9 @@ class _DistributionActivityCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFA),
+        color: const Color(0xFFFFFAF3),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE4E8EA)),
+        border: Border.all(color: const Color(0xFFEADFCE)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -10641,18 +10661,18 @@ class _DistributionInfoChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: const Color(0xFFEAF3EA),
+        color: const Color(0xFFFFF2DF),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 16, color: const Color(0xFF216B57)),
+          Icon(icon, size: 16, color: const Color(0xFFC66D00)),
           const SizedBox(width: 6),
           Text(
             label,
             style: const TextStyle(
-              color: Color(0xFF216B57),
+              color: Color(0xFFC66D00),
               fontWeight: FontWeight.w800,
             ),
           ),
@@ -10923,7 +10943,7 @@ class _ActivityManagementState extends State<_ActivityManagement> {
                       Text(
                         activity.label,
                         style: const TextStyle(
-                          color: Color(0xFF61706A),
+                          color: Color(0xFF8A8D8F),
                           fontWeight: FontWeight.w800,
                         ),
                       ),
@@ -11040,7 +11060,7 @@ class _ActivityHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        const Icon(Icons.campaign_outlined, color: Color(0xFF216B57)),
+        const Icon(Icons.campaign_outlined, color: Color(0xFFC66D00)),
         const SizedBox(width: 10),
         const Expanded(
           child: Text(
@@ -11141,11 +11161,11 @@ class _ActivityPageTabButton extends StatelessWidget {
           duration: const Duration(milliseconds: 160),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
-            color: selected ? const Color(0xFFE8F5EF) : const Color(0xFFF5F7F8),
+            color: selected ? const Color(0xFFFFF2DF) : const Color(0xFFFFFAF3),
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
               color:
-                  selected ? const Color(0xFF9AD5BF) : const Color(0xFFE1E7E5),
+                  selected ? const Color(0xFFFFC76B) : const Color(0xFFEADFCE),
             ),
           ),
           child: Row(
@@ -11153,8 +11173,8 @@ class _ActivityPageTabButton extends StatelessWidget {
               Icon(
                 icon,
                 color: selected
-                    ? const Color(0xFF216B57)
-                    : const Color(0xFF60716A),
+                    ? const Color(0xFFC66D00)
+                    : const Color(0xFF8A8D8F),
                 size: 20,
               ),
               const SizedBox(width: 8),
@@ -11165,8 +11185,8 @@ class _ActivityPageTabButton extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: selected
-                        ? const Color(0xFF173F34)
-                        : const Color(0xFF394A43),
+                        ? const Color(0xFFC66D00)
+                        : const Color(0xFF303236),
                     fontWeight: FontWeight.w900,
                   ),
                 ),
@@ -11177,12 +11197,12 @@ class _ActivityPageTabButton extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: const Color(0xFFDCE6E2)),
+                  border: Border.all(color: const Color(0xFFEADFCE)),
                 ),
                 child: Text(
                   '$count',
                   style: const TextStyle(
-                    color: Color(0xFF20342E),
+                    color: Color(0xFF303236),
                     fontSize: 12,
                     fontWeight: FontWeight.w900,
                   ),
@@ -11221,7 +11241,7 @@ class _ActivityFilters extends StatelessWidget {
         prefixIcon: const Icon(Icons.search),
         isDense: true,
         filled: true,
-        fillColor: const Color(0xFFF5F7F8),
+        fillColor: const Color(0xFFFFFAF3),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide.none,
@@ -11234,7 +11254,7 @@ class _ActivityFilters extends StatelessWidget {
         labelText: '狀態',
         isDense: true,
         filled: true,
-        fillColor: const Color(0xFFF5F7F8),
+        fillColor: const Color(0xFFFFFAF3),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide.none,
@@ -11310,7 +11330,7 @@ class _ActivityDataTable extends StatelessWidget {
     return _FullWidthDataTable(
       minWidth: 1120,
       child: DataTable(
-        headingRowColor: WidgetStateProperty.all(const Color(0xFFF5F7F8)),
+        headingRowColor: WidgetStateProperty.all(const Color(0xFFFFFAF3)),
         horizontalMargin: 16,
         columnSpacing: 18,
         dataRowMinHeight: 72,
@@ -11382,9 +11402,9 @@ class _ActivityMobileCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFA),
+        color: const Color(0xFFFFFAF3),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE4E8EA)),
+        border: Border.all(color: const Color(0xFFEADFCE)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -11463,7 +11483,7 @@ class _ActivityTitleCell extends StatelessWidget {
             activity.label,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Color(0xFF61706A), fontSize: 12),
+            style: const TextStyle(color: Color(0xFF8A8D8F), fontSize: 12),
           ),
         ],
       ),
@@ -11582,7 +11602,7 @@ class _ActivityStatusChip extends StatelessWidget {
       child: Text(
         _activityStatusLabel(activity),
         style: const TextStyle(
-          color: Color(0xFF16362E),
+          color: Color(0xFF303236),
           fontSize: 12,
           fontWeight: FontWeight.w900,
         ),
@@ -11601,14 +11621,14 @@ class _ActivityTypeChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: const Color(0xFFEAF3EA),
+        color: const Color(0xFFFFF2DF),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(_activityTypeIcon(type),
-              size: 15, color: const Color(0xFF216B57)),
+              size: 15, color: const Color(0xFFC66D00)),
           const SizedBox(width: 5),
           Text(
             _activityTypeLabel(type),
@@ -11638,14 +11658,14 @@ class _ActivityDetailLine extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 18, color: const Color(0xFF61706A)),
+          Icon(icon, size: 18, color: const Color(0xFF8A8D8F)),
           const SizedBox(width: 8),
           SizedBox(
             width: 42,
             child: Text(
               label,
               style: const TextStyle(
-                color: Color(0xFF61706A),
+                color: Color(0xFF8A8D8F),
                 fontWeight: FontWeight.w800,
               ),
             ),
@@ -11835,7 +11855,7 @@ class _NewsManagementState extends State<_NewsManagement> {
                       Text(
                         item.category ?? item.source,
                         style: const TextStyle(
-                          color: Color(0xFF61706A),
+                          color: Color(0xFF8A8D8F),
                           fontWeight: FontWeight.w800,
                         ),
                       ),
@@ -11853,7 +11873,7 @@ class _NewsManagementState extends State<_NewsManagement> {
                   Text(
                     '${item.date} ・ ${item.source}',
                     style: const TextStyle(
-                      color: Color(0xFF61706A),
+                      color: Color(0xFF8A8D8F),
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -11891,9 +11911,9 @@ class _NewsManagementState extends State<_NewsManagement> {
                       width: double.infinity,
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFEFF8F4),
+                        color: const Color(0xFFFFF2DF),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFFDDEAE5)),
+                        border: Border.all(color: const Color(0xFFFFF2DF)),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -11901,7 +11921,7 @@ class _NewsManagementState extends State<_NewsManagement> {
                           const Text(
                             '重點內容',
                             style: TextStyle(
-                              color: Color(0xFF0B835F),
+                              color: Color(0xFFFF9812),
                               fontWeight: FontWeight.w900,
                             ),
                           ),
@@ -11976,7 +11996,7 @@ class _NewsHeader extends StatelessWidget {
       runSpacing: 12,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        const Icon(Icons.newspaper_outlined, color: Color(0xFF216B57)),
+        const Icon(Icons.newspaper_outlined, color: Color(0xFFC66D00)),
         const Text(
           '最新資訊管理',
           style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
@@ -11993,7 +12013,7 @@ class _NewsHeader extends StatelessWidget {
               style: TextStyle(fontWeight: FontWeight.w800),
             ),
             subtitle: Text(newsEnabled ? '會員端會顯示最新資訊頁面' : '會員端會隱藏最新資訊頁面'),
-            activeColor: const Color(0xFF216B57),
+            activeColor: const Color(0xFFC66D00),
           ),
         ),
         FilledButton.icon(
@@ -12029,7 +12049,7 @@ class _NewsFilters extends StatelessWidget {
         prefixIcon: const Icon(Icons.search),
         isDense: true,
         filled: true,
-        fillColor: const Color(0xFFF5F7F8),
+        fillColor: const Color(0xFFFFFAF3),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide.none,
@@ -12042,7 +12062,7 @@ class _NewsFilters extends StatelessWidget {
         labelText: '狀態',
         isDense: true,
         filled: true,
-        fillColor: const Color(0xFFF5F7F8),
+        fillColor: const Color(0xFFFFFAF3),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide.none,
@@ -12104,7 +12124,7 @@ class _NewsDataTable extends StatelessWidget {
     return _FullWidthDataTable(
       minWidth: 1060,
       child: DataTable(
-        headingRowColor: WidgetStateProperty.all(const Color(0xFFF5F7F8)),
+        headingRowColor: WidgetStateProperty.all(const Color(0xFFFFFAF3)),
         horizontalMargin: 16,
         columnSpacing: 18,
         dataRowMinHeight: 76,
@@ -12165,9 +12185,9 @@ class _NewsMobileCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFA),
+        color: const Color(0xFFFFFAF3),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE4E8EA)),
+        border: Border.all(color: const Color(0xFFEADFCE)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -12322,7 +12342,7 @@ class _NewsStatusChip extends StatelessWidget {
       child: Text(
         _contentStatusLabel(status),
         style: const TextStyle(
-          color: Color(0xFF16362E),
+          color: Color(0xFF303236),
           fontSize: 12,
           fontWeight: FontWeight.w900,
         ),
@@ -12353,7 +12373,7 @@ Color _newsStatusColor(backend.VeevaContentStatus status) {
   return switch (status) {
     backend.VeevaContentStatus.draft => const Color(0xFFEFF3F6),
     backend.VeevaContentStatus.scheduled => const Color(0xFFEAF0FF),
-    backend.VeevaContentStatus.published => const Color(0xFFE8F5EF),
+    backend.VeevaContentStatus.published => const Color(0xFFFFF2DF),
     backend.VeevaContentStatus.archived => const Color(0xFFFFF4D9),
   };
 }
@@ -12393,12 +12413,12 @@ String _activityStatusLabel(backend.VeevaActivity activity) {
 
 Color _activityStatusColor(backend.VeevaActivity activity) {
   if (activity.active) {
-    return const Color(0xFFEAF3EA);
+    return const Color(0xFFFFF2DF);
   }
   return switch (activity.status) {
     backend.VeevaContentStatus.draft => const Color(0xFFEFF3F6),
     backend.VeevaContentStatus.scheduled => const Color(0xFFEAF0FF),
-    backend.VeevaContentStatus.published => const Color(0xFFE8F5EF),
+    backend.VeevaContentStatus.published => const Color(0xFFFFF2DF),
     backend.VeevaContentStatus.archived => const Color(0xFFFFF4D9),
   };
 }
@@ -12679,7 +12699,7 @@ class _NewsEditorDialogState extends State<_NewsEditorDialog> {
       padding: const EdgeInsets.fromLTRB(20, 14, 14, 14),
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(bottom: BorderSide(color: Color(0xFFE3E8EA))),
+        border: Border(bottom: BorderSide(color: Color(0xFFEADFCE))),
       ),
       child: Row(
         children: [
@@ -12687,12 +12707,12 @@ class _NewsEditorDialogState extends State<_NewsEditorDialog> {
             width: 36,
             height: 36,
             decoration: BoxDecoration(
-              color: const Color(0xFFE8F5EF),
+              color: const Color(0xFFFFF2DF),
               borderRadius: BorderRadius.circular(8),
             ),
             child: const Icon(
               Icons.article_outlined,
-              color: Color(0xFF216B57),
+              color: Color(0xFFC66D00),
               size: 21,
             ),
           ),
@@ -12705,7 +12725,7 @@ class _NewsEditorDialogState extends State<_NewsEditorDialog> {
                 Text(
                   widget.isEditing ? '編輯文章' : '新增文章',
                   style: const TextStyle(
-                    color: Color(0xFF20342E),
+                    color: Color(0xFF303236),
                     fontSize: 18,
                     fontWeight: FontWeight.w900,
                   ),
@@ -12714,7 +12734,7 @@ class _NewsEditorDialogState extends State<_NewsEditorDialog> {
                 const Text(
                   '文章編輯器',
                   style: TextStyle(
-                    color: Color(0xFF6B7A74),
+                    color: Color(0xFF8A8D8F),
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
                   ),
@@ -12748,8 +12768,8 @@ class _NewsEditorDialogState extends State<_NewsEditorDialog> {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
       decoration: const BoxDecoration(
-        color: Color(0xFFFAFBFB),
-        border: Border(bottom: BorderSide(color: Color(0xFFE3E8EA))),
+        color: Color(0xFFFFFAF3),
+        border: Border(bottom: BorderSide(color: Color(0xFFEADFCE))),
       ),
       child: Wrap(
         spacing: 6,
@@ -12826,7 +12846,7 @@ class _NewsEditorDialogState extends State<_NewsEditorDialog> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE0E5E7)),
+        border: Border.all(color: const Color(0xFFEADFCE)),
         boxShadow: const [
           BoxShadow(
             color: Color(0x12000000),
@@ -12847,7 +12867,7 @@ class _NewsEditorDialogState extends State<_NewsEditorDialog> {
               border: UnderlineInputBorder(),
             ),
             style: const TextStyle(
-              color: Color(0xFF20342E),
+              color: Color(0xFF303236),
               fontSize: 25,
               fontWeight: FontWeight.w900,
               height: 1.25,
@@ -12866,7 +12886,7 @@ class _NewsEditorDialogState extends State<_NewsEditorDialog> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE0E5E7)),
+        border: Border.all(color: const Color(0xFFEADFCE)),
       ),
       child: SingleChildScrollView(
         child: Column(
@@ -12875,7 +12895,7 @@ class _NewsEditorDialogState extends State<_NewsEditorDialog> {
             const Text(
               '文章設定',
               style: TextStyle(
-                color: Color(0xFF20342E),
+                color: Color(0xFF303236),
                 fontSize: 16,
                 fontWeight: FontWeight.w900,
               ),
@@ -13116,9 +13136,9 @@ class _NewsEditorToolButton extends StatelessWidget {
         onPressed: onPressed,
         icon: child ?? Icon(icon!, size: 20),
         style: IconButton.styleFrom(
-          foregroundColor: const Color(0xFF30443D),
+          foregroundColor: const Color(0xFF303236),
           backgroundColor: Colors.white,
-          side: const BorderSide(color: Color(0xFFDCE4E1)),
+          side: const BorderSide(color: Color(0xFFEADFCE)),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
       ),
@@ -13150,7 +13170,7 @@ class _NewsEditorFontSizeButton extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 10),
         decoration: BoxDecoration(
           color: Colors.white,
-          border: Border.all(color: const Color(0xFFDCE4E1)),
+          border: Border.all(color: const Color(0xFFEADFCE)),
           borderRadius: BorderRadius.circular(8),
         ),
         child: const Row(
@@ -13159,7 +13179,7 @@ class _NewsEditorFontSizeButton extends StatelessWidget {
             Text(
               '字級',
               style: TextStyle(
-                color: Color(0xFF30443D),
+                color: Color(0xFF303236),
                 fontSize: 13,
                 fontWeight: FontWeight.w900,
               ),
@@ -13167,7 +13187,7 @@ class _NewsEditorFontSizeButton extends StatelessWidget {
             SizedBox(width: 4),
             Icon(
               Icons.arrow_drop_down,
-              color: Color(0xFF30443D),
+              color: Color(0xFF303236),
               size: 18,
             ),
           ],
@@ -13379,7 +13399,7 @@ class _RewardToolbar extends StatelessWidget {
           prefixIcon: const Icon(Icons.search),
           isDense: true,
           filled: true,
-          fillColor: const Color(0xFFF5F7F8),
+          fillColor: const Color(0xFFFFFAF3),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
             borderSide: BorderSide.none,
@@ -13392,7 +13412,7 @@ class _RewardToolbar extends StatelessWidget {
       decoration: InputDecoration(
         isDense: true,
         filled: true,
-        fillColor: const Color(0xFFF5F7F8),
+        fillColor: const Color(0xFFFFFAF3),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide.none,
@@ -13472,7 +13492,7 @@ class _RewardDataTable extends StatelessWidget {
       child: DataTable(
         columnSpacing: 24,
         horizontalMargin: 16,
-        headingRowColor: WidgetStateProperty.all(const Color(0xFFF5F7F8)),
+        headingRowColor: WidgetStateProperty.all(const Color(0xFFFFFAF3)),
         columns: const [
           DataColumn(label: Text('兌換券')),
           DataColumn(label: Text('分類')),
@@ -13556,9 +13576,9 @@ class _RewardMobileCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFA),
+        color: const Color(0xFFFFFAF3),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE4E8EA)),
+        border: Border.all(color: const Color(0xFFEADFCE)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -13709,9 +13729,9 @@ class _RewardSummaryTile extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFA),
+        color: const Color(0xFFFFFAF3),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE4E8EA)),
+        border: Border.all(color: const Color(0xFFEADFCE)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -13742,7 +13762,7 @@ class _MiniInfo extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE4E8EA)),
+        border: Border.all(color: const Color(0xFFEADFCE)),
       ),
       child: Text('$label $value'),
     );
@@ -13762,7 +13782,7 @@ class _RewardStatusChip extends StatelessWidget {
       RewardStatus.expired => '已過期',
     };
     final color = switch (status) {
-      RewardStatus.active => const Color(0xFFEAF3EA),
+      RewardStatus.active => const Color(0xFFFFF2DF),
       RewardStatus.paused => const Color(0xFFFFF4D9),
       RewardStatus.expired => const Color(0xFFF1F2F3),
     };
@@ -13794,7 +13814,7 @@ class _PlaceholderPanel extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, size: 42, color: const Color(0xFF216B57)),
+            Icon(icon, size: 42, color: const Color(0xFFC66D00)),
             const SizedBox(height: 18),
             Text(
               title,
@@ -13803,7 +13823,7 @@ class _PlaceholderPanel extends StatelessWidget {
             const SizedBox(height: 10),
             Text(
               description,
-              style: const TextStyle(color: Color(0xFF61706A)),
+              style: const TextStyle(color: Color(0xFF8A8D8F)),
             ),
           ],
         ),
