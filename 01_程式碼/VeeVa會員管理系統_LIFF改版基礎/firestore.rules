@@ -14,7 +14,7 @@ service cloud.firestore {
 
     match /newsHelpfulVotes/{voteId} {
       allow read, create, update: if true;
-      allow delete: if false;
+      allow delete: if true;
     }
 
     match /rewards/{rewardId} {
@@ -24,57 +24,57 @@ service cloud.firestore {
 
     match /members/{memberId} {
       allow read, create, update: if true;
-      allow delete: if false;
+      allow delete: if true;
     }
 
     match /reviewSubmissions/{reviewId} {
       allow read, create, update: if true;
-      allow delete: if false;
+      allow delete: if true;
     }
 
     match /referrals/{referralId} {
       allow read, create, update: if true;
-      allow delete: if false;
+      allow delete: if true;
     }
 
     match /memberRewardClaims/{claimId} {
       allow read, create, update: if true;
-      allow delete: if false;
+      allow delete: if true;
     }
 
     match /phoneVerificationRateLimits/{phoneHash} {
       allow read, create, update: if true;
-      allow delete: if false;
+      allow delete: if true;
     }
 
     match /activityRegistrations/{registrationId} {
       allow read, create, update: if true;
-      allow delete: if false;
+      allow delete: if true;
     }
 
     match /activityCompletions/{completionId} {
       allow read, create, update: if true;
-      allow delete: if false;
+      allow delete: if true;
     }
 
     match /employeeActivityLinks/{linkId} {
       allow read, create, update: if true;
-      allow delete: if false;
+      allow delete: if true;
     }
 
     match /employeeQrVisits/{visitId} {
       allow read, create, update: if true;
-      allow delete: if false;
+      allow delete: if true;
     }
 
     match /memberEmployeeAttributions/{attributionId} {
       allow read, create, update: if true;
-      allow delete: if false;
+      allow delete: if true;
     }
 
     match /adminUsers/{adminUserId} {
       allow read, create, update: if true;
-      allow delete: if false;
+      allow delete: if true;
     }
   }
 }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -301,6 +303,11 @@ String _memberDateTimeLabel(DateTime? date) {
   return date == null ? '-' : _formatAdminDateTime(date);
 }
 
+String _memberPhoneLabel(backend.VeevaMember member) {
+  final phone = member.phoneNumber?.trim();
+  return phone == null || phone.isEmpty ? '-' : phone;
+}
+
 DateTime? _memberFirstLoginAt(backend.VeevaMember member) {
   return member.createdAt ?? member.lastLineLoginAt;
 }
@@ -354,6 +361,9 @@ class AdminAuthGate extends StatefulWidget {
 }
 
 class _AdminAuthGateState extends State<AdminAuthGate> {
+  static const _cachedAdminSessionKey = 'veevaAdminSession';
+  static const _cachedAdminSessionTtl = Duration(hours: 8);
+
   _AdminAuthViewState viewState = _AdminAuthViewState.checking;
   AdminLineSession session = AdminLineSession.initial();
   backend.VeevaAdminUser? adminUser;
@@ -388,6 +398,7 @@ class _AdminAuthGateState extends State<AdminAuthGate> {
       message = null;
     });
     await widget.authService.logout();
+    widget.authService.writeLocalValue(_cachedAdminSessionKey, '');
     if (!mounted) return;
     setState(() {
       session = AdminLineSession.initial();
@@ -433,6 +444,15 @@ class _AdminAuthGateState extends State<AdminAuthGate> {
     }
 
     try {
+      final cachedAdmin = _readCachedAdmin(profile.userId);
+      if (cachedAdmin != null && mounted) {
+        setState(() {
+          adminUser = cachedAdmin;
+          viewState = _AdminAuthViewState.checking;
+          message = null;
+        });
+      }
+
       final activeAdmin = await widget.repository
           .loadActiveAdminUserByLineUserId(profile.userId);
       if (!mounted) return;
@@ -459,8 +479,12 @@ class _AdminAuthGateState extends State<AdminAuthGate> {
         viewState = _AdminAuthViewState.checking;
         message = null;
       });
+      _cacheAdmin(activeAdmin);
     } catch (_) {
       if (!mounted) return;
+      if (adminUser != null) {
+        return;
+      }
       setState(() {
         viewState = _AdminAuthViewState.error;
         message = '後台權限檢查失敗，請確認 Firestore 已可讀取管理者資料。';
@@ -488,6 +512,53 @@ class _AdminAuthGateState extends State<AdminAuthGate> {
       onRetry: _checkExistingSession,
       onLogout: _logout,
     );
+  }
+
+  backend.VeevaAdminUser? _readCachedAdmin(String lineUserId) {
+    final raw = widget.authService.readLocalValue(_cachedAdminSessionKey);
+    if (raw == null || raw.isEmpty) return null;
+    final parts = raw.split('|');
+    if (parts.length < 9) return null;
+    final cachedAt = int.tryParse(parts[0]);
+    if (cachedAt == null) return null;
+    final age = DateTime.now().millisecondsSinceEpoch - cachedAt;
+    if (age > _cachedAdminSessionTtl.inMilliseconds) return null;
+    if (parts[2] != lineUserId) return null;
+    return backend.VeevaAdminUser(
+      id: parts[1],
+      memberId: parts[3],
+      lineUserId: parts[2],
+      name: parts[4],
+      email: parts[5].isEmpty ? null : parts[5],
+      avatarUrl: parts[6].isEmpty ? null : parts[6],
+      role: _adminRoleFromCache(parts[7]),
+      status: backend.VeevaAdminStatus.active,
+      permissions: parts[8].isEmpty ? const [] : parts[8].split(','),
+    );
+  }
+
+  void _cacheAdmin(backend.VeevaAdminUser admin) {
+    widget.authService.writeLocalValue(
+      _cachedAdminSessionKey,
+      [
+        DateTime.now().millisecondsSinceEpoch,
+        admin.id,
+        admin.lineUserId,
+        admin.memberId,
+        admin.name,
+        admin.email ?? '',
+        admin.avatarUrl ?? '',
+        admin.role.name,
+        admin.permissions.join(','),
+      ].join('|'),
+    );
+  }
+
+  backend.VeevaAdminRole _adminRoleFromCache(String value) {
+    for (final role in backend.VeevaAdminRole.values) {
+      if (role.name == value) return role;
+    }
+    return backend.VeevaAdminRole.viewer;
   }
 }
 
@@ -1027,6 +1098,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
           adminUsers: adminUsers,
           onApprove: _approveReview,
           onSaveMemberSettings: _saveMemberSettings,
+          onDeleteMember: _deleteMember,
           onGrantReward: _grantRewardToMember,
         ),
       AdminTab.activities => _ActivityManagement(
@@ -2529,6 +2601,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
           lineUserId: member.lineUserId,
           avatarUrl: member.avatarUrl,
           email: member.email,
+          phoneNumber: member.phoneNumber,
           lineStatusMessage: member.lineStatusMessage,
           lineIdToken: member.lineIdToken,
           lineIdTokenUpdatedAt: member.lineIdTokenUpdatedAt,
@@ -2615,6 +2688,77 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
     }
   }
 
+  Future<void> _deleteMember(backend.VeevaMember member) async {
+    final previousMembers = [...members];
+    final previousAdminUsers = [...adminUsers];
+    final previousReviews = [...reviews];
+    final previousActivityRecords = [...activityRecords];
+    final previousMemberRewards = [...memberRewards];
+    final previousEmployeeLinks = [...employeeLinks];
+    final memberIds = {
+      member.id,
+      if (member.lineUserId != null && member.lineUserId!.trim().isNotEmpty)
+        member.lineUserId!.trim(),
+    };
+
+    bool matchesMemberId(String? value) =>
+        value != null && memberIds.contains(value);
+
+    setState(() {
+      members.removeWhere((item) => memberIds.contains(item.id));
+      adminUsers.removeWhere(
+        (item) =>
+            matchesMemberId(item.id) ||
+            matchesMemberId(item.memberId) ||
+            matchesMemberId(item.lineUserId),
+      );
+      reviews.removeWhere(
+        (item) => matchesMemberId(item.id) || matchesMemberId(item.memberId),
+      );
+      activityRecords.removeWhere((item) => matchesMemberId(item.memberId));
+      memberRewards.removeWhere(
+        (item) =>
+            matchesMemberId(item.memberId) ||
+            matchesMemberId(item.sourceMemberId),
+      );
+      employeeLinks.removeWhere(
+        (item) => matchesMemberId(item.employeeMemberId),
+      );
+      backendError = null;
+    });
+
+    try {
+      await repository
+          .deleteMember(member)
+          .timeout(const Duration(seconds: 25));
+      unawaited(_loadBackend());
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        members
+          ..clear()
+          ..addAll(previousMembers);
+        adminUsers
+          ..clear()
+          ..addAll(previousAdminUsers);
+        reviews
+          ..clear()
+          ..addAll(previousReviews);
+        activityRecords
+          ..clear()
+          ..addAll(previousActivityRecords);
+        memberRewards
+          ..clear()
+          ..addAll(previousMemberRewards);
+        employeeLinks
+          ..clear()
+          ..addAll(previousEmployeeLinks);
+        backendError = '會員刪除失敗：請確認 Firestore rules 已部署。';
+      });
+      rethrow;
+    }
+  }
+
   Future<void> _saveEmployeeStatus({
     required backend.VeevaMember member,
     required bool enabled,
@@ -2690,6 +2834,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
     backend.VeevaMember? sourceMember,
     String source = 'manualAdmin',
     bool preventDuplicate = false,
+    bool showSnackBar = true,
   }) async {
     if (quantity <= 0) {
       setState(() => backendError = '發送兌換券失敗：數量必須大於 0。');
@@ -2827,10 +2972,13 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
         preventDuplicate: preventDuplicate,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text('已發送 ${reward.name} × $quantity 給 ${member.name}。')),
-      );
+      if (showSnackBar) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('已發送 ${reward.name} × $quantity 給 ${member.name}。'),
+          ),
+        );
+      }
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -6025,6 +6173,7 @@ class _MemberManagement extends StatefulWidget {
     required this.adminUsers,
     required this.onApprove,
     required this.onSaveMemberSettings,
+    required this.onDeleteMember,
     required this.onGrantReward,
   });
 
@@ -6037,6 +6186,7 @@ class _MemberManagement extends StatefulWidget {
     required backend.VeevaMember member,
     backend.VeevaAdminUser? adminUser,
   }) onSaveMemberSettings;
+  final Future<void> Function(backend.VeevaMember member) onDeleteMember;
   final Future<void> Function({
     required backend.VeevaMember member,
     required AdminRewardItem reward,
@@ -6217,6 +6367,7 @@ class _MemberManagementState extends State<_MemberManagement> {
                         : '查無符合條件的已登入會員。',
                     onEditSettings: _openMemberSettingsDialog,
                     onGrantReward: _openGrantRewardDialog,
+                    onDeleteMember: _confirmDeleteMember,
                   )
                 else
                   _ReviewListBody(
@@ -6594,6 +6745,92 @@ class _MemberManagementState extends State<_MemberManagement> {
     noteController.dispose();
   }
 
+  Future<void> _confirmDeleteMember(backend.VeevaMember member) async {
+    var isDeleting = false;
+    String? formError;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('刪除會員'),
+              content: SizedBox(
+                width: 560,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _MemberPermissionHeader(member: member),
+                    const SizedBox(height: 18),
+                    const Text(
+                      '刪除後會同步清除此會員的登入資料、後台權限、活動紀錄、審核紀錄、兌換券、系統訊息、推薦與員工 QR Code 關聯紀錄。',
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      '此操作無法復原，請確認後再刪除。',
+                      style: TextStyle(
+                        color: Color(0xFFB42318),
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    if (formError != null) ...[
+                      const SizedBox(height: 12),
+                      _InlineError(message: formError!),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isDeleting
+                      ? null
+                      : () => Navigator.of(dialogContext).pop(),
+                  child: const Text('取消'),
+                ),
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFFB42318),
+                    foregroundColor: Colors.white,
+                  ),
+                  onPressed: isDeleting
+                      ? null
+                      : () async {
+                          setDialogState(() {
+                            isDeleting = true;
+                            formError = null;
+                          });
+                          try {
+                            await widget.onDeleteMember(member);
+                            if (dialogContext.mounted) {
+                              Navigator.of(dialogContext).pop();
+                            }
+                          } catch (_) {
+                            if (!dialogContext.mounted) return;
+                            setDialogState(() {
+                              isDeleting = false;
+                              formError = '會員刪除失敗，請稍後再試。';
+                            });
+                          }
+                        },
+                  icon: isDeleting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.delete_outline),
+                  label: Text(isDeleting ? '刪除中' : '確認刪除'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   backend.VeevaAdminUser? _adminFor(backend.VeevaMember member) {
     for (final admin in widget.adminUsers) {
       if (admin.memberId == member.id ||
@@ -6613,6 +6850,7 @@ class _LoggedInMemberListBody extends StatelessWidget {
     required this.emptyMessage,
     required this.onEditSettings,
     required this.onGrantReward,
+    required this.onDeleteMember,
   });
 
   final List<backend.VeevaMember> members;
@@ -6621,6 +6859,7 @@ class _LoggedInMemberListBody extends StatelessWidget {
   final String emptyMessage;
   final ValueChanged<backend.VeevaMember> onEditSettings;
   final ValueChanged<backend.VeevaMember> onGrantReward;
+  final ValueChanged<backend.VeevaMember> onDeleteMember;
 
   @override
   Widget build(BuildContext context) {
@@ -6637,6 +6876,7 @@ class _LoggedInMemberListBody extends StatelessWidget {
               adminUser: _adminFor(member),
               onEditSettings: () => onEditSettings(member),
               onGrantReward: () => onGrantReward(member),
+              onDeleteMember: () => onDeleteMember(member),
             ),
         ],
       );
@@ -6648,9 +6888,11 @@ class _LoggedInMemberListBody extends StatelessWidget {
             constraints.maxWidth.isFinite ? constraints.maxWidth : 920.0;
         final tableWidth = availableWidth < 780 ? 780.0 : availableWidth;
         final contentWidth = tableWidth - 32 - 60;
-        final nameWidth = contentWidth * .42;
-        final lastLoginWidth = contentWidth * .24;
-        final settingWidth = contentWidth - nameWidth - lastLoginWidth;
+        final nameWidth = contentWidth * .32;
+        final phoneWidth = contentWidth * .18;
+        final lastLoginWidth = contentWidth * .22;
+        final settingWidth =
+            contentWidth - nameWidth - phoneWidth - lastLoginWidth;
 
         return SingleChildScrollView(
           scrollDirection: Axis.horizontal,
@@ -6664,6 +6906,7 @@ class _LoggedInMemberListBody extends StatelessWidget {
               dataRowMaxHeight: 88,
               columns: [
                 DataColumn(label: _TableHeaderLabel('會員名稱', width: nameWidth)),
+                DataColumn(label: _TableHeaderLabel('電話', width: phoneWidth)),
                 DataColumn(
                   label: _TableHeaderLabel('最後一次登入時間', width: lastLoginWidth),
                 ),
@@ -6680,8 +6923,13 @@ class _LoggedInMemberListBody extends StatelessWidget {
                           width: nameWidth,
                           child: _MemberNameOnly(
                             member: member,
-                            adminUser: _adminFor(member),
                           ),
+                        ),
+                      ),
+                      DataCell(
+                        SizedBox(
+                          width: phoneWidth,
+                          child: Text(_memberPhoneLabel(member)),
                         ),
                       ),
                       DataCell(
@@ -6700,6 +6948,7 @@ class _LoggedInMemberListBody extends StatelessWidget {
                             adminUser: _adminFor(member),
                             onEditSettings: () => onEditSettings(member),
                             onGrantReward: () => onGrantReward(member),
+                            onDeleteMember: () => onDeleteMember(member),
                           ),
                         ),
                       ),
@@ -6730,12 +6979,14 @@ class _LoggedInMemberCard extends StatelessWidget {
     required this.adminUser,
     required this.onEditSettings,
     required this.onGrantReward,
+    required this.onDeleteMember,
   });
 
   final backend.VeevaMember member;
   final backend.VeevaAdminUser? adminUser;
   final VoidCallback onEditSettings;
   final VoidCallback onGrantReward;
+  final VoidCallback onDeleteMember;
 
   @override
   Widget build(BuildContext context) {
@@ -6751,7 +7002,12 @@ class _LoggedInMemberCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _MemberNameOnly(member: member, adminUser: adminUser),
+          _MemberNameOnly(member: member),
+          const SizedBox(height: 12),
+          _MemberTimeLine(
+            label: '電話',
+            value: _memberPhoneLabel(member),
+          ),
           const SizedBox(height: 12),
           _MemberTimeLine(
             label: '最後一次登入',
@@ -6763,6 +7019,7 @@ class _LoggedInMemberCard extends StatelessWidget {
             adminUser: adminUser,
             onEditSettings: onEditSettings,
             onGrantReward: onGrantReward,
+            onDeleteMember: onDeleteMember,
           ),
         ],
       ),
@@ -6834,11 +7091,9 @@ enum _MemberSettingSelection {
 class _MemberNameOnly extends StatelessWidget {
   const _MemberNameOnly({
     required this.member,
-    required this.adminUser,
   });
 
   final backend.VeevaMember member;
-  final backend.VeevaAdminUser? adminUser;
 
   @override
   Widget build(BuildContext context) {
@@ -6855,23 +7110,11 @@ class _MemberNameOnly extends StatelessWidget {
         ),
         const SizedBox(width: 10),
         Expanded(
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Flexible(
-                child: Text(
-                  member.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w900),
-                ),
-              ),
-              const SizedBox(width: 8),
-              _MemberSettingChip(
-                selection: _selectionForMemberSetting(member, adminUser),
-                compact: true,
-              ),
-            ],
+          child: Text(
+            member.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w900),
           ),
         ),
       ],
@@ -6918,12 +7161,14 @@ class _MemberRowActions extends StatelessWidget {
     required this.adminUser,
     required this.onEditSettings,
     required this.onGrantReward,
+    required this.onDeleteMember,
   });
 
   final backend.VeevaMember member;
   final backend.VeevaAdminUser? adminUser;
   final VoidCallback onEditSettings;
   final VoidCallback onGrantReward;
+  final VoidCallback onDeleteMember;
 
   @override
   Widget build(BuildContext context) {
@@ -6942,39 +7187,16 @@ class _MemberRowActions extends StatelessWidget {
           icon: const Icon(Icons.card_giftcard_outlined),
           label: const Text('發券'),
         ),
+        OutlinedButton.icon(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: const Color(0xFFB42318),
+            side: const BorderSide(color: Color(0xFFF3B4AE)),
+          ),
+          onPressed: onDeleteMember,
+          icon: const Icon(Icons.delete_outline),
+          label: const Text('刪除'),
+        ),
       ],
-    );
-  }
-}
-
-class _MemberSettingChip extends StatelessWidget {
-  const _MemberSettingChip({
-    required this.selection,
-    this.compact = false,
-  });
-
-  final _MemberSettingSelection selection;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    final disabled = selection == _MemberSettingSelection.disabledAccount;
-    return Chip(
-      avatar: Icon(
-        disabled ? Icons.block_outlined : Icons.person_outline,
-        size: compact ? 15 : 18,
-        color: disabled ? const Color(0xFFAD3B24) : const Color(0xFF216B57),
-      ),
-      label: Text(_memberSettingSelectionLabel(selection)),
-      labelStyle: TextStyle(
-        fontSize: compact ? 12 : null,
-        fontWeight: FontWeight.w800,
-      ),
-      visualDensity: compact ? VisualDensity.compact : null,
-      materialTapTargetSize: compact ? MaterialTapTargetSize.shrinkWrap : null,
-      backgroundColor:
-          disabled ? const Color(0xFFFFF4EF) : const Color(0xFFEAF3EA),
-      side: BorderSide.none,
     );
   }
 }
@@ -7026,7 +7248,7 @@ class _MemberSearchField extends StatelessWidget {
       onChanged: onChanged,
       textInputAction: TextInputAction.search,
       decoration: InputDecoration(
-        hintText: '搜尋姓名、LINE ID、Email、院所、科別',
+        hintText: '搜尋姓名、電話、LINE ID、Email',
         prefixIcon: const Icon(Icons.search),
         suffixIcon: onClear == null
             ? null
@@ -8830,6 +9052,7 @@ backend.VeevaMember _memberWithSettings(
     lineUserId: member.lineUserId,
     avatarUrl: member.avatarUrl,
     email: member.email,
+    phoneNumber: member.phoneNumber,
     lineStatusMessage: member.lineStatusMessage,
     lineIdToken: member.lineIdToken,
     lineIdTokenUpdatedAt: member.lineIdTokenUpdatedAt,
@@ -8869,6 +9092,7 @@ backend.VeevaMember _memberWithEarnedCoupons(
     lineUserId: member.lineUserId,
     avatarUrl: member.avatarUrl,
     email: member.email,
+    phoneNumber: member.phoneNumber,
     lineStatusMessage: member.lineStatusMessage,
     lineIdToken: member.lineIdToken,
     lineIdTokenUpdatedAt: member.lineIdTokenUpdatedAt,
@@ -8911,6 +9135,7 @@ backend.VeevaMember _memberWithReferralRewardGranted(
     lineUserId: member.lineUserId,
     avatarUrl: member.avatarUrl,
     email: member.email,
+    phoneNumber: member.phoneNumber,
     lineStatusMessage: member.lineStatusMessage,
     lineIdToken: member.lineIdToken,
     lineIdTokenUpdatedAt: member.lineIdTokenUpdatedAt,
@@ -8952,6 +9177,7 @@ backend.VeevaMember _memberWithEmployeeStatus(
     lineUserId: member.lineUserId,
     avatarUrl: member.avatarUrl,
     email: member.email,
+    phoneNumber: member.phoneNumber,
     lineStatusMessage: member.lineStatusMessage,
     lineIdToken: member.lineIdToken,
     lineIdTokenUpdatedAt: member.lineIdTokenUpdatedAt,
@@ -9005,7 +9231,9 @@ String _normalizeMemberSearch(String value) {
 
 bool _memberMatchesSearch(backend.VeevaMember member, String query) {
   if (query.isEmpty) return true;
-  return _normalizeMemberSearch([
+  final normalizedQuery = _normalizeMemberSearch(query);
+  final digitQuery = _searchDigits(query);
+  final normalizedValues = _normalizeMemberSearch([
     member.id,
     member.name,
     member.hospital,
@@ -9013,13 +9241,36 @@ bool _memberMatchesSearch(backend.VeevaMember member, String query) {
     member.shareCode,
     member.lineUserId,
     member.email,
+    member.phoneNumber,
     member.lineStatusMessage,
     _memberStatusLabel(member.status),
     _memberAccountStatusLabel(member.accountStatus),
     _memberDateTimeLabel(_memberFirstLoginAt(member)),
     _memberDateTimeLabel(member.lastLineLoginAt),
-  ].whereType<String>().join(' '))
-      .contains(query);
+    ..._phoneSearchVariants(member.phoneNumber),
+  ].whereType<String>().join(' '));
+  if (normalizedValues.contains(normalizedQuery)) return true;
+  if (digitQuery.isEmpty) return false;
+  return _searchDigits(normalizedValues).contains(digitQuery);
+}
+
+String _searchDigits(String value) {
+  return value.replaceAll(RegExp(r'[^0-9]'), '');
+}
+
+List<String> _phoneSearchVariants(String? phoneNumber) {
+  final phone = phoneNumber?.trim();
+  if (phone == null || phone.isEmpty) return const [];
+  final digits = _searchDigits(phone);
+  if (digits.isEmpty) return [phone];
+  final variants = <String>{phone, digits};
+  if (digits.startsWith('886') && digits.length > 3) {
+    variants.add('0${digits.substring(3)}');
+  }
+  if (digits.startsWith('0') && digits.length > 1) {
+    variants.add('886${digits.substring(1)}');
+  }
+  return variants.toList();
 }
 
 bool _reviewMatchesSearch(AdminReviewItem item, String query) {
@@ -9195,6 +9446,7 @@ class _RewardDistributionManagement extends StatefulWidget {
     backend.VeevaMember? sourceMember,
     String source,
     bool preventDuplicate,
+    bool showSnackBar,
   }) onGrantReward;
   final Future<void> Function(backend.VeevaActivityRecord record)
       onRejectActivityCompletion;
@@ -9208,6 +9460,7 @@ class _RewardDistributionManagementState
     extends State<_RewardDistributionManagement> {
   Set<String> issuingParticipantIds = {};
   Set<String> rejectingParticipantIds = {};
+  Set<String> batchIssuingMemberIds = {};
 
   @override
   Widget build(BuildContext context) {
@@ -9229,14 +9482,14 @@ class _RewardDistributionManagementState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Row(
+                Row(
                   children: [
-                    Icon(
+                    const Icon(
                       Icons.card_giftcard_outlined,
                       color: Color(0xFF216B57),
                     ),
-                    SizedBox(width: 10),
-                    Expanded(
+                    const SizedBox(width: 10),
+                    const Expanded(
                       child: Text(
                         '獎勵發放',
                         style: TextStyle(
@@ -9244,6 +9497,11 @@ class _RewardDistributionManagementState
                           fontWeight: FontWeight.w900,
                         ),
                       ),
+                    ),
+                    FilledButton.icon(
+                      onPressed: _openBatchDistributionDialog,
+                      icon: const Icon(Icons.playlist_add_check_outlined),
+                      label: const Text('批量發放'),
                     ),
                   ],
                 ),
@@ -9624,6 +9882,447 @@ class _RewardDistributionManagementState
     );
   }
 
+  Future<void> _openBatchDistributionDialog() async {
+    final availableRewards = widget.rewards
+        .where(
+          (reward) => reward.status == RewardStatus.active && reward.stock > 0,
+        )
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+    if (availableRewards.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('目前沒有可發放的兌換券。')),
+      );
+      return;
+    }
+
+    backend.VeevaActivity? selectedActivity;
+    AdminRewardItem selectedReward = availableRewards.first;
+    final searchController = TextEditingController();
+    final noteController = TextEditingController(text: '手動批量發放');
+    var selectedMemberIds = <String>{};
+    var query = '';
+    var isSending = false;
+    String? formError;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final candidates = _batchMemberCandidates(
+              activity: selectedActivity,
+              reward: selectedReward,
+              query: query,
+            );
+            final visibleIds = candidates.map((item) => item.member.id).toSet();
+            final selectedVisibleCount =
+                selectedMemberIds.intersection(visibleIds).length;
+            final allVisibleSelected = visibleIds.isNotEmpty &&
+                selectedVisibleCount == visibleIds.length;
+            final selectedCount = selectedMemberIds.length;
+            final canSend = selectedCount > 0 &&
+                selectedReward.stock >= selectedCount &&
+                !isSending;
+
+            return AlertDialog(
+              title: const Text('批量發放兌換券'),
+              content: SizedBox(
+                width: 920,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        children: [
+                          SizedBox(
+                            width: 360,
+                            child: DropdownButtonFormField<AdminRewardItem>(
+                              value: selectedReward,
+                              isExpanded: true,
+                              decoration: const InputDecoration(
+                                labelText: '發放兌換券',
+                                prefixIcon: Icon(Icons.card_giftcard_outlined),
+                              ),
+                              items: [
+                                for (final reward in availableRewards)
+                                  DropdownMenuItem(
+                                    value: reward,
+                                    child: Text(
+                                      '${reward.name}（庫存 ${reward.stock}）',
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                              ],
+                              onChanged: isSending
+                                  ? null
+                                  : (value) {
+                                      if (value == null) return;
+                                      setDialogState(() {
+                                        selectedReward = value;
+                                        selectedMemberIds = {};
+                                        formError = null;
+                                      });
+                                    },
+                            ),
+                          ),
+                          SizedBox(
+                            width: 360,
+                            child:
+                                DropdownButtonFormField<backend.VeevaActivity?>(
+                              value: selectedActivity,
+                              isExpanded: true,
+                              decoration: const InputDecoration(
+                                labelText: '關聯活動（選填）',
+                                prefixIcon: Icon(Icons.campaign_outlined),
+                              ),
+                              items: [
+                                const DropdownMenuItem<backend.VeevaActivity?>(
+                                  value: null,
+                                  child: Text('不關聯活動，單純發券'),
+                                ),
+                                for (final activity in widget.activities)
+                                  DropdownMenuItem<backend.VeevaActivity?>(
+                                    value: activity,
+                                    child: Text(
+                                      activity.title,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                              ],
+                              onChanged: isSending
+                                  ? null
+                                  : (value) {
+                                      setDialogState(() {
+                                        selectedActivity = value;
+                                        selectedMemberIds = {};
+                                        formError = null;
+                                      });
+                                    },
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: noteController,
+                        decoration: const InputDecoration(
+                          labelText: '備註（選填）',
+                          prefixIcon: Icon(Icons.notes_outlined),
+                        ),
+                        enabled: !isSending,
+                      ),
+                      const SizedBox(height: 12),
+                      _MemberSearchField(
+                        controller: searchController,
+                        onChanged: (value) => setDialogState(() {
+                          query = value;
+                        }),
+                        onClear: query.trim().isEmpty
+                            ? null
+                            : () => setDialogState(() {
+                                  searchController.clear();
+                                  query = '';
+                                }),
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          _DistributionInfoChip(
+                            icon: Icons.groups_outlined,
+                            label: '已選 $selectedCount 位',
+                          ),
+                          _DistributionInfoChip(
+                            icon: Icons.inventory_2_outlined,
+                            label: '可用庫存 ${selectedReward.stock} 張',
+                          ),
+                          TextButton.icon(
+                            onPressed: isSending || visibleIds.isEmpty
+                                ? null
+                                : () => setDialogState(() {
+                                      if (allVisibleSelected) {
+                                        selectedMemberIds = {
+                                          ...selectedMemberIds,
+                                        }..removeAll(visibleIds);
+                                      } else {
+                                        selectedMemberIds = {
+                                          ...selectedMemberIds,
+                                          ...visibleIds,
+                                        };
+                                      }
+                                      formError = null;
+                                    }),
+                            icon: Icon(
+                              allVisibleSelected
+                                  ? Icons.check_box_outlined
+                                  : Icons.check_box_outline_blank,
+                            ),
+                            label: Text(allVisibleSelected ? '取消全選' : '全選目前清單'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      if (candidates.isEmpty)
+                        const _EmptyListMessage(message: '沒有符合條件的會員。')
+                      else
+                        _FullWidthDataTable(
+                          minWidth: 920,
+                          child: DataTable(
+                            horizontalMargin: 12,
+                            columnSpacing: 18,
+                            headingRowColor: WidgetStateProperty.all(
+                              const Color(0xFFF5F7F8),
+                            ),
+                            columns: const [
+                              DataColumn(label: Text('選取')),
+                              DataColumn(label: Text('會員')),
+                              DataColumn(label: Text('電話')),
+                              DataColumn(label: Text('活動狀態')),
+                              DataColumn(label: Text('兌換券狀態')),
+                            ],
+                            rows: [
+                              for (final candidate in candidates)
+                                DataRow(
+                                  selected: selectedMemberIds
+                                      .contains(candidate.member.id),
+                                  cells: [
+                                    DataCell(
+                                      Checkbox(
+                                        value: selectedMemberIds
+                                            .contains(candidate.member.id),
+                                        onChanged: isSending
+                                            ? null
+                                            : (checked) => setDialogState(() {
+                                                  selectedMemberIds = {
+                                                    ...selectedMemberIds,
+                                                  };
+                                                  if (checked == true) {
+                                                    selectedMemberIds.add(
+                                                      candidate.member.id,
+                                                    );
+                                                  } else {
+                                                    selectedMemberIds.remove(
+                                                      candidate.member.id,
+                                                    );
+                                                  }
+                                                  formError = null;
+                                                }),
+                                      ),
+                                    ),
+                                    DataCell(_DistributionMemberCell(
+                                      member: candidate.member,
+                                    )),
+                                    DataCell(
+                                      Text(_memberPhoneLabel(candidate.member)),
+                                    ),
+                                    DataCell(Text(candidate.activityStatus)),
+                                    DataCell(Text(candidate.rewardStatus)),
+                                  ],
+                                ),
+                            ],
+                          ),
+                        ),
+                      if (formError != null) ...[
+                        const SizedBox(height: 12),
+                        _InlineError(message: formError!),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSending
+                      ? null
+                      : () => Navigator.of(dialogContext).pop(),
+                  child: const Text('取消'),
+                ),
+                FilledButton.icon(
+                  onPressed: canSend
+                      ? () async {
+                          final selectedMembers = [
+                            for (final member in widget.members)
+                              if (selectedMemberIds.contains(member.id)) member,
+                          ];
+                          if (selectedMembers.isEmpty) {
+                            setDialogState(() => formError = '請先選擇會員。');
+                            return;
+                          }
+                          if (selectedMembers.length > selectedReward.stock) {
+                            setDialogState(
+                              () => formError = '選取人數超過庫存，請減少會員或更換兌換券。',
+                            );
+                            return;
+                          }
+
+                          setDialogState(() {
+                            isSending = true;
+                            formError = null;
+                            batchIssuingMemberIds = {
+                              ...batchIssuingMemberIds,
+                              ...selectedMemberIds,
+                            };
+                          });
+
+                          try {
+                            for (final member in selectedMembers) {
+                              final currentReward = widget.rewards.firstWhere(
+                                (item) => item.id == selectedReward.id,
+                                orElse: () => selectedReward,
+                              );
+                              await widget.onGrantReward(
+                                member: member,
+                                reward: currentReward,
+                                quantity: 1,
+                                note: noteController.text,
+                                activity: selectedActivity,
+                                source: 'manualBatch',
+                                preventDuplicate: false,
+                                showSnackBar: false,
+                              );
+                            }
+                            if (!dialogContext.mounted) return;
+                            Navigator.of(dialogContext).pop();
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    '已批量發放 ${selectedReward.name} 給 ${selectedMembers.length} 位會員。',
+                                  ),
+                                ),
+                              );
+                            }
+                          } catch (_) {
+                            if (!dialogContext.mounted) return;
+                            setDialogState(() {
+                              isSending = false;
+                              formError = '批量發放失敗，請確認庫存、兌換券狀態與 Firestore 設定。';
+                            });
+                          } finally {
+                            if (mounted) {
+                              setState(() {
+                                batchIssuingMemberIds = {
+                                  ...batchIssuingMemberIds,
+                                }..removeAll(selectedMemberIds);
+                              });
+                            }
+                            if (dialogContext.mounted) {
+                              setDialogState(() {});
+                            }
+                          }
+                        }
+                      : null,
+                  icon: isSending
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.card_giftcard_outlined),
+                  label: Text(isSending ? '發放中' : '確認批量發放'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    searchController.dispose();
+    noteController.dispose();
+  }
+
+  List<_BatchDistributionCandidate> _batchMemberCandidates({
+    required backend.VeevaActivity? activity,
+    required AdminRewardItem reward,
+    required String query,
+  }) {
+    final normalizedQuery = _normalizeMemberSearch(query);
+    final candidates = [
+      for (final member in widget.members)
+        if (_memberMatchesSearch(member, normalizedQuery))
+          _BatchDistributionCandidate(
+            member: member,
+            activityStatus: _batchActivityStatus(activity, member),
+            rewardStatus: _batchRewardStatus(activity, reward, member),
+          ),
+    ];
+    candidates.sort((a, b) {
+      final aPriority = _batchActivityStatusPriority(a.activityStatus);
+      final bPriority = _batchActivityStatusPriority(b.activityStatus);
+      if (aPriority != bPriority) return aPriority.compareTo(bPriority);
+      return a.member.name.compareTo(b.member.name);
+    });
+    return candidates;
+  }
+
+  String _batchActivityStatus(
+    backend.VeevaActivity? activity,
+    backend.VeevaMember member,
+  ) {
+    if (activity == null) return '未關聯活動';
+    final record = _recordForMember(activity, member);
+    if (record == null) return '未參加';
+    return _participantStatusText(record);
+  }
+
+  int _batchActivityStatusPriority(String status) {
+    return switch (status) {
+      '未參加' => 0,
+      '未關聯活動' => 1,
+      '已參加' => 2,
+      '審核中' => 3,
+      '已完成' => 4,
+      _ => 5,
+    };
+  }
+
+  String _batchRewardStatus(
+    backend.VeevaActivity? activity,
+    AdminRewardItem reward,
+    backend.VeevaMember member,
+  ) {
+    for (final item in widget.memberRewards) {
+      final sameActivity = activity == null
+          ? item.activityId == null || item.activityId!.isEmpty
+          : item.activityId == activity.id;
+      if (item.memberId == member.id &&
+          item.rewardId == reward.id &&
+          item.source == 'manualBatch' &&
+          sameActivity &&
+          item.status != 'rejected') {
+        return _isIssuedGrant(item) ? '已領過' : '待確認';
+      }
+    }
+    return batchIssuingMemberIds.contains(member.id) ? '發放中' : '尚未發放';
+  }
+
+  backend.VeevaActivityRecord? _recordForMember(
+    backend.VeevaActivity activity,
+    backend.VeevaMember member,
+  ) {
+    backend.VeevaActivityRecord? selected;
+    for (final record in widget.activityRecords) {
+      if (record.activityId != activity.id ||
+          (record.memberId != member.id &&
+              record.memberLineUserId != member.lineUserId)) {
+        continue;
+      }
+      if (selected == null ||
+          _activityRecordPriority(record) >=
+              _activityRecordPriority(selected)) {
+        selected = record;
+      }
+    }
+    return selected;
+  }
+
   DataRow _participantRow({
     required backend.VeevaActivity activity,
     required _DistributionParticipant participant,
@@ -9914,6 +10613,18 @@ class _DistributionParticipant {
 
   final backend.VeevaActivityRecord record;
   final backend.VeevaMember member;
+}
+
+class _BatchDistributionCandidate {
+  const _BatchDistributionCandidate({
+    required this.member,
+    required this.activityStatus,
+    required this.rewardStatus,
+  });
+
+  final backend.VeevaMember member;
+  final String activityStatus;
+  final String rewardStatus;
 }
 
 class _DistributionInfoChip extends StatelessWidget {

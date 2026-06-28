@@ -95,6 +95,16 @@ List<String> _readStringList(Object? value) {
   return const [];
 }
 
+String? _readFirstString(Map<String, Object?> data, List<String> keys) {
+  for (final key in keys) {
+    final text = data[key]?.toString().trim();
+    if (text != null && text.isNotEmpty) {
+      return text;
+    }
+  }
+  return null;
+}
+
 class VeevaBootstrap {
   const VeevaBootstrap({
     required this.activities,
@@ -156,6 +166,7 @@ class VeevaMember {
     this.lineUserId,
     this.avatarUrl,
     this.email,
+    this.phoneNumber,
     this.lineStatusMessage,
     this.lineIdToken,
     this.lineIdTokenUpdatedAt,
@@ -199,6 +210,23 @@ class VeevaMember {
       lineUserId: data['lineUserId']?.toString(),
       avatarUrl: data['avatarUrl']?.toString(),
       email: data['email']?.toString(),
+      phoneNumber: _readFirstString(data, const [
+        'phoneNumber',
+        'phone',
+        'mobile',
+        'mobileNumber',
+        'tel',
+        'verifiedPhoneNumber',
+        'verifiedPhone',
+        'verifiedPhoneE164',
+        'phoneVerifiedNumber',
+        'phoneE164',
+        'phoneE164Number',
+        'phoneAuthNumber',
+        'authPhoneNumber',
+        'firebasePhoneNumber',
+        'smsPhoneNumber',
+      ]),
       lineStatusMessage: data['lineStatusMessage']?.toString(),
       lineIdToken: data['lineIdToken']?.toString(),
       lineIdTokenUpdatedAt: _readDate(data['lineIdTokenUpdatedAt']),
@@ -236,6 +264,7 @@ class VeevaMember {
   final String? lineUserId;
   final String? avatarUrl;
   final String? email;
+  final String? phoneNumber;
   final String? lineStatusMessage;
   final String? lineIdToken;
   final DateTime? lineIdTokenUpdatedAt;
@@ -269,6 +298,7 @@ class VeevaMember {
       'lineUserId': lineUserId,
       'avatarUrl': avatarUrl,
       'email': email,
+      'phoneNumber': phoneNumber,
       'lineStatusMessage': lineStatusMessage,
       'lineIdToken': lineIdToken,
       'lineIdTokenUpdatedAt': lineIdTokenUpdatedAt == null

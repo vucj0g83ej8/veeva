@@ -7,6 +7,8 @@ AdminLineAuthService createAdminLineAuthService({
 }
 
 class StubAdminLineAuthService implements AdminLineAuthService {
+  final _localValues = <String, String>{};
+
   AdminLineSession _session = const AdminLineSession(
     isInitialized: true,
     isLoggedIn: true,
@@ -51,5 +53,15 @@ class StubAdminLineAuthService implements AdminLineAuthService {
       isRedirecting: false,
     );
     return _session;
+  }
+
+  @override
+  String? readLocalValue(String key) {
+    return _localValues[key];
+  }
+
+  @override
+  void writeLocalValue(String key, String value) {
+    _localValues[key] = value;
   }
 }

@@ -110,6 +110,24 @@ class WebAdminLineAuthService implements AdminLineAuthService {
     }
   }
 
+  @override
+  String? readLocalValue(String key) {
+    try {
+      return html.window.localStorage[key];
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  void writeLocalValue(String key, String value) {
+    try {
+      html.window.localStorage[key] = value;
+    } catch (_) {
+      // Ignore browsers that block local storage.
+    }
+  }
+
   Object? get _liffObject {
     return js_util.getProperty<Object?>(html.window, 'liff');
   }

@@ -4,6 +4,10 @@ abstract class AdminLineAuthService {
   Future<AdminLineSession> login();
 
   Future<AdminLineSession> logout();
+
+  String? readLocalValue(String key);
+
+  void writeLocalValue(String key, String value);
 }
 
 class AdminLineConfig {

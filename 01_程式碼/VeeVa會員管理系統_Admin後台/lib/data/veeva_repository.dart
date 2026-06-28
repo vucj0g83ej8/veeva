@@ -53,6 +53,8 @@ abstract class VeevaRepository {
     VeevaAdminUser? adminUser,
   });
 
+  Future<void> deleteMember(VeevaMember member);
+
   Future<void> saveEmployeeStatus({
     required VeevaMember member,
     required bool enabled,
@@ -103,8 +105,12 @@ class FirestoreVeevaRepository implements VeevaRepository {
       firestore.collection('rewards');
   CollectionReference<Map<String, dynamic>> get _admins =>
       firestore.collection('adminUsers');
+  CollectionReference<Map<String, dynamic>> get _referrals =>
+      firestore.collection('referrals');
   CollectionReference<Map<String, dynamic>> get _memberRewards =>
       firestore.collection('memberRewards');
+  CollectionReference<Map<String, dynamic>> get _memberRewardClaims =>
+      firestore.collection('memberRewardClaims');
   CollectionReference<Map<String, dynamic>> get _memberNotifications =>
       firestore.collection('memberNotifications');
   CollectionReference<Map<String, dynamic>> get _systemSettings =>
@@ -117,6 +123,12 @@ class FirestoreVeevaRepository implements VeevaRepository {
       firestore.collection('activityCompletions');
   CollectionReference<Map<String, dynamic>> get _employeeActivityLinks =>
       firestore.collection('employeeActivityLinks');
+  CollectionReference<Map<String, dynamic>> get _employeeQrVisits =>
+      firestore.collection('employeeQrVisits');
+  CollectionReference<Map<String, dynamic>> get _memberEmployeeAttributions =>
+      firestore.collection('memberEmployeeAttributions');
+  CollectionReference<Map<String, dynamic>> get _newsHelpfulVotes =>
+      firestore.collection('newsHelpfulVotes');
 
   @override
   Future<VeevaBootstrap> loadBootstrap() async {
@@ -256,6 +268,7 @@ class FirestoreVeevaRepository implements VeevaRepository {
       lineUserId: lineUserId,
       avatarUrl: avatarUrl ?? existing?.avatarUrl,
       email: email ?? existing?.email,
+      phoneNumber: existing?.phoneNumber,
       lineStatusMessage: statusMessage ?? existing?.lineStatusMessage,
       lineIdToken:
           token == null || token.isEmpty ? existing?.lineIdToken : token,
@@ -537,6 +550,308 @@ class FirestoreVeevaRepository implements VeevaRepository {
       }
     }
     await Future.wait(writes);
+  }
+
+  @override
+  Future<void> deleteMember(VeevaMember member) async {
+    final memberIds = {
+      member.id,
+      if (member.lineUserId != null && member.lineUserId!.trim().isNotEmpty)
+        member.lineUserId!.trim(),
+    };
+    final shareCode = member.shareCode.trim();
+
+    final docsToDelete = <DocumentReference<Map<String, dynamic>>>{};
+    final docsToSet = <_BatchSetOperation>[];
+    final linkedMemberUpdates = <String, Map<String, Object?>>{};
+    final deleteQueries = <Future<void>>[];
+
+    void addDelete(DocumentReference<Map<String, dynamic>> ref) {
+      docsToDelete.add(ref);
+    }
+
+    void addSet(
+      DocumentReference<Map<String, dynamic>> ref,
+      Map<String, Object?> data,
+    ) {
+      docsToSet.add(_BatchSetOperation(ref, data));
+    }
+
+    for (final id in memberIds) {
+      addDelete(_members.doc(id));
+      addDelete(_reviews.doc(id));
+      addDelete(_admins.doc(id));
+    }
+
+    for (final id in memberIds) {
+      deleteQueries.addAll([
+        _collectDeletes(docsToDelete, _admins.where('memberId', isEqualTo: id)),
+        _collectDeletes(
+          docsToDelete,
+          _admins.where('lineUserId', isEqualTo: id),
+        ),
+        _collectDeletes(
+            docsToDelete, _reviews.where('memberId', isEqualTo: id)),
+        _collectDeletes(
+          docsToDelete,
+          _reviews.where('lineUserId', isEqualTo: id),
+        ),
+        _collectDeletes(
+          docsToDelete,
+          _activityRegistrations.where('memberId', isEqualTo: id),
+        ),
+        _collectDeletes(
+          docsToDelete,
+          _activityCompletions.where('memberId', isEqualTo: id),
+        ),
+        _collectDeletes(
+          docsToDelete,
+          _memberNotifications.where('memberId', isEqualTo: id),
+        ),
+        _collectDeletes(
+          docsToDelete,
+          _memberRewardClaims.where('memberId', isEqualTo: id),
+        ),
+        _collectDeletes(
+          docsToDelete,
+          _referrals.where('memberId', isEqualTo: id),
+        ),
+        _collectDeletes(
+          docsToDelete,
+          _referrals.where('inviteeMemberId', isEqualTo: id),
+        ),
+        _collectDeletes(
+          docsToDelete,
+          _referrals.where('inviterMemberId', isEqualTo: id),
+        ),
+        _collectDeletes(
+          docsToDelete,
+          _referrals.where('referrerMemberId', isEqualTo: id),
+        ),
+        _collectDeletes(
+          docsToDelete,
+          _memberEmployeeAttributions.where('memberId', isEqualTo: id),
+        ),
+        _collectDeletes(
+          docsToDelete,
+          _employeeQrVisits.where('memberId', isEqualTo: id),
+        ),
+        _collectDeletes(
+          docsToDelete,
+          _employeeActivityLinks.where('employeeMemberId', isEqualTo: id),
+        ),
+        _collectDeletes(
+          docsToDelete,
+          _employeeQrVisits.where('employeeMemberId', isEqualTo: id),
+        ),
+        _collectDeletes(
+          docsToDelete,
+          _memberEmployeeAttributions.where('employeeMemberId', isEqualTo: id),
+        ),
+        _collectDeletes(
+          docsToDelete,
+          _newsHelpfulVotes.where('memberId', isEqualTo: id),
+        ),
+      ]);
+    }
+
+    if (shareCode.isNotEmpty) {
+      deleteQueries.addAll([
+        _collectDeletes(
+          docsToDelete,
+          _referrals.where('referralCode', isEqualTo: shareCode),
+        ),
+        _collectDeletes(
+          docsToDelete,
+          _referrals.where('referrerShareCode', isEqualTo: shareCode),
+        ),
+        _collectDeletes(
+          docsToDelete,
+          _referrals.where('inviterShareCode', isEqualTo: shareCode),
+        ),
+      ]);
+    }
+
+    await Future.wait(deleteQueries).timeout(const Duration(seconds: 12));
+
+    final memberRewardDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    for (final id in memberIds) {
+      memberRewardDocs.addAll(
+        (await _memberRewards.where('memberId', isEqualTo: id).get()).docs,
+      );
+      memberRewardDocs.addAll(
+        (await _memberRewards.where('sourceMemberId', isEqualTo: id).get())
+            .docs,
+      );
+    }
+    final seenRewardDocIds = <String>{};
+    for (final doc in memberRewardDocs) {
+      if (!seenRewardDocIds.add(doc.id)) continue;
+      addDelete(doc.reference);
+      final data = doc.data();
+      final rewardId = data['rewardId']?.toString();
+      final status = data['status']?.toString();
+      final voucherId = data['voucherId']?.toString();
+      if (rewardId == null || rewardId.isEmpty) {
+        continue;
+      }
+      if (status == 'issued' || status == 'pending') {
+        addSet(_rewards.doc(rewardId), {
+          'stock': FieldValue.increment(1),
+          'issued': FieldValue.increment(-1),
+          'updatedAt': FieldValue.serverTimestamp(),
+          if (voucherId != null && voucherId.isNotEmpty)
+            'voucherAvailable': FieldValue.increment(1),
+        });
+        if (voucherId != null && voucherId.isNotEmpty) {
+          addSet(_rewardVouchers.doc(voucherId), {
+            'status': 'available',
+            'memberId': FieldValue.delete(),
+            'memberName': FieldValue.delete(),
+            'memberLineUserId': FieldValue.delete(),
+            'issuedAt': FieldValue.delete(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        }
+      } else if (status == 'redeemed') {
+        addSet(_rewards.doc(rewardId), {
+          'issued': FieldValue.increment(-1),
+          'redeemed': FieldValue.increment(-1),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+    }
+
+    for (final id in memberIds) {
+      final vouchers =
+          await _rewardVouchers.where('memberId', isEqualTo: id).get();
+      for (final doc in vouchers.docs) {
+        final data = doc.data();
+        if (data['status']?.toString() == 'issued') {
+          addSet(doc.reference, {
+            'status': 'available',
+            'memberId': FieldValue.delete(),
+            'memberName': FieldValue.delete(),
+            'memberLineUserId': FieldValue.delete(),
+            'issuedAt': FieldValue.delete(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        }
+      }
+    }
+
+    final employeeAttributions =
+        <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    for (final id in memberIds) {
+      employeeAttributions.addAll(
+        (await _memberEmployeeAttributions
+                .where('memberId', isEqualTo: id)
+                .get())
+            .docs,
+      );
+    }
+    final seenAttributionIds = <String>{};
+    for (final doc in employeeAttributions) {
+      if (!seenAttributionIds.add(doc.id)) continue;
+      final data = doc.data();
+      final linkId =
+          data['employeeLinkId']?.toString() ?? data['linkId']?.toString();
+      if (linkId == null || linkId.isEmpty) continue;
+      addSet(_employeeActivityLinks.doc(linkId), {
+        'registeredCount': FieldValue.increment(-1),
+        if (data['phoneVerifiedAt'] != null)
+          'phoneVerifiedCount': FieldValue.increment(-1),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+
+    final employeeVisits = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    for (final id in memberIds) {
+      employeeVisits.addAll(
+        (await _employeeQrVisits.where('memberId', isEqualTo: id).get()).docs,
+      );
+    }
+    final seenVisitIds = <String>{};
+    for (final doc in employeeVisits) {
+      if (!seenVisitIds.add(doc.id)) continue;
+      final data = doc.data();
+      final linkId = data['linkId']?.toString() ?? data['code']?.toString();
+      if (linkId == null || linkId.isEmpty) continue;
+      addSet(_employeeActivityLinks.doc(linkId), {
+        'visitCount': FieldValue.increment(-1),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+
+    final helpfulVotes = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    for (final id in memberIds) {
+      helpfulVotes.addAll(
+        (await _newsHelpfulVotes.where('memberId', isEqualTo: id).get()).docs,
+      );
+    }
+    final seenVoteIds = <String>{};
+    for (final doc in helpfulVotes) {
+      if (!seenVoteIds.add(doc.id)) continue;
+      final newsId = doc.data()['newsId']?.toString();
+      if (newsId == null || newsId.isEmpty) continue;
+      addSet(_news.doc(newsId), {
+        'helpfulCount': FieldValue.increment(-1),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+
+    if (member.referredByMemberId != null &&
+        member.referredByMemberId!.isNotEmpty) {
+      addSet(_members.doc(member.referredByMemberId!), {
+        'invitedCount': FieldValue.increment(-1),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+
+    for (final id in memberIds) {
+      final referredMembers =
+          await _members.where('referredByMemberId', isEqualTo: id).get();
+      for (final doc in referredMembers.docs) {
+        if (memberIds.contains(doc.id)) continue;
+        linkedMemberUpdates[doc.id] = {
+          'referredByMemberId': FieldValue.delete(),
+          'referredByShareCode': FieldValue.delete(),
+          'referredAt': FieldValue.delete(),
+          'referralRewardGrantedActivityId': FieldValue.delete(),
+          'referralRewardGrantedRewardId': FieldValue.delete(),
+          'referralRewardGrantedReferrerId': FieldValue.delete(),
+          'referralRewardGrantedAt': FieldValue.delete(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        };
+      }
+    }
+    if (shareCode.isNotEmpty) {
+      final referredMembers = await _members
+          .where('referredByShareCode', isEqualTo: shareCode)
+          .get();
+      for (final doc in referredMembers.docs) {
+        if (memberIds.contains(doc.id)) continue;
+        linkedMemberUpdates[doc.id] = {
+          'referredByMemberId': FieldValue.delete(),
+          'referredByShareCode': FieldValue.delete(),
+          'referredAt': FieldValue.delete(),
+          'referralRewardGrantedActivityId': FieldValue.delete(),
+          'referralRewardGrantedRewardId': FieldValue.delete(),
+          'referralRewardGrantedReferrerId': FieldValue.delete(),
+          'referralRewardGrantedAt': FieldValue.delete(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        };
+      }
+    }
+
+    for (final entry in linkedMemberUpdates.entries) {
+      addSet(_members.doc(entry.key), entry.value);
+    }
+
+    await _commitBatchedWrites(
+      deletes: docsToDelete,
+      sets: docsToSet,
+    );
   }
 
   @override
@@ -835,6 +1150,42 @@ class FirestoreVeevaRepository implements VeevaRepository {
   }
 }
 
+class _BatchSetOperation {
+  const _BatchSetOperation(this.ref, this.data);
+
+  final DocumentReference<Map<String, dynamic>> ref;
+  final Map<String, Object?> data;
+}
+
+Future<void> _collectDeletes(
+  Set<DocumentReference<Map<String, dynamic>>> refs,
+  Query<Map<String, dynamic>> query,
+) async {
+  final snapshot = await query.limit(500).get();
+  for (final doc in snapshot.docs) {
+    refs.add(doc.reference);
+  }
+}
+
+Future<void> _commitBatchedWrites({
+  required Iterable<DocumentReference<Map<String, dynamic>>> deletes,
+  required Iterable<_BatchSetOperation> sets,
+}) async {
+  final operations = <void Function(WriteBatch)>[
+    for (final item in sets)
+      (batch) => batch.set(item.ref, item.data, SetOptions(merge: true)),
+    for (final ref in deletes) (batch) => batch.delete(ref),
+  ];
+
+  for (var index = 0; index < operations.length; index += 450) {
+    final batch = FirebaseFirestore.instance.batch();
+    for (final operation in operations.skip(index).take(450)) {
+      operation(batch);
+    }
+    await batch.commit();
+  }
+}
+
 class DemoVeevaRepository implements VeevaRepository {
   @override
   Future<VeevaBootstrap> loadBootstrap() async {
@@ -895,6 +1246,7 @@ class DemoVeevaRepository implements VeevaRepository {
       lineUserId: lineUserId,
       avatarUrl: avatarUrl,
       email: email,
+      phoneNumber: null,
       lineStatusMessage: statusMessage,
       lineIdToken: lineIdToken,
       lineIdTokenUpdatedAt: lineIdToken == null ? null : DateTime.now(),
@@ -944,6 +1296,9 @@ class DemoVeevaRepository implements VeevaRepository {
     required VeevaMember member,
     VeevaAdminUser? adminUser,
   }) async {}
+
+  @override
+  Future<void> deleteMember(VeevaMember member) async {}
 
   @override
   Future<void> saveEmployeeStatus({
