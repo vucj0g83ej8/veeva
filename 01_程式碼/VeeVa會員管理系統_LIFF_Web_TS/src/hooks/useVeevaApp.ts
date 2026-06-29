@@ -9,8 +9,11 @@ import type {
   VeevaReferralRecord,
 } from '../types/veeva'
 import {
+  captureReferralCodeFromLocation,
   referralCodeFromLocation,
   referralCodeFromUrl,
+  readPendingReferralCode,
+  rememberPendingReferralCode,
   shareCodeFromId,
 } from '../utils/shareCode'
 
@@ -51,7 +54,7 @@ export function useVeevaApp() {
     memberRewards: [],
     notifications: [],
     referrals: [],
-    referralCode: referralCodeFromLocation(),
+    referralCode: captureReferralCodeFromLocation(),
   })
 
   const refreshMemberDetails = useCallback(async (member: VeevaMember) => {
@@ -123,8 +126,13 @@ export function useVeevaApp() {
       const bootstrap = await bootstrapPromise
       const pendingLoginUrl = liffApi.getPendingLoginRedirectUrl()
       const referralCode =
+        referralCodeFromLocation() ??
         state.referralCode ??
-        (pendingLoginUrl ? referralCodeFromUrl(pendingLoginUrl) : undefined)
+        (pendingLoginUrl ? referralCodeFromUrl(pendingLoginUrl) : undefined) ??
+        readPendingReferralCode()
+      if (referralCode) {
+        rememberPendingReferralCode(referralCode)
+      }
 
       const member = memberFromLiffSession(liffSession)
       const restoreUrl = member
@@ -235,7 +243,8 @@ export function useVeevaApp() {
       const member = await repository.upsertLineMember({
         profile: liffSession.profile,
         lineIdToken: liffSession.idToken,
-        referralCode: state.referralCode,
+        referralCode:
+          referralCodeFromLocation() ?? state.referralCode ?? readPendingReferralCode(),
       })
       setState((current) => ({
         ...current,
@@ -357,6 +366,10 @@ export function useVeevaApp() {
           memberId: state.member.id,
           phoneNumber: input.phoneNumber,
           firebasePhoneUid: input.firebasePhoneUid,
+          referralCode:
+            referralCodeFromLocation() ??
+            state.referralCode ??
+            readPendingReferralCode(),
         })
         setState((current) => ({
           ...current,

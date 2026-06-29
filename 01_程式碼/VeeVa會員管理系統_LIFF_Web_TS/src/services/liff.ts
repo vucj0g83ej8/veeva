@@ -191,7 +191,10 @@ export async function shareInviteCard(memberName: string, shareCode: string) {
   ])
 }
 
-export async function shareActivityCard(activity: VeevaActivity) {
+export async function shareActivityCard(
+  activity: VeevaActivity,
+  memberShareCode?: string,
+) {
   const session = await initializeLiff()
   if (!session.inClient) {
     throw new Error(lineCardShareUnsupportedError)
@@ -204,8 +207,15 @@ export async function shareActivityCard(activity: VeevaActivity) {
   }
 
   const actionLabel = activityShareButtonLabel(activity)
+  const activitySearch = new URLSearchParams({
+    shareTemplate: 'activity-card-v3',
+  })
+  const cleanShareCode = memberShareCode?.trim()
+  if (cleanShareCode) {
+    activitySearch.set('ref', cleanShareCode)
+  }
   const activityUrl = liffUrlForPath(
-    `/activities/${encodeURIComponent(activity.id)}?shareTemplate=activity-card-v3`,
+    `/activities/${encodeURIComponent(activity.id)}?${activitySearch.toString()}`,
   )
   const imageUrl = activityShareImageUrl(activity)
   const result = await liff.shareTargetPicker([

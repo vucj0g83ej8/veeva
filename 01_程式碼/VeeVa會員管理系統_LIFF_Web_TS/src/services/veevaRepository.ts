@@ -124,6 +124,10 @@ export async function upsertLineMember(input: {
     payload.lineIdToken = token;
     payload.lineIdTokenUpdatedAt = serverTimestamp();
   }
+  if (input.referralCode) {
+    payload.lastReferralCodeSeen = input.referralCode.toUpperCase();
+    payload.lastReferralCodeSeenAt = serverTimestamp();
+  }
 
   await setDoc(memberRef, payload, { merge: true });
   const updatedMember =
@@ -186,6 +190,7 @@ export async function updateMemberPhoneVerification(input: {
   memberId: string;
   phoneNumber: string;
   firebasePhoneUid: string;
+  referralCode?: string;
 }) {
   await setDoc(
     doc(firestore, "members", input.memberId),
@@ -194,6 +199,12 @@ export async function updateMemberPhoneVerification(input: {
       phoneVerified: true,
       phoneVerifiedAt: serverTimestamp(),
       firebasePhoneUid: input.firebasePhoneUid,
+      ...(input.referralCode
+        ? {
+            lastReferralCodeSeen: input.referralCode.toUpperCase(),
+            lastReferralCodeSeenAt: serverTimestamp(),
+          }
+        : {}),
       updatedAt: serverTimestamp(),
     },
     { merge: true },
@@ -202,6 +213,9 @@ export async function updateMemberPhoneVerification(input: {
   const updatedMember = await loadMember(input.memberId);
   if (!updatedMember) {
     throw new Error("手機驗證資料更新失敗");
+  }
+  if (input.referralCode) {
+    await createReferralIfNeeded(updatedMember, input.referralCode);
   }
   await bindPendingEmployeeQrAttribution(
     updatedMember,

@@ -144,6 +144,7 @@ class FirestoreVeevaRepository implements VeevaRepository {
       _activityCompletions.limit(300).get(),
       _memberRewards.limit(500).get(),
       _employeeActivityLinks.limit(500).get(),
+      _memberEmployeeAttributions.limit(800).get(),
     ]);
     final clientSettingsDoc = await clientSettingsFuture;
 
@@ -195,6 +196,11 @@ class FirestoreVeevaRepository implements VeevaRepository {
       employeeLinks: results[9]
           .docs
           .map((doc) => VeevaEmployeeActivityLink.fromMap(doc.id, doc.data()))
+          .toList(),
+      employeeAttributions: results[10]
+          .docs
+          .map((doc) =>
+              VeevaMemberEmployeeAttribution.fromMap(doc.id, doc.data()))
           .toList(),
       clientSettings:
           VeevaClientSettings.fromMap(clientSettingsDoc.data() ?? const {}),
@@ -1051,10 +1057,17 @@ class FirestoreVeevaRepository implements VeevaRepository {
               ),
               'rewardId': reward.id,
               'rewardName': reward.name,
+              'rewardImageUrl': reward.imageUrl,
               'memberRewardId': grantRef.id,
               'activityId': activity?.id,
               'activityTitle': activity?.title,
-              'actionPath': '/coupons',
+              'actionPath': '/coupons?reward=${grantRef.id}',
+              'linePushStatus':
+                  member.lineUserId == null || member.lineUserId!.trim().isEmpty
+                      ? 'skipped'
+                      : 'pending',
+              'linePushError': null,
+              'linePushedAt': null,
               'readAt': null,
               'createdAt': FieldValue.serverTimestamp(),
               'updatedAt': FieldValue.serverTimestamp(),
@@ -1202,6 +1215,7 @@ class DemoVeevaRepository implements VeevaRepository {
       activityRecords: [],
       memberRewards: [],
       employeeLinks: [],
+      employeeAttributions: [],
       clientSettings: VeevaClientSettings(),
     );
   }

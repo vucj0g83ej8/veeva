@@ -185,9 +185,16 @@ function ActivityDetailContent({
     ).toString();
 
     try {
+      if (!app.member) {
+        await app.login();
+        return;
+      }
       setMessage("正在開啟 LINE 分享視窗...");
       const liffShare = await import("../services/liff");
-      const shared = await liffShare.shareActivityCard(activity);
+      const shared = await liffShare.shareActivityCard(
+        activity,
+        app.member.shareCode,
+      );
       if (!shared) {
         setMessage("已取消分享。");
         return;

@@ -356,6 +356,70 @@ String _memberPhoneLabel(backend.VeevaMember member) {
   return phone == null || phone.isEmpty ? '-' : phone;
 }
 
+backend.VeevaMember? _referrerFor(
+  backend.VeevaMember member,
+  List<backend.VeevaMember> members,
+) {
+  final referrerId = member.referredByMemberId?.trim();
+  if (referrerId == null || referrerId.isEmpty) return null;
+  for (final candidate in members) {
+    if (candidate.id == referrerId ||
+        candidate.lineUserId == referrerId ||
+        candidate.shareCode == member.referredByShareCode) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+String _referrerFallbackLabel(backend.VeevaMember member) {
+  final referrerId = member.referredByMemberId?.trim();
+  if (referrerId == null || referrerId.isEmpty) return '-';
+  final shareCode = member.referredByShareCode?.trim();
+  if (shareCode != null && shareCode.isNotEmpty) {
+    return shareCode;
+  }
+  return referrerId;
+}
+
+String _referrerNameFor(
+  backend.VeevaMember member,
+  List<backend.VeevaMember> members,
+) {
+  return _referrerFor(member, members)?.name ?? _referrerFallbackLabel(member);
+}
+
+bool _memberWasReferredBy(
+  backend.VeevaMember member,
+  backend.VeevaMember referrer,
+) {
+  final referrerId = member.referredByMemberId?.trim();
+  final referrerShareCode = member.referredByShareCode?.trim();
+  return referrerId == referrer.id ||
+      referrerId == referrer.lineUserId ||
+      referrerShareCode == referrer.shareCode;
+}
+
+List<backend.VeevaMember> _referralsForMember(
+  backend.VeevaMember referrer,
+  List<backend.VeevaMember> members,
+) {
+  final referrals = [
+    for (final member in members)
+      if (member.id != referrer.id && _memberWasReferredBy(member, referrer))
+        member,
+  ];
+  referrals.sort((a, b) {
+    final aTime = a.referredAt ?? a.createdAt ?? a.lastLineLoginAt;
+    final bTime = b.referredAt ?? b.createdAt ?? b.lastLineLoginAt;
+    if (aTime != null && bTime != null) return bTime.compareTo(aTime);
+    if (aTime != null) return -1;
+    if (bTime != null) return 1;
+    return a.name.compareTo(b.name);
+  });
+  return referrals;
+}
+
 DateTime? _memberFirstLoginAt(backend.VeevaMember member) {
   return member.createdAt ?? member.lastLineLoginAt;
 }
@@ -973,18 +1037,32 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
   final activityRecords = <backend.VeevaActivityRecord>[];
   final memberRewards = <backend.VeevaMemberReward>[];
   final employeeLinks = <backend.VeevaEmployeeActivityLink>[];
+  final employeeAttributions = <backend.VeevaMemberEmployeeAttribution>[];
+  Timer? _backendRefreshTimer;
 
   @override
   void initState() {
     super.initState();
     _loadBackend();
+    _backendRefreshTimer = Timer.periodic(
+      const Duration(seconds: 20),
+      (_) => unawaited(_loadBackend(showLoading: false)),
+    );
   }
 
-  Future<void> _loadBackend() async {
-    setState(() {
-      isLoading = true;
-      backendError = null;
-    });
+  @override
+  void dispose() {
+    _backendRefreshTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadBackend({bool showLoading = true}) async {
+    if (showLoading) {
+      setState(() {
+        isLoading = true;
+        backendError = null;
+      });
+    }
     try {
       final bootstrap = await repository.loadBootstrap();
       if (!mounted) return;
@@ -1032,14 +1110,29 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
             ..clear()
             ..addAll(bootstrap.employeeLinks);
         }
+        if (shouldUseBackendUserData ||
+            bootstrap.employeeAttributions.isNotEmpty) {
+          employeeAttributions
+            ..clear()
+            ..addAll(bootstrap.employeeAttributions);
+        }
         isLoading = false;
       });
     } catch (error) {
       if (!mounted) return;
       setState(() {
         backendError = 'Firebase 尚未可用，暫時顯示示範資料。';
-        isLoading = false;
+        if (showLoading) {
+          isLoading = false;
+        }
       });
+    }
+  }
+
+  void _selectTab(AdminTab value) {
+    setState(() => tab = value);
+    if (value == AdminTab.members) {
+      unawaited(_loadBackend(showLoading: false));
     }
   }
 
@@ -1087,7 +1180,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
           child: _AdminSidebar(
             selected: tab,
             onSelected: (value) {
-              setState(() => tab = value);
+              _selectTab(value);
               Navigator.of(context).pop();
             },
           ),
@@ -1101,7 +1194,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
         children: [
           _AdminSidebar(
             selected: tab,
-            onSelected: (value) => setState(() => tab = value),
+            onSelected: _selectTab,
           ),
           Expanded(child: content),
         ],
@@ -1193,7 +1286,9 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       AdminTab.employees => _EmployeeManagement(
           members: members,
           activities: activities,
+          activityRecords: activityRecords,
           employeeLinks: employeeLinks,
+          employeeAttributions: employeeAttributions,
           onSaveEmployeeStatus: _saveEmployeeStatus,
           onCreateEmployeeActivityLink: _createEmployeeActivityLink,
         ),
@@ -6067,6 +6162,7 @@ class _MetricCard extends StatelessWidget {
 class _MemberReviewChecklistListBody extends StatelessWidget {
   const _MemberReviewChecklistListBody({
     required this.rows,
+    required this.allMembers,
     required this.compact,
     required this.showApproveAction,
     required this.emptyMessage,
@@ -6074,6 +6170,7 @@ class _MemberReviewChecklistListBody extends StatelessWidget {
   });
 
   final List<_MemberReviewChecklistItem> rows;
+  final List<backend.VeevaMember> allMembers;
   final bool compact;
   final bool showApproveAction;
   final String emptyMessage;
@@ -6091,6 +6188,7 @@ class _MemberReviewChecklistListBody extends StatelessWidget {
           for (final item in rows)
             _MobileMemberReviewChecklistCard(
               item: item,
+              allMembers: allMembers,
               showApproveAction: showApproveAction,
               onApprove: onApprove,
             ),
@@ -6103,6 +6201,7 @@ class _MemberReviewChecklistListBody extends StatelessWidget {
         headingRowColor: WidgetStateProperty.all(const Color(0xFFFFFAF3)),
         columns: const [
           DataColumn(label: Text('會員')),
+          DataColumn(label: Text('推薦人')),
           DataColumn(label: Text('電話')),
           DataColumn(label: Text('電話驗證')),
           DataColumn(label: Text('問卷調查')),
@@ -6114,6 +6213,12 @@ class _MemberReviewChecklistListBody extends StatelessWidget {
             DataRow(
               cells: [
                 DataCell(_MemberReviewIdentity(member: item.member)),
+                DataCell(
+                  _MemberReferrerCell(
+                    member: item.member,
+                    allMembers: allMembers,
+                  ),
+                ),
                 DataCell(Text(item.member.phoneNumber ?? '-')),
                 const DataCell(
                     _ChecklistStatusCell(done: true, label: '電話驗證已完成')),
@@ -6148,11 +6253,13 @@ class _MemberReviewChecklistListBody extends StatelessWidget {
 class _MobileMemberReviewChecklistCard extends StatelessWidget {
   const _MobileMemberReviewChecklistCard({
     required this.item,
+    required this.allMembers,
     required this.showApproveAction,
     required this.onApprove,
   });
 
   final _MemberReviewChecklistItem item;
+  final List<backend.VeevaMember> allMembers;
   final bool showApproveAction;
   final ValueChanged<_MemberReviewChecklistItem> onApprove;
 
@@ -6171,6 +6278,15 @@ class _MobileMemberReviewChecklistCard extends StatelessWidget {
         children: [
           _MemberReviewIdentity(member: item.member),
           const SizedBox(height: 10),
+          _MemberWidgetLine(
+            label: '推薦人',
+            child: _MemberReferrerCell(
+              member: item.member,
+              allMembers: allMembers,
+              compact: true,
+            ),
+          ),
+          const SizedBox(height: 6),
           Text(
             item.member.phoneNumber ?? '未記錄電話',
             style: const TextStyle(color: Color(0xFF6F6357)),
@@ -6424,7 +6540,11 @@ class _MemberManagementState extends State<_MemberManagement> {
         return a.name.compareTo(b.name);
       });
     final filteredLoggedInMembers = loggedInMembers
-        .where((member) => _memberMatchesSearch(member, normalizedQuery))
+        .where((member) => _memberMatchesSearch(
+              member,
+              normalizedQuery,
+              referrerName: _referrerNameFor(member, widget.members),
+            ))
         .toList();
     final reviewChecklistRows =
         _buildMemberReviewChecklistRows(loggedInMembers);
@@ -6439,6 +6559,7 @@ class _MemberManagementState extends State<_MemberManagement> {
         .where((item) => _memberReviewChecklistMatchesSearch(
               item,
               normalizedQuery,
+              referrerName: _referrerNameFor(item.member, widget.members),
             ))
         .toList();
     final title = switch (selectedTab) {
@@ -6554,6 +6675,7 @@ class _MemberManagementState extends State<_MemberManagement> {
                 if (selectedTab == MemberManagementTab.loggedIn)
                   _LoggedInMemberListBody(
                     members: pagedLoggedInMembers,
+                    allMembers: widget.members,
                     adminUsers: widget.adminUsers,
                     compact: isCompact,
                     emptyMessage: normalizedQuery.isEmpty
@@ -6566,6 +6688,7 @@ class _MemberManagementState extends State<_MemberManagement> {
                 else
                   _MemberReviewChecklistListBody(
                     rows: pagedReviewRows,
+                    allMembers: widget.members,
                     compact: isCompact,
                     showApproveAction:
                         selectedTab == MemberManagementTab.pendingReview,
@@ -7231,6 +7354,7 @@ class _MemberManagementState extends State<_MemberManagement> {
 class _LoggedInMemberListBody extends StatelessWidget {
   const _LoggedInMemberListBody({
     required this.members,
+    required this.allMembers,
     required this.adminUsers,
     required this.compact,
     required this.emptyMessage,
@@ -7240,6 +7364,7 @@ class _LoggedInMemberListBody extends StatelessWidget {
   });
 
   final List<backend.VeevaMember> members;
+  final List<backend.VeevaMember> allMembers;
   final List<backend.VeevaAdminUser> adminUsers;
   final bool compact;
   final String emptyMessage;
@@ -7259,6 +7384,7 @@ class _LoggedInMemberListBody extends StatelessWidget {
           for (final member in members)
             _LoggedInMemberCard(
               member: member,
+              allMembers: allMembers,
               adminUser: _adminFor(member),
               onEditSettings: () => onEditSettings(member),
               onGrantReward: () => onGrantReward(member),
@@ -7274,11 +7400,15 @@ class _LoggedInMemberListBody extends StatelessWidget {
             constraints.maxWidth.isFinite ? constraints.maxWidth : 920.0;
         final tableWidth = availableWidth < 780 ? 780.0 : availableWidth;
         final contentWidth = tableWidth - 32 - 60;
-        final nameWidth = contentWidth * .32;
-        final phoneWidth = contentWidth * .18;
-        final lastLoginWidth = contentWidth * .22;
-        final settingWidth =
-            contentWidth - nameWidth - phoneWidth - lastLoginWidth;
+        final nameWidth = contentWidth * .26;
+        final referrerWidth = contentWidth * .16;
+        final phoneWidth = contentWidth * .17;
+        final lastLoginWidth = contentWidth * .21;
+        final settingWidth = contentWidth -
+            nameWidth -
+            referrerWidth -
+            phoneWidth -
+            lastLoginWidth;
 
         return SingleChildScrollView(
           scrollDirection: Axis.horizontal,
@@ -7292,6 +7422,8 @@ class _LoggedInMemberListBody extends StatelessWidget {
               dataRowMaxHeight: 88,
               columns: [
                 DataColumn(label: _TableHeaderLabel('會員名稱', width: nameWidth)),
+                DataColumn(
+                    label: _TableHeaderLabel('推薦人', width: referrerWidth)),
                 DataColumn(label: _TableHeaderLabel('電話', width: phoneWidth)),
                 DataColumn(
                   label: _TableHeaderLabel('最後一次登入時間', width: lastLoginWidth),
@@ -7309,6 +7441,15 @@ class _LoggedInMemberListBody extends StatelessWidget {
                           width: nameWidth,
                           child: _MemberNameOnly(
                             member: member,
+                          ),
+                        ),
+                      ),
+                      DataCell(
+                        SizedBox(
+                          width: referrerWidth,
+                          child: _MemberReferrerCell(
+                            member: member,
+                            allMembers: allMembers,
                           ),
                         ),
                       ),
@@ -7362,6 +7503,7 @@ class _LoggedInMemberListBody extends StatelessWidget {
 class _LoggedInMemberCard extends StatelessWidget {
   const _LoggedInMemberCard({
     required this.member,
+    required this.allMembers,
     required this.adminUser,
     required this.onEditSettings,
     required this.onGrantReward,
@@ -7369,6 +7511,7 @@ class _LoggedInMemberCard extends StatelessWidget {
   });
 
   final backend.VeevaMember member;
+  final List<backend.VeevaMember> allMembers;
   final backend.VeevaAdminUser? adminUser;
   final VoidCallback onEditSettings;
   final VoidCallback onGrantReward;
@@ -7389,6 +7532,15 @@ class _LoggedInMemberCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _MemberNameOnly(member: member),
+          const SizedBox(height: 12),
+          _MemberWidgetLine(
+            label: '推薦人',
+            child: _MemberReferrerCell(
+              member: member,
+              allMembers: allMembers,
+              compact: true,
+            ),
+          ),
           const SizedBox(height: 12),
           _MemberTimeLine(
             label: '電話',
@@ -7432,6 +7584,32 @@ class _TableHeaderLabel extends StatelessWidget {
   }
 }
 
+class _MemberWidgetLine extends StatelessWidget {
+  const _MemberWidgetLine({
+    required this.label,
+    required this.child,
+  });
+
+  final String label;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 92,
+          child: Text(
+            label,
+            style: const TextStyle(color: Color(0xFF8A8D8F)),
+          ),
+        ),
+        Expanded(child: child),
+      ],
+    );
+  }
+}
+
 class _MemberTimeLine extends StatelessWidget {
   const _MemberTimeLine({
     required this.label,
@@ -7458,6 +7636,215 @@ class _MemberTimeLine extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MemberReferrerCell extends StatelessWidget {
+  const _MemberReferrerCell({
+    required this.member,
+    required this.allMembers,
+    this.compact = false,
+  });
+
+  final backend.VeevaMember member;
+  final List<backend.VeevaMember> allMembers;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final referrer = _referrerFor(member, allMembers);
+    if (referrer == null) {
+      return Text(
+        _referrerFallbackLabel(member),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontWeight: FontWeight.w700),
+      );
+    }
+
+    final avatarUrl = referrer.avatarUrl?.trim();
+    final avatarSize = compact ? 14.0 : 16.0;
+    final fallbackInitial =
+        referrer.name.trim().isEmpty ? '推' : referrer.name.characters.first;
+
+    return Tooltip(
+      message: '查看推薦清單',
+      child: InkWell(
+        onTap: () => _openMemberReferralListDialog(
+          context,
+          referrer: referrer,
+          allMembers: allMembers,
+        ),
+        borderRadius: BorderRadius.circular(999),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+          child: Row(
+            mainAxisSize: MainAxisSize.max,
+            children: [
+              CircleAvatar(
+                radius: avatarSize,
+                backgroundColor: const Color(0xFFFFEED6),
+                backgroundImage: avatarUrl == null || avatarUrl.isEmpty
+                    ? null
+                    : NetworkImage(avatarUrl),
+                child: avatarUrl == null || avatarUrl.isEmpty
+                    ? Text(
+                        fallbackInitial,
+                        style: TextStyle(
+                          color: const Color(0xFFC66D00),
+                          fontSize: compact ? 11 : 12,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      )
+                    : null,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  referrer.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+void _openMemberReferralListDialog(
+  BuildContext context, {
+  required backend.VeevaMember referrer,
+  required List<backend.VeevaMember> allMembers,
+}) {
+  final referrals = _referralsForMember(referrer, allMembers);
+  showDialog<void>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: Text('${referrer.name} 的推薦清單'),
+        content: SizedBox(
+          width: 760,
+          child: referrals.isEmpty
+              ? const _EmptyListMessage(message: '目前沒有推薦會員紀錄。')
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '共 ${referrals.length} 位會員',
+                      style: const TextStyle(
+                        color: Color(0xFF6F6357),
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 420),
+                      child: SingleChildScrollView(
+                        child: _MemberReferralList(referrals: referrals),
+                      ),
+                    ),
+                  ],
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('關閉'),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+class _MemberReferralList extends StatelessWidget {
+  const _MemberReferralList({
+    required this.referrals,
+  });
+
+  final List<backend.VeevaMember> referrals;
+
+  @override
+  Widget build(BuildContext context) {
+    return _FullWidthDataTable(
+      minWidth: 720,
+      child: DataTable(
+        headingRowColor: WidgetStateProperty.all(const Color(0xFFF1F4F3)),
+        columns: const [
+          DataColumn(label: Text('會員')),
+          DataColumn(label: Text('電話')),
+          DataColumn(label: Text('電話驗證')),
+          DataColumn(label: Text('推薦時間')),
+        ],
+        rows: [
+          for (final referral in referrals)
+            DataRow(
+              cells: [
+                DataCell(_ReferralMemberCell(member: referral)),
+                DataCell(Text(_memberPhoneLabel(referral))),
+                DataCell(_SmallDoneIcon(
+                  done: referral.phoneVerified ||
+                      referral.phoneVerifiedAt != null,
+                )),
+                DataCell(Text(_memberDateTimeLabel(
+                  referral.referredAt ??
+                      referral.createdAt ??
+                      referral.lastLineLoginAt,
+                ))),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReferralMemberCell extends StatelessWidget {
+  const _ReferralMemberCell({required this.member});
+
+  final backend.VeevaMember member;
+
+  @override
+  Widget build(BuildContext context) {
+    final avatarUrl = member.avatarUrl?.trim();
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        CircleAvatar(
+          radius: 18,
+          backgroundColor: const Color(0xFFFFEED6),
+          backgroundImage: avatarUrl == null || avatarUrl.isEmpty
+              ? null
+              : NetworkImage(avatarUrl),
+          child: avatarUrl == null || avatarUrl.isEmpty
+              ? Text(
+                  member.name.trim().isEmpty
+                      ? '會'
+                      : member.name.characters.first,
+                  style: const TextStyle(
+                    color: Color(0xFFC66D00),
+                    fontWeight: FontWeight.w900,
+                  ),
+                )
+              : null,
+        ),
+        const SizedBox(width: 10),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 220),
+          child: Text(
+            member.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w900),
           ),
         ),
       ],
@@ -7563,24 +7950,24 @@ class _MemberRowActions extends StatelessWidget {
       runSpacing: 8,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        OutlinedButton.icon(
+        IconButton.outlined(
           onPressed: onEditSettings,
+          tooltip: '編輯會員設定',
           icon: const Icon(Icons.edit_outlined),
-          label: const Text('編輯'),
         ),
-        FilledButton.tonalIcon(
+        IconButton.filledTonal(
           onPressed: onGrantReward,
+          tooltip: '發送兌換券',
           icon: const Icon(Icons.card_giftcard_outlined),
-          label: const Text('發券'),
         ),
-        OutlinedButton.icon(
-          style: OutlinedButton.styleFrom(
+        IconButton.outlined(
+          style: IconButton.styleFrom(
             foregroundColor: const Color(0xFFB42318),
             side: const BorderSide(color: Color(0xFFF3B4AE)),
           ),
           onPressed: onDeleteMember,
+          tooltip: '刪除會員',
           icon: const Icon(Icons.delete_outline),
-          label: const Text('刪除'),
         ),
       ],
     );
@@ -7768,14 +8155,18 @@ class _EmployeeManagement extends StatefulWidget {
   const _EmployeeManagement({
     required this.members,
     required this.activities,
+    required this.activityRecords,
     required this.employeeLinks,
+    required this.employeeAttributions,
     required this.onSaveEmployeeStatus,
     required this.onCreateEmployeeActivityLink,
   });
 
   final List<backend.VeevaMember> members;
   final List<backend.VeevaActivity> activities;
+  final List<backend.VeevaActivityRecord> activityRecords;
   final List<backend.VeevaEmployeeActivityLink> employeeLinks;
+  final List<backend.VeevaMemberEmployeeAttribution> employeeAttributions;
   final Future<void> Function({
     required backend.VeevaMember member,
     required bool enabled,
@@ -7822,6 +8213,10 @@ class _EmployeeManagementState extends State<_EmployeeManagement> {
       0,
       (total, link) => total + link.phoneVerifiedCount,
     );
+    final totalQuestionnaireCount = widget.employeeLinks.fold<int>(
+      0,
+      (total, link) => total + _questionnaireCountForLink(link),
+    );
     final metrics = [
       _MetricCard(
         label: '員工總數',
@@ -7839,9 +8234,9 @@ class _EmployeeManagementState extends State<_EmployeeManagement> {
         icon: Icons.qr_code_2_outlined,
       ),
       _MetricCard(
-        label: '電話驗證',
-        value: '$totalPhoneVerifiedCount',
-        icon: Icons.phone_android_outlined,
+        label: '問卷',
+        value: '$totalQuestionnaireCount',
+        icon: Icons.assignment_turned_in_outlined,
       ),
     ];
 
@@ -7917,6 +8312,8 @@ class _EmployeeManagementState extends State<_EmployeeManagement> {
                         _EmployeeCard(
                           employee: employee,
                           links: _linksForEmployee(employee),
+                          questionnaireCountForEmployee:
+                              _questionnaireCountForEmployee(employee),
                           onQrCode: () => _openQrCodeDialog(employee),
                           onPerformance: () => _openPerformanceDialog(employee),
                           onToggle: () => _toggleEmployee(employee),
@@ -7927,6 +8324,8 @@ class _EmployeeManagementState extends State<_EmployeeManagement> {
                   _EmployeeDataTable(
                     employees: employees,
                     linksForEmployee: _linksForEmployee,
+                    questionnaireCountForEmployee:
+                        _questionnaireCountForEmployee,
                     onQrCode: _openQrCodeDialog,
                     onPerformance: _openPerformanceDialog,
                     onToggle: _toggleEmployee,
@@ -7935,7 +8334,7 @@ class _EmployeeManagementState extends State<_EmployeeManagement> {
                     totalPhoneVerifiedCount > 0) ...[
                   const SizedBox(height: 12),
                   Text(
-                    '總註冊 $totalRegisteredCount 人，完成電話驗證 $totalPhoneVerifiedCount 人。',
+                    '總註冊 $totalRegisteredCount 人，完成電話驗證 $totalPhoneVerifiedCount 人，問卷 $totalQuestionnaireCount 份。',
                     style: const TextStyle(color: Color(0xFF8A8D8F)),
                   ),
                 ],
@@ -7954,6 +8353,90 @@ class _EmployeeManagementState extends State<_EmployeeManagement> {
         .where((link) => link.employeeMemberId == employee.id)
         .toList()
       ..sort((a, b) => a.activityTitle.compareTo(b.activityTitle));
+  }
+
+  List<backend.VeevaMemberEmployeeAttribution> _attributionsForEmployee(
+    backend.VeevaMember employee,
+  ) {
+    return widget.employeeAttributions
+        .where((item) => item.employeeMemberId == employee.id)
+        .toList()
+      ..sort((a, b) {
+        final aTime = a.registeredAt ?? a.createdAt;
+        final bTime = b.registeredAt ?? b.createdAt;
+        if (aTime != null && bTime != null) return bTime.compareTo(aTime);
+        if (aTime != null) return -1;
+        if (bTime != null) return 1;
+        return a.memberName.compareTo(b.memberName);
+      });
+  }
+
+  List<backend.VeevaMemberEmployeeAttribution> _attributionsForLink(
+    backend.VeevaEmployeeActivityLink link,
+  ) {
+    return widget.employeeAttributions
+        .where((item) =>
+            item.employeeLinkId == link.id ||
+            (item.employeeMemberId == link.employeeMemberId &&
+                item.activityId == link.activityId))
+        .toList();
+  }
+
+  int _questionnaireCountForEmployee(backend.VeevaMember employee) {
+    return _linksForEmployee(employee).fold<int>(
+        0, (total, link) => total + _questionnaireCountForLink(link));
+  }
+
+  int _questionnaireCountForLink(backend.VeevaEmployeeActivityLink link) {
+    return _attributionsForLink(link)
+        .where(_hasSubmittedQuestionnaireForAttribution)
+        .length;
+  }
+
+  bool _hasSubmittedQuestionnaireForAttribution(
+    backend.VeevaMemberEmployeeAttribution attribution,
+  ) {
+    return widget.activityRecords.any((record) {
+      if (record.activityId != attribution.activityId) return false;
+      final attributionLineUserId = attribution.memberLineUserId?.trim();
+      final recordLineUserId = record.memberLineUserId?.trim();
+      final sameMember = record.memberId == attribution.memberId ||
+          (attributionLineUserId != null &&
+              attributionLineUserId.isNotEmpty &&
+              recordLineUserId != null &&
+              recordLineUserId.isNotEmpty &&
+              recordLineUserId == attributionLineUserId);
+      if (!sameMember) return false;
+      return record.status == 'pendingReview' || record.status == 'completed';
+    });
+  }
+
+  backend.VeevaMember? _memberForAttribution(
+    backend.VeevaMemberEmployeeAttribution attribution,
+  ) {
+    final attributionLineUserId = attribution.memberLineUserId?.trim();
+    for (final member in widget.members) {
+      final memberLineUserId = member.lineUserId?.trim();
+      if (member.id == attribution.memberId ||
+          (attributionLineUserId != null &&
+              attributionLineUserId.isNotEmpty &&
+              memberLineUserId != null &&
+              memberLineUserId.isNotEmpty &&
+              memberLineUserId == attributionLineUserId)) {
+        return member;
+      }
+    }
+    return null;
+  }
+
+  bool _hasPhoneVerifiedForAttribution(
+    backend.VeevaMemberEmployeeAttribution attribution,
+  ) {
+    final member = _memberForAttribution(attribution);
+    if (member != null) {
+      return member.phoneVerified || member.phoneVerifiedAt != null;
+    }
+    return attribution.phoneVerifiedAt != null;
   }
 
   Future<void> _openAddEmployeeDialog() async {
@@ -8228,6 +8711,7 @@ class _EmployeeManagementState extends State<_EmployeeManagement> {
 
   Future<void> _openPerformanceDialog(backend.VeevaMember employee) async {
     final links = _linksForEmployee(employee);
+    final attributions = _attributionsForEmployee(employee);
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
@@ -8242,10 +8726,24 @@ class _EmployeeManagementState extends State<_EmployeeManagement> {
                 children: [
                   _EmployeeHeader(member: employee),
                   const SizedBox(height: 16),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: FilledButton.tonalIcon(
+                      onPressed: attributions.isEmpty
+                          ? null
+                          : () => _openReferralListDialog(employee),
+                      icon: const Icon(Icons.list_alt_outlined),
+                      label: const Text('推薦清單'),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                   if (links.isEmpty)
                     const _EmptyListMessage(message: '尚未建立任何活動 QR Code。')
                   else
-                    _EmployeePerformanceTable(links: links),
+                    _EmployeePerformanceTable(
+                      links: links,
+                      questionnaireCountForLink: _questionnaireCountForLink,
+                    ),
                 ],
               ),
             ),
@@ -8256,6 +8754,148 @@ class _EmployeeManagementState extends State<_EmployeeManagement> {
               child: const Text('關閉'),
             ),
           ],
+        );
+      },
+    );
+  }
+
+  Future<void> _openReferralListDialog(backend.VeevaMember employee) async {
+    final attributions = _attributionsForEmployee(employee);
+    final grouped = <String, List<backend.VeevaMemberEmployeeAttribution>>{};
+    for (final attribution in attributions) {
+      final date = attribution.registeredAt ?? attribution.createdAt;
+      final key = date == null ? '未記錄日期' : _formatAdminDate(date);
+      grouped.putIfAbsent(key, () => []).add(attribution);
+    }
+    final dateKeys = grouped.keys.toList()
+      ..sort((a, b) {
+        if (a == '未記錄日期') return 1;
+        if (b == '未記錄日期') return -1;
+        return b.compareTo(a);
+      });
+    DateTime? selectedDate;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final selectedDateKey =
+                selectedDate == null ? '全部日期' : _formatAdminDate(selectedDate!);
+            final visibleDateKeys = selectedDate == null
+                ? dateKeys
+                : dateKeys.where((key) => key == selectedDateKey).toList();
+            final visibleCount = visibleDateKeys.fold<int>(
+              0,
+              (total, key) => total + (grouped[key]?.length ?? 0),
+            );
+
+            return AlertDialog(
+              title: Text('${employee.name} 的推薦清單'),
+              content: SizedBox(
+                width: 820,
+                child: attributions.isEmpty
+                    ? const _EmptyListMessage(message: '目前沒有推薦會員紀錄。')
+                    : Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: () async {
+                                    final now = DateTime.now();
+                                    final picked = await showDatePicker(
+                                      context: dialogContext,
+                                      initialDate: selectedDate ?? now,
+                                      firstDate: DateTime(2020),
+                                      lastDate:
+                                          now.add(const Duration(days: 365)),
+                                      helpText: '選擇查詢日期',
+                                      cancelText: '取消',
+                                      confirmText: '套用',
+                                    );
+                                    if (picked == null) return;
+                                    setDialogState(() {
+                                      selectedDate = picked;
+                                    });
+                                  },
+                                  icon:
+                                      const Icon(Icons.calendar_month_outlined),
+                                  label: Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: Text(
+                                      selectedDate == null
+                                          ? '全部日期'
+                                          : _formatAdminDate(selectedDate!),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              if (selectedDate != null) ...[
+                                const SizedBox(width: 8),
+                                IconButton.outlined(
+                                  onPressed: () => setDialogState(() {
+                                    selectedDate = null;
+                                  }),
+                                  tooltip: '清除日期',
+                                  icon: const Icon(Icons.close),
+                                ),
+                              ],
+                              const SizedBox(width: 12),
+                              _MiniInfo(label: '顯示', value: '$visibleCount 人'),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxHeight: 460),
+                            child: SingleChildScrollView(
+                              child: visibleDateKeys.isEmpty
+                                  ? const _EmptyListMessage(
+                                      message: '這個日期沒有推薦會員紀錄。',
+                                    )
+                                  : Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        for (final dateKey
+                                            in visibleDateKeys) ...[
+                                          Text(
+                                            '$dateKey · ${grouped[dateKey]!.length} 人',
+                                            style: const TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.w900,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 8),
+                                          _EmployeeReferralList(
+                                            attributions: grouped[dateKey]!,
+                                            phoneVerified:
+                                                _hasPhoneVerifiedForAttribution,
+                                            questionnaireDone:
+                                                _hasSubmittedQuestionnaireForAttribution,
+                                          ),
+                                          const SizedBox(height: 16),
+                                        ],
+                                      ],
+                                    ),
+                            ),
+                          ),
+                        ],
+                      ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('關閉'),
+                ),
+              ],
+            );
+          },
         );
       },
     );
@@ -8283,6 +8923,7 @@ class _EmployeeDataTable extends StatelessWidget {
   const _EmployeeDataTable({
     required this.employees,
     required this.linksForEmployee,
+    required this.questionnaireCountForEmployee,
     required this.onQrCode,
     required this.onPerformance,
     required this.onToggle,
@@ -8292,6 +8933,8 @@ class _EmployeeDataTable extends StatelessWidget {
   final List<backend.VeevaEmployeeActivityLink> Function(
     backend.VeevaMember employee,
   ) linksForEmployee;
+  final int Function(backend.VeevaMember employee)
+      questionnaireCountForEmployee;
   final ValueChanged<backend.VeevaMember> onQrCode;
   final ValueChanged<backend.VeevaMember> onPerformance;
   final ValueChanged<backend.VeevaMember> onToggle;
@@ -8311,6 +8954,7 @@ class _EmployeeDataTable extends StatelessWidget {
           DataColumn(label: Text('進站')),
           DataColumn(label: Text('註冊')),
           DataColumn(label: Text('電話驗證')),
+          DataColumn(label: Text('問卷')),
           DataColumn(label: Text('操作')),
         ],
         rows: [
@@ -8331,6 +8975,7 @@ class _EmployeeDataTable extends StatelessWidget {
         links.fold<int>(0, (total, link) => total + link.registeredCount);
     final verified =
         links.fold<int>(0, (total, link) => total + link.phoneVerifiedCount);
+    final questionnaires = questionnaireCountForEmployee(employee);
     return DataRow(
       cells: [
         DataCell(_EmployeeHeader(member: employee)),
@@ -8339,25 +8984,26 @@ class _EmployeeDataTable extends StatelessWidget {
         DataCell(Text('$visits')),
         DataCell(Text('$registered')),
         DataCell(Text('$verified')),
+        DataCell(Text('$questionnaires')),
         DataCell(
           Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
-              FilledButton.tonalIcon(
+              IconButton.filledTonal(
                 onPressed: enabled ? () => onQrCode(employee) : null,
+                tooltip: 'QR Code',
                 icon: const Icon(Icons.qr_code_2_outlined),
-                label: const Text('QR Code'),
               ),
-              OutlinedButton.icon(
+              IconButton.outlined(
                 onPressed: () => onPerformance(employee),
+                tooltip: '績效',
                 icon: const Icon(Icons.insights_outlined),
-                label: const Text('績效'),
               ),
-              TextButton.icon(
+              IconButton(
                 onPressed: () => onToggle(employee),
+                tooltip: enabled ? '停用' : '啟用',
                 icon: Icon(enabled ? Icons.block_outlined : Icons.play_arrow),
-                label: Text(enabled ? '停用' : '啟用'),
               ),
             ],
           ),
@@ -8371,6 +9017,7 @@ class _EmployeeCard extends StatelessWidget {
   const _EmployeeCard({
     required this.employee,
     required this.links,
+    required this.questionnaireCountForEmployee,
     required this.onQrCode,
     required this.onPerformance,
     required this.onToggle,
@@ -8378,6 +9025,7 @@ class _EmployeeCard extends StatelessWidget {
 
   final backend.VeevaMember employee;
   final List<backend.VeevaEmployeeActivityLink> links;
+  final int questionnaireCountForEmployee;
   final VoidCallback onQrCode;
   final VoidCallback onPerformance;
   final VoidCallback onToggle;
@@ -8390,6 +9038,7 @@ class _EmployeeCard extends StatelessWidget {
         links.fold<int>(0, (total, link) => total + link.registeredCount);
     final verified =
         links.fold<int>(0, (total, link) => total + link.phoneVerifiedCount);
+    final questionnaires = questionnaireCountForEmployee;
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 12),
@@ -8417,6 +9066,7 @@ class _EmployeeCard extends StatelessWidget {
               _MiniInfo(label: '進站', value: '$visits'),
               _MiniInfo(label: '註冊', value: '$registered'),
               _MiniInfo(label: '電話驗證', value: '$verified'),
+              _MiniInfo(label: '問卷', value: '$questionnaires'),
             ],
           ),
           const SizedBox(height: 12),
@@ -8424,20 +9074,20 @@ class _EmployeeCard extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
-              FilledButton.tonalIcon(
+              IconButton.filledTonal(
                 onPressed: enabled ? onQrCode : null,
+                tooltip: 'QR Code',
                 icon: const Icon(Icons.qr_code_2_outlined),
-                label: const Text('QR Code'),
               ),
-              OutlinedButton.icon(
+              IconButton.outlined(
                 onPressed: onPerformance,
+                tooltip: '績效',
                 icon: const Icon(Icons.insights_outlined),
-                label: const Text('績效'),
               ),
-              TextButton.icon(
+              IconButton(
                 onPressed: onToggle,
+                tooltip: enabled ? '停用' : '啟用',
                 icon: Icon(enabled ? Icons.block_outlined : Icons.play_arrow),
-                label: Text(enabled ? '停用' : '啟用'),
               ),
             ],
           ),
@@ -8603,10 +9253,118 @@ class _EmployeeQrPreview extends StatelessWidget {
   }
 }
 
+class _EmployeeReferralList extends StatelessWidget {
+  const _EmployeeReferralList({
+    required this.attributions,
+    required this.phoneVerified,
+    required this.questionnaireDone,
+  });
+
+  final List<backend.VeevaMemberEmployeeAttribution> attributions;
+  final bool Function(backend.VeevaMemberEmployeeAttribution attribution)
+      phoneVerified;
+  final bool Function(backend.VeevaMemberEmployeeAttribution attribution)
+      questionnaireDone;
+
+  @override
+  Widget build(BuildContext context) {
+    return _FullWidthDataTable(
+      minWidth: 720,
+      child: DataTable(
+        headingRowColor: WidgetStateProperty.all(const Color(0xFFF1F4F3)),
+        columns: const [
+          DataColumn(label: Text('會員')),
+          DataColumn(label: Text('活動')),
+          DataColumn(label: Text('電話驗證')),
+          DataColumn(label: Text('問卷')),
+          DataColumn(label: Text('時間')),
+        ],
+        rows: [
+          for (final attribution in attributions)
+            DataRow(
+              cells: [
+                DataCell(_EmployeeReferralMemberCell(attribution: attribution)),
+                DataCell(Text(attribution.activityTitle)),
+                DataCell(_SmallDoneIcon(done: phoneVerified(attribution))),
+                DataCell(_SmallDoneIcon(done: questionnaireDone(attribution))),
+                DataCell(Text(_memberDateTimeLabel(
+                  attribution.registeredAt ?? attribution.createdAt,
+                ))),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmployeeReferralMemberCell extends StatelessWidget {
+  const _EmployeeReferralMemberCell({required this.attribution});
+
+  final backend.VeevaMemberEmployeeAttribution attribution;
+
+  @override
+  Widget build(BuildContext context) {
+    final avatarUrl = attribution.memberAvatarUrl;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        CircleAvatar(
+          radius: 18,
+          backgroundColor: const Color(0xFFFFF2DF),
+          backgroundImage: avatarUrl == null || avatarUrl.isEmpty
+              ? null
+              : NetworkImage(avatarUrl),
+          child: avatarUrl == null || avatarUrl.isEmpty
+              ? Text(
+                  attribution.memberName.isEmpty
+                      ? '會'
+                      : attribution.memberName.characters.first,
+                  style: const TextStyle(fontWeight: FontWeight.w900),
+                )
+              : null,
+        ),
+        const SizedBox(width: 10),
+        Flexible(
+          child: Text(
+            attribution.memberName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w900),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SmallDoneIcon extends StatelessWidget {
+  const _SmallDoneIcon({required this.done});
+
+  final bool done;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: done ? '已完成' : '未完成',
+      child: Icon(
+        done ? Icons.check_circle_outline : Icons.radio_button_unchecked,
+        color: done ? const Color(0xFFC66D00) : const Color(0xFF8A8D8F),
+        size: 20,
+      ),
+    );
+  }
+}
+
 class _EmployeePerformanceTable extends StatelessWidget {
-  const _EmployeePerformanceTable({required this.links});
+  const _EmployeePerformanceTable({
+    required this.links,
+    required this.questionnaireCountForLink,
+  });
 
   final List<backend.VeevaEmployeeActivityLink> links;
+  final int Function(backend.VeevaEmployeeActivityLink link)
+      questionnaireCountForLink;
 
   @override
   Widget build(BuildContext context) {
@@ -8619,6 +9377,7 @@ class _EmployeePerformanceTable extends StatelessWidget {
           DataColumn(label: Text('進站')),
           DataColumn(label: Text('註冊')),
           DataColumn(label: Text('電話驗證')),
+          DataColumn(label: Text('問卷')),
           DataColumn(label: Text('最後進站')),
         ],
         rows: [
@@ -8629,6 +9388,7 @@ class _EmployeePerformanceTable extends StatelessWidget {
                 DataCell(Text('${link.visitCount}')),
                 DataCell(Text('${link.registeredCount}')),
                 DataCell(Text('${link.phoneVerifiedCount}')),
+                DataCell(Text('${questionnaireCountForLink(link)}')),
                 DataCell(Text(_memberDateTimeLabel(link.lastVisitedAt))),
               ],
             ),
@@ -9616,7 +10376,11 @@ String _normalizeMemberSearch(String value) {
   return value.trim().toLowerCase();
 }
 
-bool _memberMatchesSearch(backend.VeevaMember member, String query) {
+bool _memberMatchesSearch(
+  backend.VeevaMember member,
+  String query, {
+  String? referrerName,
+}) {
   if (query.isEmpty) return true;
   final normalizedQuery = _normalizeMemberSearch(query);
   final digitQuery = _searchDigits(query);
@@ -9630,6 +10394,7 @@ bool _memberMatchesSearch(backend.VeevaMember member, String query) {
     member.email,
     member.phoneNumber,
     member.lineStatusMessage,
+    referrerName,
     _memberStatusLabel(member.status),
     _memberAccountStatusLabel(member.accountStatus),
     _memberDateTimeLabel(_memberFirstLoginAt(member)),
@@ -9662,8 +10427,9 @@ List<String> _phoneSearchVariants(String? phoneNumber) {
 
 bool _memberReviewChecklistMatchesSearch(
   _MemberReviewChecklistItem item,
-  String query,
-) {
+  String query, {
+  String? referrerName,
+}) {
   if (query.isEmpty) return true;
   final digitQuery = _searchDigits(query);
   final values = _normalizeMemberSearch([
@@ -9672,6 +10438,7 @@ bool _memberReviewChecklistMatchesSearch(
     item.member.lineUserId,
     item.member.email,
     item.member.phoneNumber,
+    referrerName,
     item.surveyRecord?.activityTitle,
     item.surveyStatusLabel,
     ..._phoneSearchVariants(item.member.phoneNumber),

@@ -122,6 +122,7 @@ class VeevaBootstrap {
     required this.activityRecords,
     required this.memberRewards,
     required this.employeeLinks,
+    this.employeeAttributions = const [],
     required this.clientSettings,
   });
 
@@ -134,6 +135,7 @@ class VeevaBootstrap {
   final List<VeevaActivityRecord> activityRecords;
   final List<VeevaMemberReward> memberRewards;
   final List<VeevaEmployeeActivityLink> employeeLinks;
+  final List<VeevaMemberEmployeeAttribution> employeeAttributions;
   final VeevaClientSettings clientSettings;
 }
 
@@ -455,6 +457,65 @@ class VeevaActivityRecord {
   final DateTime? updatedAt;
 
   bool get isCompleted => status == 'completed';
+}
+
+class VeevaMemberEmployeeAttribution {
+  const VeevaMemberEmployeeAttribution({
+    required this.id,
+    required this.memberId,
+    required this.memberName,
+    required this.employeeLinkId,
+    required this.employeeMemberId,
+    required this.employeeName,
+    required this.activityId,
+    required this.activityTitle,
+    this.memberLineUserId,
+    this.memberAvatarUrl,
+    this.visitSessionId,
+    this.registeredAt,
+    this.phoneVerifiedAt,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  factory VeevaMemberEmployeeAttribution.fromMap(
+    String id,
+    Map<String, Object?> data,
+  ) {
+    return VeevaMemberEmployeeAttribution(
+      id: id,
+      memberId: data['memberId']?.toString() ?? '',
+      memberName: data['memberName']?.toString() ?? 'LINE 會員',
+      memberLineUserId: data['memberLineUserId']?.toString(),
+      memberAvatarUrl: data['memberAvatarUrl']?.toString(),
+      employeeLinkId: data['employeeLinkId']?.toString() ?? '',
+      employeeMemberId: data['employeeMemberId']?.toString() ?? '',
+      employeeName: data['employeeName']?.toString() ?? '員工',
+      activityId: data['activityId']?.toString() ?? '',
+      activityTitle: data['activityTitle']?.toString() ?? '活動',
+      visitSessionId: data['visitSessionId']?.toString(),
+      registeredAt: _readDate(data['registeredAt']),
+      phoneVerifiedAt: _readDate(data['phoneVerifiedAt']),
+      createdAt: _readDate(data['createdAt']),
+      updatedAt: _readDate(data['updatedAt']),
+    );
+  }
+
+  final String id;
+  final String memberId;
+  final String memberName;
+  final String? memberLineUserId;
+  final String? memberAvatarUrl;
+  final String employeeLinkId;
+  final String employeeMemberId;
+  final String employeeName;
+  final String activityId;
+  final String activityTitle;
+  final String? visitSessionId;
+  final DateTime? registeredAt;
+  final DateTime? phoneVerifiedAt;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
 }
 
 class VeevaMemberReward {

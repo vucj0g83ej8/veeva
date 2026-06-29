@@ -23,6 +23,9 @@ export function CouponsPage({ app }: PageProps) {
   const [selectedReward, setSelectedReward] = useState<VeevaMemberReward | null>(
     null,
   )
+  const [handledDeepLinkRewardId, setHandledDeepLinkRewardId] = useState<
+    string | null
+  >(null)
   const handleRedeemReward = async (reward: VeevaMemberReward) => {
     if (!app.member) {
       throw new Error('請先登入會員')
@@ -53,6 +56,15 @@ export function CouponsPage({ app }: PageProps) {
       window.removeEventListener('keydown', onKeyDown)
     }
   }, [selectedReward])
+
+  useEffect(() => {
+    const rewardId = new URLSearchParams(window.location.search).get('reward')
+    if (!rewardId || handledDeepLinkRewardId === rewardId) return
+    const reward = app.memberRewards.find((item) => item.id === rewardId)
+    if (!reward) return
+    setSelectedReward(reward)
+    setHandledDeepLinkRewardId(rewardId)
+  }, [app.memberRewards, handledDeepLinkRewardId])
 
   if (!app.member) {
     return (

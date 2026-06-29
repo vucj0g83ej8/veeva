@@ -1,3 +1,5 @@
+import { rememberPendingReferralCode, referralCodeFromUrl } from './shareCode'
+
 const liffStateParam = 'liff.state'
 const liffStateRouteRestoredKey = 'veeva_liff_state_route_restored'
 
@@ -13,6 +15,10 @@ export function restoreLiffStateRoute(location: Location = window.location) {
   const stateUrl = stateUrlFromLiffState(liffState, currentUrl.origin)
   if (!stateUrl || stateUrl.origin !== currentUrl.origin) return
   if (!stateUrl.pathname.startsWith('/')) return
+  const referralCode = referralCodeFromUrl(stateUrl)
+  if (referralCode) {
+    rememberPendingReferralCode(referralCode, { overwrite: true })
+  }
 
   const nextSearch = new URLSearchParams(currentUrl.search)
   nextSearch.delete(liffStateParam)

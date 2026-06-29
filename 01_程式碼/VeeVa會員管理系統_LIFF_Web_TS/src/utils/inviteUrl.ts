@@ -8,5 +8,6 @@ export function liffUrlForPath(path: string) {
 }
 
 export function inviteUrlForShareCode(shareCode: string) {
-  return liffUrlForPath(`/r/${encodeURIComponent(shareCode)}`)
+  const code = encodeURIComponent(shareCode)
+  return liffUrlForPath(`/r/${code}?ref=${code}`)
 }

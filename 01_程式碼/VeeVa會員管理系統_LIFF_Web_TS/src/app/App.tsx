@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useParams } from 'react-router-dom'
 import { AppShell } from '../components/AppShell'
 import { AuthNotice } from '../components/AuthNotice'
 import { useVeevaApp } from '../hooks/useVeevaApp'
@@ -20,7 +20,7 @@ export function App() {
       <AuthNotice app={app} />
       <Routes>
         <Route path="/" element={<Navigate to="/activities" replace />} />
-        <Route path="/r/:shareCode" element={<Navigate to="/member" replace />} />
+        <Route path="/r/:shareCode" element={<ReferralRedirect />} />
         <Route path="/e/:code" element={<EmployeeQrRedirectPage app={app} />} />
         <Route path="/activities" element={<ActivitiesPage app={app} />} />
         <Route
@@ -53,4 +53,10 @@ export function App() {
       </Routes>
     </AppShell>
   )
+}
+
+function ReferralRedirect() {
+  const { shareCode } = useParams()
+  const code = shareCode ? encodeURIComponent(shareCode) : ''
+  return <Navigate to={`/member${code ? `?ref=${code}` : ''}`} replace />
 }
