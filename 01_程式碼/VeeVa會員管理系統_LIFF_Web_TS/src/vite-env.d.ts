@@ -4,6 +4,7 @@
 interface ImportMetaEnv {
   readonly VITE_LIFF_ID?: string
   readonly VITE_PUBLIC_LIFF_URL?: string
+  readonly VITE_LINE_OFFICIAL_ACCOUNT_ID?: string
   readonly VITE_FIREBASE_API_KEY?: string
   readonly VITE_FIREBASE_AUTH_DOMAIN?: string
   readonly VITE_FIREBASE_PROJECT_ID?: string
@@ -15,4 +16,3 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv
 }
-

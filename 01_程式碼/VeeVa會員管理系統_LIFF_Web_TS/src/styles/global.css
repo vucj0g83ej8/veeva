@@ -3169,6 +3169,82 @@ button:disabled {
   min-height: 1px;
 }
 
+.official-account-page {
+  min-height: calc(100dvh - 190px);
+  display: grid;
+  place-items: center;
+  padding: 24px 16px 40px;
+}
+
+.official-account-panel {
+  width: min(100%, 440px);
+  border: 1px solid rgba(100, 116, 108, 0.16);
+  border-radius: 22px;
+  background: #ffffff;
+  box-shadow: 0 18px 42px rgba(20, 64, 48, 0.1);
+  padding: 28px 24px;
+}
+
+.official-account-icon {
+  width: 62px;
+  height: 62px;
+  display: grid;
+  place-items: center;
+  border-radius: 20px;
+  background: #e5f5ed;
+  color: #ff9812;
+  margin-bottom: 18px;
+}
+
+.official-account-panel h2 {
+  margin: 4px 0 12px;
+  color: #111b18;
+  font-size: 1.55rem;
+  line-height: 1.28;
+  letter-spacing: 0;
+}
+
+.official-account-copy {
+  margin: 0 0 22px;
+  color: #63756e;
+  font-size: 0.98rem;
+  line-height: 1.7;
+}
+
+.official-account-actions {
+  display: grid;
+  gap: 12px;
+}
+
+.official-account-button {
+  width: 100%;
+  min-height: 52px;
+  justify-content: center;
+  gap: 8px;
+}
+
+.official-account-hint,
+.official-account-message,
+.official-account-error {
+  margin: 14px 0 0;
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.official-account-hint {
+  color: #60746d;
+}
+
+.official-account-message {
+  color: #ff9812;
+  font-weight: 850;
+}
+
+.official-account-error {
+  color: #b42318;
+  font-weight: 850;
+}
+
 .primary-button.compact {
   width: auto;
   margin-top: 0;

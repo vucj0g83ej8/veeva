@@ -5,6 +5,12 @@ import {
   liffId,
   liffUrlForPath,
 } from '../utils/inviteUrl'
+import {
+  captureReferralCodeFromLocation,
+  readPendingReferralCode,
+  referralCodeFromLocation,
+  rememberPendingReferralCode,
+} from '../utils/shareCode'
 
 const beforeLoginUrlKey = 'veeva_liff_before_login_url'
 const loginTokenKey = 'veeva_line_login_token'
@@ -16,6 +22,8 @@ const loginInfoKey = 'veeva_line_login_info'
 const tokenLifetimeMs = 60 * 60 * 1000
 const inviteImageUrl =
   'https://vevva.web.app/assets/share/coffee-member-gift-v1.png'
+const officialAccountId =
+  import.meta.env.VITE_LINE_OFFICIAL_ACCOUNT_ID?.trim() || '@896pwyxc'
 export const lineCardShareUnsupportedError = 'LINE_CARD_SHARE_UNSUPPORTED'
 
 let initPromise: Promise<LiffSession> | undefined
@@ -49,6 +57,7 @@ export async function initializeLiff(): Promise<LiffSession> {
 }
 
 export async function loginWithLine() {
+  captureReferralCodeFromLocation()
   storeBeforeLoginUrl(window.location.href)
   await initializeLiff()
   if (liff.isLoggedIn()) {
@@ -93,6 +102,88 @@ export function getStoredLineLoginInfo() {
     clearStoredLoginToken()
     return undefined
   }
+}
+
+export interface OfficialAccountFriendshipResult {
+  friend: boolean
+  supported: boolean
+  error?: string
+}
+
+export function officialAccountAddUrl() {
+  const normalizedId = officialAccountId.startsWith('@')
+    ? officialAccountId
+    : `@${officialAccountId}`
+  return `https://line.me/R/ti/p/${normalizedId}`
+}
+
+export async function getOfficialAccountFriendship(): Promise<OfficialAccountFriendshipResult> {
+  const session = await initializeLiff()
+  if (!session.loggedIn) {
+    return {
+      friend: false,
+      supported: true,
+      error: 'not_logged_in',
+    }
+  }
+
+  try {
+    const getFriendship = (
+      liff as unknown as {
+        getFriendship?: () => Promise<{ friendFlag?: boolean }>
+      }
+    ).getFriendship
+
+    if (typeof getFriendship !== 'function') {
+      return {
+        friend: false,
+        supported: false,
+        error: 'friendship_api_unavailable',
+      }
+    }
+
+    const result = await getFriendship.call(liff)
+    return {
+      friend: result.friendFlag === true,
+      supported: true,
+    }
+  } catch (error) {
+    return {
+      friend: false,
+      supported: false,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+export async function requestOfficialAccountFriendship() {
+  preserveReferralCodeForExternalLineFlow()
+  await initializeLiff()
+
+  const requestFriendship = (
+    liff as unknown as {
+      requestFriendship?: () => Promise<void>
+    }
+  ).requestFriendship
+
+  if (typeof requestFriendship === 'function') {
+    try {
+      await requestFriendship.call(liff)
+      return
+    } catch {
+      // Some LIFF/OA combinations do not support requestFriendship. The add-friend URL remains the fallback.
+    }
+  }
+
+  const url = officialAccountAddUrl()
+  if (safeRead(() => liff.isInClient())) {
+    liff.openWindow({
+      url,
+      external: false,
+    })
+    return
+  }
+  window.location.href = url
 }
 
 export function logoutLine() {
@@ -566,6 +657,13 @@ function loginRedirectUri() {
 function storeBeforeLoginUrl(url: string) {
   if (isSameOriginUrl(url)) {
     sessionStorage.setItem(beforeLoginUrlKey, url)
+  }
+}
+
+function preserveReferralCodeForExternalLineFlow() {
+  const code = referralCodeFromLocation() ?? readPendingReferralCode()
+  if (code) {
+    rememberPendingReferralCode(code, { overwrite: true })
   }
 }
 

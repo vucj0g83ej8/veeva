@@ -21,6 +21,10 @@ interface AppState {
   initializing: boolean
   authenticating: boolean
   memberProfileReady: boolean
+  officialAccountFriendshipReady: boolean
+  officialAccountFriend: boolean
+  officialAccountFriendshipSupported: boolean
+  officialAccountFriendshipError?: string
   busy: boolean
   error?: string
   liffSession?: LiffSession
@@ -48,6 +52,9 @@ export function useVeevaApp() {
     initializing: true,
     authenticating: false,
     memberProfileReady: false,
+    officialAccountFriendshipReady: false,
+    officialAccountFriend: false,
+    officialAccountFriendshipSupported: true,
     busy: false,
     bootstrap: emptyBootstrap,
     memberActivityRecords: [],
@@ -89,12 +96,45 @@ export function useVeevaApp() {
     }))
   }, [])
 
+  const refreshOfficialAccountFriendship = useCallback(async () => {
+    setState((current) => ({
+      ...current,
+      officialAccountFriendshipReady: false,
+      officialAccountFriendshipError: undefined,
+    }))
+    const { getOfficialAccountFriendship } = await import('../services/liff')
+    const result = await getOfficialAccountFriendship()
+    setState((current) => ({
+      ...current,
+      officialAccountFriendshipReady: true,
+      officialAccountFriend: result.friend,
+      officialAccountFriendshipSupported: result.supported,
+      officialAccountFriendshipError: result.error,
+    }))
+    return result
+  }, [])
+
+  const requestOfficialAccountFriendship = useCallback(async () => {
+    const referralCode =
+      referralCodeFromLocation() ?? state.referralCode ?? readPendingReferralCode()
+    if (referralCode) {
+      rememberPendingReferralCode(referralCode, { overwrite: true })
+    }
+    const { requestOfficialAccountFriendship: requestFriendship } = await import(
+      '../services/liff'
+    )
+    await requestFriendship()
+  }, [state.referralCode])
+
   const initialize = useCallback(async () => {
     setState((current) => ({
       ...current,
       initializing: true,
       authenticating: false,
       memberProfileReady: false,
+      officialAccountFriendshipReady: false,
+      officialAccountFriend: false,
+      officialAccountFriendshipError: undefined,
       error: undefined,
     }))
     try {
@@ -117,6 +157,7 @@ export function useVeevaApp() {
           authenticating: true,
           liffSession,
           memberProfileReady: false,
+          officialAccountFriendshipReady: false,
         }))
         await liffApi.loginWithLine()
         return
@@ -144,6 +185,9 @@ export function useVeevaApp() {
         initializing: false,
         authenticating: false,
         memberProfileReady: !member,
+        officialAccountFriendshipReady: !member,
+        officialAccountFriend: false,
+        officialAccountFriendshipError: undefined,
         bootstrap,
         liffSession,
         member,
@@ -156,6 +200,7 @@ export function useVeevaApp() {
       }))
 
       if (member) {
+        void refreshOfficialAccountFriendship()
         void repository
           .upsertLineMember({
             profile: liffSession.profile!,
@@ -188,7 +233,7 @@ export function useVeevaApp() {
         error: error instanceof Error ? error.message : String(error),
       }))
     }
-  }, [refreshMemberDetails, state.referralCode])
+  }, [refreshMemberDetails, refreshOfficialAccountFriendship, state.referralCode])
 
   useEffect(() => {
     if (initializedRef.current) return
@@ -250,6 +295,8 @@ export function useVeevaApp() {
         ...current,
         busy: false,
         memberProfileReady: true,
+        officialAccountFriendshipReady: false,
+        officialAccountFriend: false,
         liffSession,
         member,
         memberActivityRecords: [],
@@ -257,6 +304,7 @@ export function useVeevaApp() {
         notifications: [],
         referrals: [],
       }))
+      await refreshOfficialAccountFriendship()
       await refreshMemberDetails(member)
     } catch (error) {
       setState((current) => ({
@@ -265,7 +313,7 @@ export function useVeevaApp() {
         error: error instanceof Error ? error.message : String(error),
       }))
     }
-  }, [refreshMemberDetails, state.referralCode])
+  }, [refreshMemberDetails, refreshOfficialAccountFriendship, state.referralCode])
 
   const logout = useCallback(async () => {
     const { logoutLine } = await import('../services/liff')
@@ -422,6 +470,8 @@ export function useVeevaApp() {
       refresh: initialize,
       refreshMemberData,
       refreshNotifications,
+      refreshOfficialAccountFriendship,
+      requestOfficialAccountFriendship,
       shareInvite,
       markNotificationsRead,
       completePhoneVerification,
@@ -436,6 +486,8 @@ export function useVeevaApp() {
       markNotificationsRead,
       refreshMemberData,
       refreshNotifications,
+      refreshOfficialAccountFriendship,
+      requestOfficialAccountFriendship,
       shareInvite,
       state,
       updateMemberProfile,

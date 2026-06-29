@@ -3,6 +3,7 @@ import type { PropsWithChildren } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import type { VeevaAppState } from '../hooks/useVeevaApp'
 import { NotificationCenter } from './NotificationCenter'
+import { OfficialAccountFriendGate } from './OfficialAccountFriendGate'
 import { PhoneVerificationGate } from './PhoneVerificationGate'
 
 const navItems = [
@@ -30,7 +31,21 @@ export function AppShell({ app, children }: AppShellProps) {
     app.member &&
       app.memberProfileReady &&
       !app.disabled &&
+      app.officialAccountFriend &&
       !app.member.phoneVerified,
+  )
+  const checkingOfficialAccountFriendship = Boolean(
+    app.member &&
+      app.memberProfileReady &&
+      !app.disabled &&
+      !app.officialAccountFriendshipReady,
+  )
+  const requiresOfficialAccountFriendship = Boolean(
+    app.member &&
+      app.memberProfileReady &&
+      !app.disabled &&
+      app.officialAccountFriendshipReady &&
+      !app.officialAccountFriend,
   )
 
   return (
@@ -53,6 +68,13 @@ export function AppShell({ app, children }: AppShellProps) {
             <span className="loading-dot" />
             <span>{app.authenticating ? '正在前往 LINE 登入' : '正在確認登入'}</span>
           </div>
+        ) : checkingOfficialAccountFriendship ? (
+          <div className="loading-panel">
+            <span className="loading-dot" />
+            <span>正在確認官方帳號加入狀態</span>
+          </div>
+        ) : requiresOfficialAccountFriendship ? (
+          <OfficialAccountFriendGate app={app} />
         ) : requiresPhoneVerification ? (
           <PhoneVerificationGate app={app} />
         ) : (
