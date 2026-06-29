@@ -372,11 +372,16 @@ export async function bindPendingEmployeeQrAttribution(
       );
     }
 
-    if (stage === "phoneVerified" && !alreadyPhoneVerified) {
+    const shouldMarkPhoneVerified =
+      stage === "phoneVerified" || member.phoneVerified === true;
+
+    if (shouldMarkPhoneVerified && !alreadyPhoneVerified) {
       transaction.set(
         attributionRef,
         {
-          phoneVerifiedAt: serverTimestamp(),
+          phoneVerifiedAt: member.phoneVerifiedAt
+            ? Timestamp.fromDate(member.phoneVerifiedAt)
+            : serverTimestamp(),
           updatedAt: serverTimestamp(),
         },
         { merge: true },
