@@ -1,7 +1,6 @@
 import liff from '@line/liff'
 import type { LiffProfile, LiffSession, VeevaActivity } from '../types/veeva'
 import {
-  inviteUrlForShareCode,
   liffId,
   liffUrlForPath,
 } from '../utils/inviteUrl'
@@ -23,7 +22,7 @@ const tokenLifetimeMs = 60 * 60 * 1000
 const friendshipCheckTimeoutMs = 4_500
 const friendshipRequestTimeoutMs = 7_000
 const inviteImageUrl =
-  'https://vevva.web.app/assets/share/coffee-member-gift-v1.png'
+  'https://vevva.web.app/assets/share/openpoint-member-gift-v1.png'
 const officialAccountId =
   import.meta.env.VITE_LINE_OFFICIAL_ACCOUNT_ID?.trim() || '@896pwyxc'
 export const lineCardShareUnsupportedError = 'LINE_CARD_SHARE_UNSUPPORTED'
@@ -222,11 +221,12 @@ export async function shareInviteCard(memberName: string, shareCode: string) {
     throw new Error('此 LINE 環境尚未支援分享功能。')
   }
 
-  const inviteUrl = inviteUrlForShareCode(shareCode)
+  const code = encodeURIComponent(shareCode)
+  const inviteUrl = liffUrlForPath(`/activities/survey-coffee?ref=${code}`)
   await liff.shareTargetPicker([
     {
       type: 'flex',
-      altText: `${memberName} 邀請你加入會員，加入送咖啡`,
+      altText: `${memberName} 邀請你填寫問卷，審核通過送 OPENPOINT 100 點`,
       contents: {
         type: 'bubble',
         size: 'giga',
@@ -251,26 +251,26 @@ export async function shareInviteCard(memberName: string, shareCode: string) {
           contents: [
             {
               type: 'text',
-              text: '加入會員送咖啡',
+              text: '填問卷送 OPENPOINT 100點',
               weight: 'bold',
               size: 'xxl',
-              color: '#5B321E',
+              color: '#006D6F',
             },
             {
               type: 'text',
-              text: `${memberName} 邀請你加入 VeeVa 會員，完成加入即可獲得咖啡好禮。`,
+              text: `${memberName} 邀請你加入 VeeVa 會員並填寫線上問卷，審核通過即可獲得 7-ELEVEN OPENPOINT 100 點。`,
               wrap: true,
-              color: '#6B4A38',
+              color: '#3F5652',
               size: 'md',
               lineSpacing: '8px',
             },
             {
               type: 'text',
-              text: '簡單加入，好禮立即送！',
+              text: '完成線上問卷，審核通過立即送！',
               wrap: true,
               size: 'lg',
               weight: 'bold',
-              color: '#98531F',
+              color: '#C66D00',
             },
           ],
         },
@@ -287,10 +287,10 @@ export async function shareInviteCard(memberName: string, shareCode: string) {
               type: 'button',
               style: 'primary',
               height: 'md',
-              color: '#98531F',
+              color: '#C66D00',
               action: {
                 type: 'uri',
-                label: '立即加入領咖啡',
+                label: '立即填寫問卷',
                 uri: inviteUrl,
               },
             },

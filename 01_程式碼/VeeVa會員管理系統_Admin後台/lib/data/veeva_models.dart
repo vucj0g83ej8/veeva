@@ -656,6 +656,11 @@ class VeevaReview {
     required this.department,
     required this.status,
     required this.completedAt,
+    this.rewardIssueStatus,
+    this.rewardIssueReason,
+    this.rewardIssueUpdatedAt,
+    this.rewardIssuedAt,
+    this.rewardNotIssuedAt,
   });
 
   factory VeevaReview.fromMap(String id, Map<String, Object?> data) {
@@ -671,6 +676,11 @@ class VeevaReview {
         VeevaReviewStatus.pending,
       ),
       completedAt: _readDate(data['completedAt']) ?? DateTime.now(),
+      rewardIssueStatus: data['rewardIssueStatus']?.toString(),
+      rewardIssueReason: data['rewardIssueReason']?.toString(),
+      rewardIssueUpdatedAt: _readDate(data['rewardIssueUpdatedAt']),
+      rewardIssuedAt: _readDate(data['rewardIssuedAt']),
+      rewardNotIssuedAt: _readDate(data['rewardNotIssuedAt']),
     );
   }
 
@@ -681,6 +691,11 @@ class VeevaReview {
   final String department;
   final VeevaReviewStatus status;
   final DateTime completedAt;
+  final String? rewardIssueStatus;
+  final String? rewardIssueReason;
+  final DateTime? rewardIssueUpdatedAt;
+  final DateTime? rewardIssuedAt;
+  final DateTime? rewardNotIssuedAt;
 
   Map<String, Object?> toMap() {
     return {
@@ -690,6 +705,14 @@ class VeevaReview {
       'department': department,
       'status': status.name,
       'completedAt': Timestamp.fromDate(completedAt),
+      if (rewardIssueStatus != null) 'rewardIssueStatus': rewardIssueStatus,
+      if (rewardIssueReason != null) 'rewardIssueReason': rewardIssueReason,
+      if (rewardIssueUpdatedAt != null)
+        'rewardIssueUpdatedAt': Timestamp.fromDate(rewardIssueUpdatedAt!),
+      if (rewardIssuedAt != null)
+        'rewardIssuedAt': Timestamp.fromDate(rewardIssuedAt!),
+      if (rewardNotIssuedAt != null)
+        'rewardNotIssuedAt': Timestamp.fromDate(rewardNotIssuedAt!),
     };
   }
 }

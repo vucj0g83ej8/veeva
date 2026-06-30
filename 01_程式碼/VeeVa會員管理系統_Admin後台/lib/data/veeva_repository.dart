@@ -28,6 +28,12 @@ abstract class VeevaRepository {
 
   Future<void> approveReview(VeevaReview review);
 
+  Future<void> saveReviewRewardDecision({
+    required VeevaMember member,
+    required String rewardIssueStatus,
+    String? reason,
+  });
+
   Future<void> rejectActivityCompletion(VeevaActivityRecord record);
 
   Future<void> saveReward(VeevaReward reward);
@@ -137,7 +143,7 @@ class FirestoreVeevaRepository implements VeevaRepository {
       _activities.orderBy('active', descending: true).limit(20).get(),
       _news.limit(30).get(),
       _rewards.limit(50).get(),
-      _reviews.orderBy('completedAt', descending: true).limit(50).get(),
+      _reviews.limit(500).get(),
       _members.limit(300).get(),
       _admins.limit(100).get(),
       _activityRegistrations.limit(300).get(),
@@ -345,14 +351,47 @@ class FirestoreVeevaRepository implements VeevaRepository {
     await Future.wait([
       _reviews.doc(review.id).set({
         'status': VeevaReviewStatus.approved.name,
+        'rewardIssueStatus': review.rewardIssueStatus ?? 'pending',
         'approvedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true)),
       _members.doc(review.memberId).set({
         'status': VeevaMemberStatus.verified.name,
-        'earnedCoupons': FieldValue.increment(3),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true)),
     ]);
+  }
+
+  @override
+  Future<void> saveReviewRewardDecision({
+    required VeevaMember member,
+    required String rewardIssueStatus,
+    String? reason,
+  }) async {
+    final trimmedReason = reason?.trim();
+    final payload = <String, Object?>{
+      'memberId': member.id,
+      'lineUserId': member.lineUserId,
+      'name': member.name,
+      'hospital': member.hospital,
+      'department': member.department,
+      'status': VeevaReviewStatus.approved.name,
+      'completedAt': FieldValue.serverTimestamp(),
+      'rewardIssueStatus': rewardIssueStatus,
+      'rewardIssueReason': rewardIssueStatus == 'notIssued' &&
+              trimmedReason != null &&
+              trimmedReason.isNotEmpty
+          ? trimmedReason
+          : FieldValue.delete(),
+      'rewardIssueUpdatedAt': FieldValue.serverTimestamp(),
+      'rewardIssuedAt': rewardIssueStatus == 'issued'
+          ? FieldValue.serverTimestamp()
+          : FieldValue.delete(),
+      'rewardNotIssuedAt': rewardIssueStatus == 'notIssued'
+          ? FieldValue.serverTimestamp()
+          : FieldValue.delete(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    await _reviews.doc(member.id).set(payload, SetOptions(merge: true));
   }
 
   @override
@@ -1277,6 +1316,13 @@ class DemoVeevaRepository implements VeevaRepository {
 
   @override
   Future<void> approveReview(VeevaReview review) async {}
+
+  @override
+  Future<void> saveReviewRewardDecision({
+    required VeevaMember member,
+    required String rewardIssueStatus,
+    String? reason,
+  }) async {}
 
   @override
   Future<void> rejectActivityCompletion(VeevaActivityRecord record) async {}
