@@ -46,6 +46,9 @@ const emptyBootstrap: BootstrapData = {
   },
 }
 
+const liffInitTimeoutMs = 10_000
+const bootstrapTimeoutMs = 5_000
+
 export function useVeevaApp() {
   const initializedRef = useRef(false)
   const [state, setState] = useState<AppState>({
@@ -144,7 +147,18 @@ export function useVeevaApp() {
       const bootstrapPromise = repositoryPromise.then((repository) =>
         repository.loadBootstrap().catch(() => emptyBootstrap),
       )
-      const liffSession = await liffSessionPromise
+      void bootstrapPromise.then((bootstrap) => {
+        setState((current) => ({
+          ...current,
+          bootstrap,
+        }))
+      })
+      const liffSession = await withTimeout(liffSessionPromise, liffInitTimeoutMs, {
+        initialized: false,
+        loggedIn: false,
+        inClient: false,
+        error: 'LINE 初始化逾時，請重新整理後再試。',
+      })
 
       if (
         !liffSession.loggedIn &&
@@ -164,7 +178,11 @@ export function useVeevaApp() {
       }
 
       const repository = await repositoryPromise
-      const bootstrap = await bootstrapPromise
+      const bootstrap = await withTimeout(
+        bootstrapPromise,
+        bootstrapTimeoutMs,
+        emptyBootstrap,
+      )
       const pendingLoginUrl = liffApi.getPendingLoginRedirectUrl()
       const referralCode =
         referralCodeFromLocation() ??
@@ -532,4 +550,16 @@ function restoreUrlAfterLogin(url?: string) {
   } catch {
     return
   }
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T) {
+  let timeoutId: number | undefined
+  const timeout = new Promise<T>((resolve) => {
+    timeoutId = window.setTimeout(() => resolve(fallback), timeoutMs)
+  })
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timeoutId !== undefined) {
+      window.clearTimeout(timeoutId)
+    }
+  })
 }

@@ -12,6 +12,9 @@ export function OfficialAccountFriendGate({
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const friendshipError = app.officialAccountFriendshipError
+    ? officialAccountErrorMessage(app.officialAccountFriendshipError)
+    : ''
 
   async function joinOfficialAccount() {
     setBusy(true)
@@ -85,12 +88,23 @@ export function OfficialAccountFriendGate({
         )}
         {message && <p className="official-account-message">{message}</p>}
         {error && <p className="official-account-error">{error}</p>}
-        {app.officialAccountFriendshipError && !error && (
-          <p className="official-account-error">
-            {app.officialAccountFriendshipError}
-          </p>
+        {friendshipError && !error && (
+          <p className="official-account-error">{friendshipError}</p>
         )}
       </article>
     </section>
   )
+}
+
+function officialAccountErrorMessage(error: string) {
+  if (error === 'official_account_friendship_timeout') {
+    return '官方帳號狀態確認逾時，請先加入官方帳號後再重新檢查。'
+  }
+  if (error === 'friendship_api_unavailable') {
+    return '目前的 LIFF 環境不支援自動確認官方帳號狀態。'
+  }
+  if (error.includes('no login bot linked')) {
+    return '目前 LINE Login Channel 尚未綁定官方帳號。'
+  }
+  return error
 }

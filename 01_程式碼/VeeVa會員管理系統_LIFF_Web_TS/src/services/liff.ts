@@ -20,6 +20,8 @@ const idTokenExpiresAtKey = 'veeva_line_id_token_expires_at'
 const lineUserIdKey = 'veeva_line_user_id'
 const loginInfoKey = 'veeva_line_login_info'
 const tokenLifetimeMs = 60 * 60 * 1000
+const friendshipCheckTimeoutMs = 4_500
+const friendshipRequestTimeoutMs = 7_000
 const inviteImageUrl =
   'https://vevva.web.app/assets/share/coffee-member-gift-v1.png'
 const officialAccountId =
@@ -142,7 +144,18 @@ export async function getOfficialAccountFriendship(): Promise<OfficialAccountFri
       }
     }
 
-    const result = await getFriendship.call(liff)
+    const result = await withTimeout(
+      getFriendship.call(liff),
+      friendshipCheckTimeoutMs,
+      () => ({ friendFlag: false, timedOut: true }),
+    )
+    if ('timedOut' in result) {
+      return {
+        friend: false,
+        supported: false,
+        error: 'official_account_friendship_timeout',
+      }
+    }
     return {
       friend: result.friendFlag === true,
       supported: true,
@@ -168,8 +181,14 @@ export async function requestOfficialAccountFriendship() {
 
   if (typeof requestFriendship === 'function') {
     try {
-      await requestFriendship.call(liff)
-      return
+      const result = await withTimeout(
+        requestFriendship.call(liff).then(() => 'completed' as const),
+        friendshipRequestTimeoutMs,
+        () => 'timedOut' as const,
+      )
+      if (result === 'completed') {
+        return
+      }
     } catch {
       // Some LIFF/OA combinations do not support requestFriendship. The add-friend URL remains the fallback.
     }
@@ -644,6 +663,22 @@ function safeRead<T>(callback: () => T) {
   } catch {
     return undefined
   }
+}
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  fallback: () => T,
+) {
+  let timeoutId: number | undefined
+  const timeout = new Promise<T>((resolve) => {
+    timeoutId = window.setTimeout(() => resolve(fallback()), timeoutMs)
+  })
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timeoutId !== undefined) {
+      window.clearTimeout(timeoutId)
+    }
+  })
 }
 
 function loginRedirectUri() {
