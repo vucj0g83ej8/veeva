@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:excel/excel.dart' as xlsx;
 import 'package:qr_flutter/qr_flutter.dart';
 
 import 'data/firebase_bootstrap.dart';
@@ -19,6 +20,8 @@ import 'widgets/rich_article_editor_stub.dart'
 import 'services/admin_voucher_importer_base.dart';
 import 'services/admin_voucher_importer_stub.dart'
     if (dart.library.html) 'services/admin_voucher_importer_web.dart';
+import 'services/admin_excel_downloader_stub.dart'
+    if (dart.library.html) 'services/admin_excel_downloader_web.dart';
 
 class _BrandColors {
   static const primary = Color(0xFFFF9812);
@@ -6728,11 +6731,204 @@ class _MemberManagementState extends State<_MemberManagement> {
   int approvedReviewPage = 0;
   int issuedReviewPage = 0;
   int notIssuedReviewPage = 0;
+  bool isExportingMembers = false;
 
   @override
   void dispose() {
     searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _exportMemberExcel({
+    required List<backend.VeevaMember> loggedInMembers,
+    required List<_MemberReviewChecklistItem> pendingRows,
+    required List<_MemberReviewChecklistItem> approvedRows,
+    required List<_MemberReviewChecklistItem> issuedRows,
+    required List<_MemberReviewChecklistItem> notIssuedRows,
+  }) async {
+    setState(() => isExportingMembers = true);
+    try {
+      final excel = xlsx.Excel.createExcel();
+      _appendLoggedInMemberSheet(excel, loggedInMembers);
+      _appendReviewMemberSheet(excel, '待審核', pendingRows);
+      _appendReviewMemberSheet(excel, '已審核', approvedRows);
+      _appendReviewMemberSheet(excel, '已發放', issuedRows);
+      _appendReviewMemberSheet(excel, '未發放', notIssuedRows);
+      excel.delete('Sheet1');
+
+      final encoded = excel.encode();
+      if (encoded == null) {
+        throw StateError('Excel 檔案產生失敗');
+      }
+
+      await downloadAdminExcelFile(
+        fileName: 'VeeVa會員管理_${_exportTimestamp()}.xlsx',
+        bytes: Uint8List.fromList(encoded),
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('會員資料 Excel 已產生。')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('會員資料匯出失敗，請稍後再試。')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => isExportingMembers = false);
+      }
+    }
+  }
+
+  void _appendLoggedInMemberSheet(
+    xlsx.Excel excel,
+    List<backend.VeevaMember> members,
+  ) {
+    final sheet = excel['已登入會員'];
+    final headers = [
+      '會員名稱',
+      '電話',
+      '推薦人',
+      'LINE User ID',
+      'Email',
+      '分享碼',
+      '會員狀態',
+      '帳號狀態',
+      '電話驗證',
+      '電話驗證時間',
+      '第一次登入時間',
+      '最後一次登入時間',
+      '建立時間',
+      '更新時間',
+      '已得券',
+      '已邀請',
+    ];
+    sheet.appendRow(_excelCells(headers));
+    for (final member in members) {
+      sheet.appendRow(
+        _excelCells([
+          member.name,
+          _memberPhoneLabel(member),
+          _referrerNameFor(member, widget.members),
+          member.lineUserId ?? member.id,
+          member.email,
+          member.shareCode,
+          _memberStatusLabel(member.status),
+          _memberAccountStatusLabel(member.accountStatus),
+          _yesNo(member.phoneVerified || member.phoneVerifiedAt != null),
+          _memberDateTimeLabel(member.phoneVerifiedAt),
+          _memberDateTimeLabel(_memberFirstLoginAt(member)),
+          _memberDateTimeLabel(member.lastLineLoginAt),
+          _memberDateTimeLabel(member.createdAt),
+          _memberDateTimeLabel(member.updatedAt),
+          member.earnedCoupons,
+          member.invitedCount,
+        ]),
+      );
+    }
+    _formatMemberExportSheet(sheet, headers.length);
+  }
+
+  void _appendReviewMemberSheet(
+    xlsx.Excel excel,
+    String sheetName,
+    List<_MemberReviewChecklistItem> rows,
+  ) {
+    final sheet = excel[sheetName];
+    final headers = [
+      '會員名稱',
+      '電話',
+      '推薦人',
+      'LINE User ID',
+      'Email',
+      '會員狀態',
+      '電話驗證',
+      '電話驗證時間',
+      '問卷調查',
+      '問卷更新時間',
+      '獎勵發放狀態',
+      '未發放原因',
+      '最後一次登入時間',
+      '分享碼',
+    ];
+    sheet.appendRow(_excelCells(headers));
+    for (final row in rows) {
+      final member = row.member;
+      sheet.appendRow(
+        _excelCells([
+          member.name,
+          _memberPhoneLabel(member),
+          _referrerNameFor(member, widget.members),
+          member.lineUserId ?? member.id,
+          member.email,
+          _memberStatusLabel(member.status),
+          _yesNo(member.phoneVerified || member.phoneVerifiedAt != null),
+          _memberDateTimeLabel(member.phoneVerifiedAt),
+          row.surveyStatusLabel,
+          _memberDateTimeLabel(row.updatedAt),
+          row.rewardIssueLabel,
+          row.rewardIssueReason,
+          _memberDateTimeLabel(member.lastLineLoginAt),
+          member.shareCode,
+        ]),
+      );
+    }
+    _formatMemberExportSheet(sheet, headers.length);
+  }
+
+  List<xlsx.CellValue?> _excelCells(List<Object?> values) {
+    return [
+      for (final value in values)
+        xlsx.TextCellValue(
+          value == null || value.toString().trim().isEmpty
+              ? '-'
+              : value.toString(),
+        ),
+    ];
+  }
+
+  void _formatMemberExportSheet(xlsx.Sheet sheet, int columnCount) {
+    const widths = <double>[
+      18,
+      18,
+      18,
+      28,
+      28,
+      14,
+      14,
+      14,
+      14,
+      20,
+      20,
+      20,
+      20,
+      20,
+      12,
+      12,
+    ];
+    for (var index = 0; index < columnCount; index++) {
+      sheet.setColumnWidth(
+        index,
+        index < widths.length ? widths[index] : 18,
+      );
+    }
+  }
+
+  String _yesNo(bool value) => value ? '是' : '否';
+
+  String _exportTimestamp() {
+    final now = DateTime.now();
+    String two(int value) => value.toString().padLeft(2, '0');
+    return [
+      now.year.toString(),
+      two(now.month),
+      two(now.day),
+      '_',
+      two(now.hour),
+      two(now.minute),
+    ].join();
   }
 
   @override
@@ -6883,12 +7079,40 @@ class _MemberManagementState extends State<_MemberManagement> {
                         ),
                       ),
                     ),
-                    Text(
-                      countText,
-                      style: const TextStyle(color: Color(0xFF8A8D8F)),
+                    if (!isCompact)
+                      Text(
+                        countText,
+                        style: const TextStyle(color: Color(0xFF8A8D8F)),
+                      ),
+                    const SizedBox(width: 12),
+                    OutlinedButton.icon(
+                      onPressed: isExportingMembers
+                          ? null
+                          : () => _exportMemberExcel(
+                                loggedInMembers: loggedInMembers,
+                                pendingRows: pendingRows,
+                                approvedRows: approvedRows,
+                                issuedRows: issuedRows,
+                                notIssuedRows: notIssuedRows,
+                              ),
+                      icon: isExportingMembers
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.file_download_outlined),
+                      label: Text(isExportingMembers ? '匯出中' : '匯出 Excel'),
                     ),
                   ],
                 ),
+                if (isCompact) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    countText,
+                    style: const TextStyle(color: Color(0xFF8A8D8F)),
+                  ),
+                ],
                 const SizedBox(height: 14),
                 _MemberSearchField(
                   controller: searchController,
