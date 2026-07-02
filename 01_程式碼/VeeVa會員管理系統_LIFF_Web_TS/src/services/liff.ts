@@ -18,7 +18,10 @@ const idTokenKey = 'veeva_line_id_token'
 const idTokenExpiresAtKey = 'veeva_line_id_token_expires_at'
 const lineUserIdKey = 'veeva_line_user_id'
 const loginInfoKey = 'veeva_line_login_info'
+const officialAccountFriendshipCacheKey =
+  'veeva_official_account_friendship_cache'
 const tokenLifetimeMs = 60 * 60 * 1000
+const officialAccountFriendshipCacheTtlMs = 6 * 60 * 60 * 1000
 const friendshipCheckTimeoutMs = 4_500
 const friendshipRequestTimeoutMs = 7_000
 const inviteImageUrl =
@@ -111,11 +114,47 @@ export interface OfficialAccountFriendshipResult {
   error?: string
 }
 
+interface CachedOfficialAccountFriendship {
+  friend: boolean
+  supported: boolean
+  lineUserId?: string
+  checkedAt: string
+}
+
 export function officialAccountAddUrl() {
   const normalizedId = officialAccountId.startsWith('@')
     ? officialAccountId
     : `@${officialAccountId}`
   return `https://line.me/R/ti/p/${normalizedId}`
+}
+
+export function getCachedOfficialAccountFriendship(lineUserId?: string) {
+  try {
+    const raw = localStorage.getItem(officialAccountFriendshipCacheKey)
+    if (!raw) return undefined
+    const cached = JSON.parse(raw) as CachedOfficialAccountFriendship
+    const checkedAt = new Date(cached.checkedAt).getTime()
+    const expired =
+      !Number.isFinite(checkedAt) ||
+      Date.now() - checkedAt > officialAccountFriendshipCacheTtlMs
+    const mismatchedUser =
+      Boolean(lineUserId) &&
+      Boolean(cached.lineUserId) &&
+      cached.lineUserId !== lineUserId
+
+    if (expired || mismatchedUser) {
+      clearCachedOfficialAccountFriendship()
+      return undefined
+    }
+
+    return {
+      friend: cached.friend,
+      supported: cached.supported,
+    } satisfies OfficialAccountFriendshipResult
+  } catch {
+    clearCachedOfficialAccountFriendship()
+    return undefined
+  }
 }
 
 export async function getOfficialAccountFriendship(): Promise<OfficialAccountFriendshipResult> {
@@ -149,22 +188,59 @@ export async function getOfficialAccountFriendship(): Promise<OfficialAccountFri
       () => ({ friendFlag: false, timedOut: true }),
     )
     if ('timedOut' in result) {
+      const cached = getCachedOfficialAccountFriendship(session.profile?.userId)
+      if (cached?.friend) return cached
       return {
         friend: false,
         supported: false,
         error: 'official_account_friendship_timeout',
       }
     }
-    return {
+    const friendshipResult = {
       friend: result.friendFlag === true,
       supported: true,
     }
+    rememberOfficialAccountFriendship(friendshipResult, session.profile?.userId)
+    return friendshipResult
   } catch (error) {
+    const cached = getCachedOfficialAccountFriendship(session.profile?.userId)
+    if (cached?.friend) return cached
     return {
       friend: false,
       supported: false,
       error: error instanceof Error ? error.message : String(error),
     }
+  }
+}
+
+function rememberOfficialAccountFriendship(
+  result: OfficialAccountFriendshipResult,
+  lineUserId?: string,
+) {
+  try {
+    if (!result.friend) {
+      clearCachedOfficialAccountFriendship()
+      return
+    }
+    localStorage.setItem(
+      officialAccountFriendshipCacheKey,
+      JSON.stringify({
+        friend: true,
+        supported: result.supported,
+        lineUserId,
+        checkedAt: new Date().toISOString(),
+      } satisfies CachedOfficialAccountFriendship),
+    )
+  } catch {
+    // A cache miss is fine; the next app open can still call the LIFF API.
+  }
+}
+
+function clearCachedOfficialAccountFriendship() {
+  try {
+    localStorage.removeItem(officialAccountFriendshipCacheKey)
+  } catch {
+    // Ignore storage failures.
   }
 }
 

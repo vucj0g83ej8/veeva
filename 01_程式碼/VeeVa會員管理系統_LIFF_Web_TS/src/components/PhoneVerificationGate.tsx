@@ -5,6 +5,7 @@ import {
   confirmPhoneVerificationCode,
   normalizePhoneNumber,
   normalizeVerificationCode,
+  resetPhoneVerificationSession,
   sendPhoneVerificationCode,
 } from '../services/phoneVerification'
 
@@ -139,6 +140,7 @@ export function PhoneVerificationGate({ app }: PhoneVerificationGateProps) {
                 type="button"
                 disabled={busy}
                 onClick={() => {
+                  resetPhoneVerificationSession()
                   setSentPhoneNumber('')
                   setVerificationCode('')
                   setMessage('')

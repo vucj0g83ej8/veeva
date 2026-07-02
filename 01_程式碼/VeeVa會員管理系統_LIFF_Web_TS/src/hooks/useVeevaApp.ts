@@ -99,13 +99,17 @@ export function useVeevaApp() {
     }))
   }, [])
 
-  const refreshOfficialAccountFriendship = useCallback(async () => {
+  const refreshOfficialAccountFriendship = useCallback(async (memberId?: string) => {
+    const { getCachedOfficialAccountFriendship, getOfficialAccountFriendship } =
+      await import('../services/liff')
+    const cachedFriendship = getCachedOfficialAccountFriendship(memberId)
     setState((current) => ({
       ...current,
-      officialAccountFriendshipReady: false,
+      officialAccountFriendshipReady: cachedFriendship?.friend === true,
+      officialAccountFriend: cachedFriendship?.friend === true,
+      officialAccountFriendshipSupported: cachedFriendship?.supported ?? true,
       officialAccountFriendshipError: undefined,
     }))
-    const { getOfficialAccountFriendship } = await import('../services/liff')
     const result = await getOfficialAccountFriendship()
     setState((current) => ({
       ...current,
@@ -218,7 +222,7 @@ export function useVeevaApp() {
       }))
 
       if (member) {
-        void refreshOfficialAccountFriendship()
+        void refreshOfficialAccountFriendship(member.id)
         void repository
           .upsertLineMember({
             profile: liffSession.profile!,
@@ -322,7 +326,7 @@ export function useVeevaApp() {
         notifications: [],
         referrals: [],
       }))
-      await refreshOfficialAccountFriendship()
+      await refreshOfficialAccountFriendship(member.id)
       await refreshMemberDetails(member)
     } catch (error) {
       setState((current) => ({

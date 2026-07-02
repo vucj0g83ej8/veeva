@@ -63,6 +63,7 @@ export async function sendPhoneVerificationCode(
     phoneNumber: normalizedPhoneNumber,
     memberId,
   })
+  resetPhoneVerificationSession()
   const verifier = getRecaptchaVerifier()
 
   try {
@@ -101,6 +102,7 @@ export async function confirmPhoneVerificationCode(
     if (!phoneNumber) {
       throw new Error('無法取得已驗證的手機號碼')
     }
+    resetPhoneVerificationSession()
     return {
       phoneNumber,
       firebasePhoneUid: credential.user.uid,
@@ -108,6 +110,11 @@ export async function confirmPhoneVerificationCode(
   } catch (error) {
     throw new Error(firebasePhoneAuthMessage(error), { cause: error })
   }
+}
+
+export function resetPhoneVerificationSession() {
+  confirmationResult = undefined
+  resetRecaptchaVerifier()
 }
 
 function getRecaptchaVerifier() {
