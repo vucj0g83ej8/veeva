@@ -65,6 +65,38 @@ export async function loadBootstrap(): Promise<BootstrapData> {
   };
 }
 
+export async function loadInitialBootstrap(): Promise<BootstrapData> {
+  const [activitySnap, clientSettingsSnap] = await Promise.all([
+    getDocs(query(collection(firestore, "activities"), limit(60))),
+    getDoc(doc(firestore, "systemSettings", "clientApp")),
+  ]);
+
+  return {
+    activities: activitySnap.docs.map((item) =>
+      activityFromData(item.id, item.data()),
+    ),
+    news: [],
+    rewards: [],
+    clientSettings: clientSettingsFromData(clientSettingsSnap.data() ?? {}),
+  };
+}
+
+export async function loadDeferredBootstrapContent(): Promise<
+  Pick<BootstrapData, "news" | "rewards">
+> {
+  const [newsSnap, rewardSnap] = await Promise.all([
+    getDocs(query(collection(firestore, "news"), limit(60))),
+    getDocs(query(collection(firestore, "rewards"), limit(80))),
+  ]);
+
+  return {
+    news: newsSnap.docs.map((item) => newsFromData(item.id, item.data())),
+    rewards: rewardSnap.docs.map((item) =>
+      rewardFromData(item.id, item.data()),
+    ),
+  };
+}
+
 export function subscribeActivities(
   onActivities: (activities: VeevaActivity[]) => void,
   onError?: (error: Error) => void,

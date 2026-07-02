@@ -11,7 +11,8 @@ import {
   setDoc,
   Timestamp,
 } from 'firebase/firestore'
-import { firebaseAuth, firestore } from './firebase'
+import { firestore } from './firebase'
+import { firebaseAuth } from './firebaseAuth'
 
 let recaptchaVerifier: RecaptchaVerifier | undefined
 let confirmationResult: ConfirmationResult | undefined

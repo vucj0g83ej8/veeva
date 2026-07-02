@@ -1,13 +1,6 @@
 import { MessageSquareText, Phone, ShieldCheck } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import type { VeevaAppState } from '../hooks/useVeevaApp'
-import {
-  confirmPhoneVerificationCode,
-  normalizePhoneNumber,
-  normalizeVerificationCode,
-  resetPhoneVerificationSession,
-  sendPhoneVerificationCode,
-} from '../services/phoneVerification'
 
 interface PhoneVerificationGateProps {
   app: VeevaAppState
@@ -34,6 +27,9 @@ export function PhoneVerificationGate({ app }: PhoneVerificationGateProps) {
     setError('')
     setMessage('')
     try {
+      const { sendPhoneVerificationCode } = await import(
+        '../services/phoneVerification'
+      )
       const normalizedPhoneNumber = await sendPhoneVerificationCode(
         phoneNumber,
         app.member?.id,
@@ -53,6 +49,9 @@ export function PhoneVerificationGate({ app }: PhoneVerificationGateProps) {
     setError('')
     setMessage('')
     try {
+      const { confirmPhoneVerificationCode } = await import(
+        '../services/phoneVerification'
+      )
       const result = await confirmPhoneVerificationCode(verificationCode)
       await app.completePhoneVerification(result)
       setMessage('手機驗證完成。')
@@ -139,7 +138,10 @@ export function PhoneVerificationGate({ app }: PhoneVerificationGateProps) {
                 className="text-action phone-verification-reset"
                 type="button"
                 disabled={busy}
-                onClick={() => {
+                onClick={async () => {
+                  const { resetPhoneVerificationSession } = await import(
+                    '../services/phoneVerification'
+                  )
                   resetPhoneVerificationSession()
                   setSentPhoneNumber('')
                   setVerificationCode('')
@@ -169,4 +171,35 @@ export function PhoneVerificationGate({ app }: PhoneVerificationGateProps) {
       <div id="phone-recaptcha-container" />
     </section>
   )
+}
+
+function normalizePhoneNumber(input: string) {
+  const trimmed = input.trim()
+  if (!trimmed) {
+    throw new Error('請輸入手機號碼')
+  }
+
+  const international = trimmed.replace(/[^\d+]/g, '')
+  if (international.startsWith('+')) {
+    if (!/^\+\d{8,15}$/.test(international)) {
+      throw new Error('請輸入正確的國際手機格式，例如 +886912345678')
+    }
+    return international
+  }
+
+  const digits = trimmed.replace(/\D/g, '')
+  if (/^09\d{8}$/.test(digits)) {
+    return `+886${digits.slice(1)}`
+  }
+  if (/^8869\d{8}$/.test(digits)) {
+    return `+${digits}`
+  }
+
+  throw new Error('請輸入台灣手機號碼，例如 0912345678')
+}
+
+function normalizeVerificationCode(input: string) {
+  const firstSixDigitCode = input.match(/\d{6}/)?.[0]
+  if (firstSixDigitCode) return firstSixDigitCode
+  return input.replace(/\D/g, '').slice(0, 6)
 }

@@ -16,6 +16,12 @@ import {
   rememberPendingReferralCode,
   shareCodeFromId,
 } from '../utils/shareCode'
+import {
+  clearCachedMember,
+  readCachedMember,
+  rememberCachedMember,
+} from '../utils/localMemberCache'
+import { getCachedOfficialAccountFriendship } from '../utils/officialAccountFriendshipCache'
 
 interface AppState {
   initializing: boolean
@@ -51,20 +57,28 @@ const bootstrapTimeoutMs = 5_000
 
 export function useVeevaApp() {
   const initializedRef = useRef(false)
-  const [state, setState] = useState<AppState>({
-    initializing: true,
-    authenticating: false,
-    memberProfileReady: false,
-    officialAccountFriendshipReady: false,
-    officialAccountFriend: false,
-    officialAccountFriendshipSupported: true,
-    busy: false,
-    bootstrap: emptyBootstrap,
-    memberActivityRecords: [],
-    memberRewards: [],
-    notifications: [],
-    referrals: [],
-    referralCode: captureReferralCodeFromLocation(),
+  const [state, setState] = useState<AppState>(() => {
+    const cachedMember = readCachedMember()
+    const cachedFriendship = cachedMember
+      ? getCachedOfficialAccountFriendship(cachedMember.id)
+      : undefined
+
+    return {
+      initializing: !cachedMember,
+      authenticating: false,
+      memberProfileReady: Boolean(cachedMember),
+      officialAccountFriendshipReady: cachedFriendship?.friend === true,
+      officialAccountFriend: cachedFriendship?.friend === true,
+      officialAccountFriendshipSupported: cachedFriendship?.supported ?? true,
+      busy: false,
+      bootstrap: emptyBootstrap,
+      member: cachedMember,
+      memberActivityRecords: [],
+      memberRewards: [],
+      notifications: [],
+      referrals: [],
+      referralCode: captureReferralCodeFromLocation(),
+    }
   })
 
   const refreshMemberDetails = useCallback(async (member: VeevaMember) => {
@@ -74,20 +88,27 @@ export function useVeevaApp() {
       loadMemberRewards,
       loadReferralRecords,
     } = await import('../services/veevaRepository')
-    const [memberActivityRecords, memberRewards, referrals, notifications] =
-      await Promise.all([
-        loadMemberActivityRecords(member.id).catch(() => []),
-        loadMemberRewards(member.id).catch(() => []),
-        loadReferralRecords(member.id).catch(() => []),
-        loadMemberNotifications(member.id).catch(() => []),
-      ])
+
+    const memberActivityRecords = await loadMemberActivityRecords(member.id).catch(
+      () => [],
+    )
     setState((current) => ({
       ...current,
       memberActivityRecords,
-      memberRewards,
-      notifications,
-      referrals,
     }))
+
+    void Promise.all([
+      loadMemberRewards(member.id).catch(() => []),
+      loadReferralRecords(member.id).catch(() => []),
+      loadMemberNotifications(member.id).catch(() => []),
+    ]).then(([memberRewards, referrals, notifications]) => {
+      setState((current) => ({
+        ...current,
+        memberRewards,
+        notifications,
+        referrals,
+      }))
+    })
   }, [])
 
   const refreshMemberNotifications = useCallback(async (member: VeevaMember) => {
@@ -100,8 +121,6 @@ export function useVeevaApp() {
   }, [])
 
   const refreshOfficialAccountFriendship = useCallback(async (memberId?: string) => {
-    const { getCachedOfficialAccountFriendship, getOfficialAccountFriendship } =
-      await import('../services/liff')
     const cachedFriendship = getCachedOfficialAccountFriendship(memberId)
     setState((current) => ({
       ...current,
@@ -110,6 +129,7 @@ export function useVeevaApp() {
       officialAccountFriendshipSupported: cachedFriendship?.supported ?? true,
       officialAccountFriendshipError: undefined,
     }))
+    const { getOfficialAccountFriendship } = await import('../services/liff')
     const result = await getOfficialAccountFriendship()
     setState((current) => ({
       ...current,
@@ -134,14 +154,20 @@ export function useVeevaApp() {
   }, [state.referralCode])
 
   const initialize = useCallback(async () => {
+    const cachedMember = readCachedMember()
+    const cachedFriendship = cachedMember
+      ? getCachedOfficialAccountFriendship(cachedMember.id)
+      : undefined
     setState((current) => ({
       ...current,
-      initializing: true,
+      initializing: !cachedMember,
       authenticating: false,
-      memberProfileReady: false,
-      officialAccountFriendshipReady: false,
-      officialAccountFriend: false,
+      memberProfileReady: Boolean(cachedMember),
+      officialAccountFriendshipReady: cachedFriendship?.friend === true,
+      officialAccountFriend: cachedFriendship?.friend === true,
+      officialAccountFriendshipSupported: cachedFriendship?.supported ?? true,
       officialAccountFriendshipError: undefined,
+      member: cachedMember ?? current.member,
       error: undefined,
     }))
     try {
@@ -149,13 +175,30 @@ export function useVeevaApp() {
       const repositoryPromise = import('../services/veevaRepository')
       const liffSessionPromise = liffApi.initializeLiff()
       const bootstrapPromise = repositoryPromise.then((repository) =>
-        repository.loadBootstrap().catch(() => emptyBootstrap),
+        repository.loadInitialBootstrap().catch(() => emptyBootstrap),
       )
       void bootstrapPromise.then((bootstrap) => {
         setState((current) => ({
           ...current,
           bootstrap,
         }))
+      })
+      void bootstrapPromise.finally(() => {
+        window.setTimeout(() => {
+          void repositoryPromise
+            .then((repository) => repository.loadDeferredBootstrapContent())
+            .then(({ news, rewards }) => {
+              setState((current) => ({
+                ...current,
+                bootstrap: {
+                  ...current.bootstrap,
+                  news,
+                  rewards,
+                },
+              }))
+            })
+            .catch(() => undefined)
+        }, 300)
       })
       const liffSession = await withTimeout(liffSessionPromise, liffInitTimeoutMs, {
         initialized: false,
@@ -230,6 +273,7 @@ export function useVeevaApp() {
             referralCode,
           })
           .then(async (updatedMember) => {
+            rememberCachedMember(updatedMember)
             setState((current) => ({
               ...current,
               member: updatedMember,
@@ -313,6 +357,7 @@ export function useVeevaApp() {
         referralCode:
           referralCodeFromLocation() ?? state.referralCode ?? readPendingReferralCode(),
       })
+      rememberCachedMember(member)
       setState((current) => ({
         ...current,
         busy: false,
@@ -338,6 +383,7 @@ export function useVeevaApp() {
   }, [refreshMemberDetails, refreshOfficialAccountFriendship, state.referralCode])
 
   const logout = useCallback(async () => {
+    clearCachedMember()
     const { logoutLine } = await import('../services/liff')
     logoutLine()
   }, [])
@@ -402,6 +448,7 @@ export function useVeevaApp() {
           name: input.name,
           email: input.email,
         })
+        rememberCachedMember(member)
         setState((current) => ({
           ...current,
           busy: false,
@@ -441,6 +488,7 @@ export function useVeevaApp() {
             state.referralCode ??
             readPendingReferralCode(),
         })
+        rememberCachedMember(member)
         setState((current) => ({
           ...current,
           busy: false,
