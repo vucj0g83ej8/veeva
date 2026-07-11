@@ -26,8 +26,10 @@ const loginInfoKey = 'veeva_line_login_info'
 const tokenLifetimeMs = 60 * 60 * 1000
 const friendshipCheckTimeoutMs = 4_500
 const friendshipRequestTimeoutMs = 7_000
-const inviteImageUrl =
-  'https://vevva.web.app/assets/share/openpoint-member-gift-v1.png'
+const publicAppUrl =
+  import.meta.env.VITE_PUBLIC_LIFF_URL?.replace(/\/$/, '') ||
+  'https://veeva.web.app'
+const inviteImageUrl = `${publicAppUrl}/assets/share/openpoint-member-gift-v1.png`
 const officialAccountId =
   import.meta.env.VITE_LINE_OFFICIAL_ACCOUNT_ID?.trim() || '@896pwyxc'
 export const lineCardShareUnsupportedError = 'LINE_CARD_SHARE_UNSUPPORTED'

@@ -44,10 +44,10 @@ flutter build web --dart-define=LIFF_ID=2010298394-7PwRtpTY
 - LIFF ID：`2010298394-7PwRtpTY`
 - LIFF URL：`https://liff.line.me/2010298394-7PwRtpTY`
 - LINE Official Account：`@896pwyxc` / `veeva 測試`
-- 目前 rich menu ID：`richmenu-5ff0f7c1930b0f730063a196558b8828`
-- 舊版測試 rich menu ID：`richmenu-332486f0cedb701fcb794dc9568b59a2`
+- 目前 rich menu ID：`richmenu-a08bca3d20269537e9ae7cd9dc4d3e4e`
+- 舊版測試 rich menu ID：`richmenu-305c6fb4f185b7cef9fb0f10657c1437`
 
-目前 LINE@ 預設圖文選單已透過 Messaging API 設為 OPENPOINT 問卷入口，版面為上方主視覺加下方三個入口：
+目前 LINE@ 預設圖文選單已透過 Messaging API 設為 7-ELEVEN 虛擬商品卡問卷入口，版面為上方主視覺加下方三個入口：
 
 - `https://liff.line.me/2010298394-7PwRtpTY/activities/survey-coffee`
 - `https://liff.line.me/2010298394-7PwRtpTY/activities/survey-coffee?share=1`

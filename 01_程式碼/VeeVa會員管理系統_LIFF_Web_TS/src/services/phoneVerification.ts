@@ -18,6 +18,8 @@ let recaptchaVerifier: RecaptchaVerifier | undefined
 let confirmationResult: ConfirmationResult | undefined
 const smsSendCooldownMs = 60_000
 const smsVerificationCodeLength = 6
+const smsSendTimeoutMs = 25_000
+const rateLimitTimeoutMs = 8_000
 
 export interface ConfirmedPhoneVerification {
   phoneNumber: string
@@ -60,24 +62,34 @@ export async function sendPhoneVerificationCode(
   memberId?: string,
 ) {
   const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber)
-  const rateLimitId = await reservePhoneVerificationSend({
-    phoneNumber: normalizedPhoneNumber,
-    memberId,
-  })
+  const rateLimitId = await withTimeout(
+    reservePhoneVerificationSend({
+      phoneNumber: normalizedPhoneNumber,
+      memberId,
+    }),
+    rateLimitTimeoutMs,
+    '簡訊發送檢查逾時，請確認網路狀態後再試一次',
+  )
   resetPhoneVerificationSession()
   const verifier = getRecaptchaVerifier()
 
   try {
-    await verifier.render()
-    confirmationResult = await signInWithPhoneNumber(
-      firebaseAuth,
-      normalizedPhoneNumber,
-      verifier,
+    await withTimeout(
+      verifier.render(),
+      smsSendTimeoutMs,
+      '簡訊驗證初始化逾時，請重新整理後再試一次',
     )
-    await markPhoneVerificationSmsSent(rateLimitId)
+    confirmationResult = await withTimeout(
+      signInWithPhoneNumber(firebaseAuth, normalizedPhoneNumber, verifier),
+      smsSendTimeoutMs,
+      '簡訊發送逾時，請確認網路狀態後再重新發送',
+    )
+    // The verification UI must not wait for an analytics/rate-limit write.
+    void markPhoneVerificationSmsSent(rateLimitId).catch(() => undefined)
     return normalizedPhoneNumber
   } catch (error) {
-    await releasePhoneVerificationSmsReservation(rateLimitId).catch(() => undefined)
+    // Surface the Firebase error immediately even if Firestore is temporarily slow.
+    void releasePhoneVerificationSmsReservation(rateLimitId).catch(() => undefined)
     resetRecaptchaVerifier()
     throw new Error(firebasePhoneAuthMessage(error), { cause: error })
   }
@@ -141,6 +153,21 @@ function resetRecaptchaVerifier() {
     // Firebase can throw if the widget was never rendered.
   }
   recaptchaVerifier = undefined
+}
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+) {
+  let timeoutId: number | undefined
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = window.setTimeout(() => reject(new Error(message)), timeoutMs)
+  })
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeoutId !== undefined) window.clearTimeout(timeoutId)
+  })
 }
 
 async function reservePhoneVerificationSend(input: {
@@ -257,7 +284,7 @@ function firebasePhoneAuthMessage(error: unknown) {
     return '安全驗證失敗，請重新取得驗證碼'
   }
   if (code.includes('operation-not-allowed')) {
-    return '尚未啟用 Firebase 手機登入功能'
+    return 'Firebase 手機登入或簡訊發送地區尚未開啟，請確認 Phone 登入與台灣 +886 已啟用'
   }
   if (code.includes('configuration-not-found')) {
     return '尚未設定 Firebase Authentication，請先在 Firebase Console 啟用 Authentication 與手機登入'

@@ -1,15 +1,6 @@
 {
   "projects": {
-    "default": "veeva-8d30c"
-  },
-  "targets": {
-    "veeva-8d30c": {
-      "hosting": {
-        "vevva": [
-          "vevva"
-        ]
-      }
-    }
+    "default": "veeva-app-74c09"
   },
   "etags": {}
 }

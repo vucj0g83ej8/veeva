@@ -66,11 +66,9 @@ export function MemberPage({ app }: PageProps) {
 
   return (
     <section className="member-page">
-      <p className="member-page-subtitle">
-        {app.member.status === 'verified'
-          ? '已完成資格驗證'
-          : '完成問卷後即可啟用完整會員功能。'}
-      </p>
+      {app.member.status === 'verified' ? (
+        <p className="member-page-subtitle">已完成資格驗證</p>
+      ) : null}
 
       <article className="member-card member-profile-card">
         <div className="member-profile-row">
@@ -83,7 +81,7 @@ export function MemberPage({ app }: PageProps) {
           )}
           <div className="member-profile-copy">
             <h2>{app.member.name}</h2>
-            <p>{memberSubtitle}</p>
+            {memberSubtitle ? <p>{memberSubtitle}</p> : null}
           </div>
           <span className={`member-status-tag ${status.tone}`}>{status.label}</span>
         </div>
@@ -403,7 +401,7 @@ function memberStatusMeta(member: VeevaMember, disabled: boolean) {
   if (disabled) return { label: '停用', tone: 'danger' }
   const statusMap: Record<VeevaMemberStatus, { label: string; tone: string }> = {
     guest: { label: '未登入', tone: 'muted' },
-    loggedIn: { label: '尚未驗證', tone: 'warning' },
+    loggedIn: { label: '資料審核中', tone: 'warning' },
     pendingReview: { label: '審核中', tone: 'pending' },
     verified: { label: '已驗證', tone: 'success' },
   }
@@ -423,5 +421,5 @@ function memberSubtitleFor(member: VeevaMember) {
     return profileText || '會員資料已完成'
   }
   if (member.status === 'pendingReview') return '會員資料審核中'
-  return '尚未完成會員流程'
+  return ''
 }

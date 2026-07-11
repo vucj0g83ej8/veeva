@@ -22,11 +22,29 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyAhPSWe0Vx8DTOC7gtp5ZJO1jfBnE3Y9oU',
-    appId: '1:448360837259:web:d632a699cce1259b7ee48e',
-    messagingSenderId: '448360837259',
-    projectId: 'veeva-8d30c',
-    authDomain: 'veeva-8d30c.firebaseapp.com',
-    storageBucket: 'veeva-8d30c.firebasestorage.app',
+    apiKey: String.fromEnvironment(
+      'FIREBASE_API_KEY',
+      defaultValue: 'AIzaSyD4247GK-MCzwi63Aemf_Y9YTp9W8rILJw',
+    ),
+    appId: String.fromEnvironment(
+      'FIREBASE_APP_ID',
+      defaultValue: '1:403574131131:web:943768242a77c2ca4adc9e',
+    ),
+    messagingSenderId: String.fromEnvironment(
+      'FIREBASE_MESSAGING_SENDER_ID',
+      defaultValue: '403574131131',
+    ),
+    projectId: String.fromEnvironment(
+      'FIREBASE_PROJECT_ID',
+      defaultValue: 'veeva-app-74c09',
+    ),
+    authDomain: String.fromEnvironment(
+      'FIREBASE_AUTH_DOMAIN',
+      defaultValue: 'veeva-app-74c09.firebaseapp.com',
+    ),
+    storageBucket: String.fromEnvironment(
+      'FIREBASE_STORAGE_BUCKET',
+      defaultValue: 'veeva-app-74c09.firebasestorage.app',
+    ),
   );
 }

@@ -1,5 +1,4 @@
-import { AlertCircle, LogIn, RefreshCw } from 'lucide-react'
-import { useLocation } from 'react-router-dom'
+import { AlertCircle, RefreshCw } from 'lucide-react'
 import type { VeevaAppState } from '../hooks/useVeevaApp'
 
 interface AuthNoticeProps {
@@ -7,13 +6,6 @@ interface AuthNoticeProps {
 }
 
 export function AuthNotice({ app }: AuthNoticeProps) {
-  const location = useLocation()
-  const hasPageLoginPanel =
-    location.pathname === '/member' ||
-    location.pathname === '/coupons' ||
-    location.pathname.startsWith('/r/') ||
-    location.pathname.startsWith('/e/')
-
   if (app.disabled) {
     return (
       <section className="notice danger">
@@ -37,26 +29,6 @@ export function AuthNotice({ app }: AuthNoticeProps) {
         <button type="button" className="text-action" onClick={app.refresh}>
           <RefreshCw size={16} />
           重試
-        </button>
-      </section>
-    )
-  }
-
-  if (!app.liffSession?.loggedIn && !hasPageLoginPanel) {
-    return (
-      <section className="notice">
-        <LogIn size={19} />
-        <div>
-          <strong>尚未登入 LINE</strong>
-          <p>登入後可查看會員資料、兌換券與邀請紀錄。</p>
-        </div>
-        <button
-          className="text-action"
-          disabled={app.busy}
-          type="button"
-          onClick={app.login}
-        >
-          LINE 登入
         </button>
       </section>
     )

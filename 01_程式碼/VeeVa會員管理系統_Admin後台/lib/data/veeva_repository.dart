@@ -36,6 +36,8 @@ abstract class VeevaRepository {
 
   Future<void> rejectActivityCompletion(VeevaActivityRecord record);
 
+  Future<void> resetActivityCompletion(VeevaActivityRecord record);
+
   Future<void> saveReward(VeevaReward reward);
 
   Future<int> importRewardVoucherLinks({
@@ -460,6 +462,57 @@ class FirestoreVeevaRepository implements VeevaRepository {
       }
     }
 
+    await batch.commit();
+  }
+
+  @override
+  Future<void> resetActivityCompletion(VeevaActivityRecord record) async {
+    final pendingRewards = await _memberRewards
+        .where('activityId', isEqualTo: record.activityId)
+        .limit(200)
+        .get();
+    final batch = firestore.batch();
+    final completionId = _activityCompletionDocumentId(
+      memberId: record.memberId,
+      activityId: record.activityId,
+    );
+    final registrationId = [record.activityId, record.memberId]
+        .map(_firestoreDocumentSegment)
+        .join('_');
+    final completedNotificationId = _memberNotificationDocumentId(
+      memberId: record.memberId,
+      eventId: '${record.activityId}-activity-completed',
+    );
+    final rejectedNotificationId = _memberNotificationDocumentId(
+      memberId: record.memberId,
+      eventId: '${record.activityId}-activity-rejected',
+    );
+
+    batch.delete(_activityCompletions.doc(record.id));
+    if (completionId != record.id) {
+      batch.delete(_activityCompletions.doc(completionId));
+    }
+    batch.delete(_activityRegistrations.doc(record.id));
+    if (registrationId != record.id) {
+      batch.delete(_activityRegistrations.doc(registrationId));
+    }
+    batch.delete(_memberNotifications.doc(completedNotificationId));
+    batch.delete(_memberNotifications.doc(rejectedNotificationId));
+
+    for (final doc in pendingRewards.docs) {
+      final data = doc.data();
+      if (data['status']?.toString() != 'pending') {
+        continue;
+      }
+      final source = data['source']?.toString();
+      final isParticipantReward = source == 'activityCompletion' &&
+          data['memberId']?.toString() == record.memberId;
+      final isReferrerReward = source == 'referralActivityCompletion' &&
+          data['sourceMemberId']?.toString() == record.memberId;
+      if (isParticipantReward || isReferrerReward) {
+        batch.delete(doc.reference);
+      }
+    }
     await batch.commit();
   }
 
@@ -1328,6 +1381,9 @@ class DemoVeevaRepository implements VeevaRepository {
   Future<void> rejectActivityCompletion(VeevaActivityRecord record) async {}
 
   @override
+  Future<void> resetActivityCompletion(VeevaActivityRecord record) async {}
+
+  @override
   Future<void> saveReward(VeevaReward reward) async {}
 
   @override
@@ -1448,7 +1504,11 @@ String _employeeActivityLinkCode({
 }
 
 String _employeeLiffUrlForCode(String code) {
-  return 'https://liff.line.me/2010298394-7PwRtpTY/e/$code';
+  const memberLiffId = String.fromEnvironment(
+    'MEMBER_LIFF_ID',
+    defaultValue: '2010298394-7PwRtpTY',
+  );
+  return 'https://liff.line.me/$memberLiffId/e/$code';
 }
 
 int _readIntLike(Object? value) {

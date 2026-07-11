@@ -47,8 +47,8 @@ async function main() {
       height: 1686,
     },
     selected: true,
-    name: 'VeeVa OPENPOINT 問卷選單 v2',
-    chatBarText: '填問卷送點數',
+    name: 'VeeVa 7-ELEVEN 商品卡問卷選單',
+    chatBarText: '填問卷送商品卡',
     areas: [
       {
         bounds: {

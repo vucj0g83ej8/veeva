@@ -25,7 +25,7 @@ export function PhoneVerificationGate({ app }: PhoneVerificationGateProps) {
   async function sendCode() {
     setBusy(true)
     setError('')
-    setMessage('')
+    setMessage('正在發送驗證碼，請稍候...')
     try {
       const { sendPhoneVerificationCode } = await import(
         '../services/phoneVerification'
@@ -99,7 +99,7 @@ export function PhoneVerificationGate({ app }: PhoneVerificationGateProps) {
               onClick={sendCode}
             >
               <MessageSquareText size={19} />
-              發送驗證碼
+              {busy ? '發送中...' : '發送驗證碼'}
             </button>
           )}
 

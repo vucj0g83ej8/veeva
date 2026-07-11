@@ -8,10 +8,10 @@
   },
   "functions": {
     "source": "functions",
-    "runtime": "nodejs22"
+    "runtime": "nodejs20"
   },
   "hosting": {
-    "site": "veeva-admin",
+    "site": "veeva-admin-74c09",
     "public": "build/web",
     "ignore": [
       "firebase.json",

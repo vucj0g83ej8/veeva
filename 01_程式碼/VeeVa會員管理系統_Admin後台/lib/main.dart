@@ -229,6 +229,9 @@ class _MemberReviewChecklistItem {
 
   bool get canApprove => surveySubmitted && !memberApproved;
 
+  bool get canRejectReview =>
+      surveyRecord != null && !memberApproved && !rewardNotIssued;
+
   bool get rewardIssued => rewardIssueStatus == ReviewRewardIssueStatus.issued;
 
   bool get rewardNotIssued =>
@@ -477,6 +480,130 @@ List<backend.VeevaMember> _referralsForMember(
     return a.name.compareTo(b.name);
   });
   return referrals;
+}
+
+Future<void> _exportMemberReferralExcel(
+  BuildContext context, {
+  required backend.VeevaMember referrer,
+  required List<backend.VeevaMember> referrals,
+}) async {
+  final excel = xlsx.Excel.createExcel();
+  final sheet = excel['推薦名單'];
+  final headers = [
+    '會員名稱',
+    '電話',
+    '人員狀態',
+    '帳號狀態',
+    '電話驗證',
+    '電話驗證時間',
+    '推薦時間',
+    'LINE User ID',
+    'Email',
+    '分享碼',
+    '已得券',
+    '已邀請',
+    '建立時間',
+    '最後登入時間',
+  ];
+  sheet.appendRow(_excelTextCells(headers));
+  for (final referral in referrals) {
+    sheet.appendRow(
+      _excelTextCells([
+        referral.name,
+        _memberPhoneLabel(referral),
+        _memberStatusLabel(referral.status),
+        _memberAccountStatusLabel(referral.accountStatus),
+        referral.phoneVerified || referral.phoneVerifiedAt != null ? '是' : '否',
+        _memberDateTimeLabel(referral.phoneVerifiedAt),
+        _memberDateTimeLabel(
+          referral.referredAt ?? referral.createdAt ?? referral.lastLineLoginAt,
+        ),
+        referral.lineUserId ?? referral.id,
+        referral.email,
+        referral.shareCode,
+        referral.earnedCoupons,
+        referral.invitedCount,
+        _memberDateTimeLabel(referral.createdAt),
+        _memberDateTimeLabel(referral.lastLineLoginAt),
+      ]),
+    );
+  }
+  excel.delete('Sheet1');
+  const widths = <double>[
+    18,
+    18,
+    14,
+    14,
+    12,
+    20,
+    20,
+    30,
+    28,
+    16,
+    10,
+    10,
+    20,
+    20,
+  ];
+  for (var index = 0; index < headers.length; index++) {
+    sheet.setColumnWidth(index, widths[index]);
+  }
+
+  final encoded = excel.encode();
+  if (encoded == null) {
+    throw StateError('Excel 檔案產生失敗');
+  }
+
+  final name = _safeExcelFileNamePart(referrer.name);
+  final phone = _safeExcelPhoneFileNamePart(_memberPhoneLabel(referrer));
+  await downloadAdminExcelFile(
+    fileName: '${name}_${phone}_推薦名單_${_adminExportTimestamp()}.xlsx',
+    bytes: Uint8List.fromList(encoded),
+  );
+
+  if (!context.mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(content: Text('推薦名單 Excel 已產生。')),
+  );
+}
+
+List<xlsx.CellValue?> _excelTextCells(List<Object?> values) {
+  return [
+    for (final value in values)
+      xlsx.TextCellValue(
+        value == null || value.toString().trim().isEmpty
+            ? '-'
+            : value.toString(),
+      ),
+  ];
+}
+
+String _safeExcelFileNamePart(String value, {String fallback = '未命名'}) {
+  final sanitized = value
+      .trim()
+      .replaceAll(RegExp(r'[\\/:*?"<>|\s]+'), '_')
+      .replaceAll(RegExp(r'_+'), '_')
+      .replaceAll(RegExp(r'^_|_$'), '');
+  if (sanitized.isEmpty || sanitized == '-') return fallback;
+  return sanitized;
+}
+
+String _safeExcelPhoneFileNamePart(String value) {
+  final digits = value.replaceAll(RegExp(r'[^0-9]'), '');
+  return digits.isEmpty ? '無電話' : digits;
+}
+
+String _adminExportTimestamp() {
+  final now = DateTime.now();
+  String two(int value) => value.toString().padLeft(2, '0');
+  return [
+    now.year.toString(),
+    two(now.month),
+    two(now.day),
+    '_',
+    two(now.hour),
+    two(now.minute),
+  ].join();
 }
 
 DateTime? _memberFirstLoginAt(backend.VeevaMember member) {
@@ -1303,6 +1430,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
           onDeleteMember: _deleteMember,
           onGrantReward: _grantRewardToMember,
           onSaveReviewRewardDecision: _saveReviewRewardDecision,
+          onResetActivityCompletion: _resetActivityCompletion,
         ),
       AdminTab.activities => _ActivityManagement(
           activities: activities,
@@ -1503,6 +1631,54 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
           ..clear()
           ..addAll(previousMemberRewards);
         backendError = '不允許更新失敗：請確認 Firestore rules 已部署。';
+      });
+      rethrow;
+    }
+  }
+
+  Future<void> _resetActivityCompletion(
+    backend.VeevaActivityRecord record,
+  ) async {
+    final previousRecords = [...activityRecords];
+    final previousMemberRewards = [...memberRewards];
+
+    bool matchesRecord(backend.VeevaActivityRecord item) {
+      final sameRecord = item.id == record.id;
+      final sameActivity = item.activityId == record.activityId;
+      final sameMember = item.memberId == record.memberId ||
+          (record.memberLineUserId != null &&
+              record.memberLineUserId!.trim().isNotEmpty &&
+              item.memberLineUserId == record.memberLineUserId);
+      return sameRecord || (sameActivity && sameMember);
+    }
+
+    setState(() {
+      activityRecords.removeWhere(matchesRecord);
+      memberRewards.removeWhere((item) {
+        if (item.status != 'pending' || item.activityId != record.activityId) {
+          return false;
+        }
+        final isParticipantReward = item.source == 'activityCompletion' &&
+            item.memberId == record.memberId;
+        final isReferrerReward = item.source == 'referralActivityCompletion' &&
+            item.sourceMemberId == record.memberId;
+        return isParticipantReward || isReferrerReward;
+      });
+      backendError = null;
+    });
+
+    try {
+      await repository.resetActivityCompletion(record);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        activityRecords
+          ..clear()
+          ..addAll(previousRecords);
+        memberRewards
+          ..clear()
+          ..addAll(previousMemberRewards);
+        backendError = '問卷紀錄清除失敗：請確認 Firestore rules 已部署。';
       });
       rethrow;
     }
@@ -6327,8 +6503,13 @@ class _MemberReviewChecklistListBody extends StatelessWidget {
         ],
       );
     }
+    final tableMinWidth = switch (actionMode) {
+      _MemberReviewActionMode.approve => compact ? 900.0 : 1040.0,
+      _MemberReviewActionMode.rewardDecision => compact ? 940.0 : 1080.0,
+      _ => compact ? 780.0 : 920.0,
+    };
     return _FullWidthDataTable(
-      minWidth: compact ? 780 : 920,
+      minWidth: tableMinWidth,
       child: DataTable(
         headingRowColor: WidgetStateProperty.all(const Color(0xFFFFFAF3)),
         columns: [
@@ -6366,12 +6547,19 @@ class _MemberReviewChecklistListBody extends StatelessWidget {
                 ),
                 DataCell(Text(_memberDateTimeLabel(item.updatedAt))),
                 DataCell(
-                  _MemberReviewActionCell(
-                    item: item,
-                    mode: actionMode,
-                    onApprove: onApprove,
-                    onConfirmIssue: onConfirmIssue,
-                    onRejectIssue: onRejectIssue,
+                  SizedBox(
+                    width: switch (actionMode) {
+                      _MemberReviewActionMode.approve => 210,
+                      _MemberReviewActionMode.rewardDecision => 230,
+                      _ => null,
+                    },
+                    child: _MemberReviewActionCell(
+                      item: item,
+                      mode: actionMode,
+                      onApprove: onApprove,
+                      onConfirmIssue: onConfirmIssue,
+                      onRejectIssue: onRejectIssue,
+                    ),
                   ),
                 ),
               ],
@@ -6483,28 +6671,66 @@ class _MemberReviewActionCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return switch (mode) {
-      _MemberReviewActionMode.approve => FilledButton.icon(
-          onPressed: item.canApprove ? () => onApprove(item) : null,
-          icon: const Icon(Icons.verified_user_outlined),
-          label: const Text('審核通過'),
+      _MemberReviewActionMode.approve => SizedBox(
+          width: 210,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: item.canApprove ? () => onApprove(item) : null,
+                  icon: const Icon(Icons.verified_user_outlined),
+                  label: const Text('通過'),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed:
+                      item.canRejectReview ? () => onRejectIssue(item) : null,
+                  icon: const Icon(Icons.block_outlined),
+                  label: const Text('不通過'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
-      _MemberReviewActionMode.rewardDecision => Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            FilledButton.icon(
-              onPressed:
-                  item.canDecideReward ? () => onConfirmIssue(item) : null,
-              icon: const Icon(Icons.card_giftcard_outlined),
-              label: const Text('確認發放'),
-            ),
-            OutlinedButton.icon(
-              onPressed:
-                  item.canDecideReward ? () => onRejectIssue(item) : null,
-              icon: const Icon(Icons.block_outlined),
-              label: const Text('不允許'),
-            ),
-          ],
+      _MemberReviewActionMode.rewardDecision => SizedBox(
+          width: 230,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed:
+                      item.canDecideReward ? () => onConfirmIssue(item) : null,
+                  icon: const Icon(Icons.card_giftcard_outlined),
+                  label: const Text('確認'),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed:
+                      item.canDecideReward ? () => onRejectIssue(item) : null,
+                  icon: const Icon(Icons.block_outlined),
+                  label: const Text('不允許'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       _MemberReviewActionMode.issued => const _ChecklistStatusCell(
           done: true,
@@ -6684,6 +6910,7 @@ class _MemberManagement extends StatefulWidget {
     required this.onDeleteMember,
     required this.onGrantReward,
     required this.onSaveReviewRewardDecision,
+    required this.onResetActivityCompletion,
   });
 
   final List<backend.VeevaActivity> activities;
@@ -6715,6 +6942,8 @@ class _MemberManagement extends StatefulWidget {
     required ReviewRewardIssueStatus rewardIssueStatus,
     String? reason,
   }) onSaveReviewRewardDecision;
+  final Future<void> Function(backend.VeevaActivityRecord record)
+      onResetActivityCompletion;
 
   @override
   State<_MemberManagement> createState() => _MemberManagementState();
@@ -6954,8 +7183,9 @@ class _MemberManagementState extends State<_MemberManagement> {
         .toList();
     final reviewChecklistRows =
         _buildMemberReviewChecklistRows(loggedInMembers);
-    final pendingRows =
-        reviewChecklistRows.where((item) => !item.memberApproved).toList();
+    final pendingRows = reviewChecklistRows
+        .where((item) => !item.memberApproved && !item.rewardNotIssued)
+        .toList();
     final approvedRows = reviewChecklistRows
         .where(
           (item) =>
@@ -6972,9 +7202,7 @@ class _MemberManagementState extends State<_MemberManagement> {
         .toList();
     final notIssuedRows = reviewChecklistRows
         .where(
-          (item) =>
-              item.memberApproved &&
-              item.rewardIssueStatus == ReviewRewardIssueStatus.notIssued,
+          (item) => item.rewardIssueStatus == ReviewRewardIssueStatus.notIssued,
         )
         .toList();
     final activeReviewRows = switch (selectedTab) {
@@ -7402,7 +7630,43 @@ class _MemberManagementState extends State<_MemberManagement> {
   Future<void> _openMemberReviewRejectDialog(
     _MemberReviewChecklistItem item,
   ) async {
-    if (!item.canDecideReward) return;
+    if (!item.canDecideReward && !item.canRejectReview) return;
+    if (item.canRejectReview && !item.memberApproved) {
+      final record = item.surveyRecord;
+      if (record == null) return;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            title: Text('不通過 ${item.member.name}'),
+            content: const Text('確認後會清除這位會員的問卷填寫紀錄，狀態會回到未填寫。'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('確認'),
+              ),
+            ],
+          );
+        },
+      );
+      if (confirmed != true) return;
+
+      try {
+        await widget.onResetActivityCompletion(record);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已清除 ${item.member.name} 的問卷填寫紀錄。')),
+        );
+      } catch (_) {
+        _showMemberReviewError('問卷紀錄清除失敗：請確認 Firestore rules 已部署。');
+      }
+      return;
+    }
+
     final reasonController = TextEditingController();
     final reason = await showDialog<String>(
       context: context,
@@ -7418,8 +7682,8 @@ class _MemberManagementState extends State<_MemberManagement> {
                   controller: reasonController,
                   maxLines: 4,
                   decoration: const InputDecoration(
-                    labelText: '未通過原因',
-                    hintText: '請輸入未通過原因',
+                    labelText: '原因',
+                    hintText: '請輸入原因',
                   ),
                   onChanged: (value) => setDialogState(
                     () => canSubmit = value.trim().isNotEmpty,
@@ -8346,42 +8610,86 @@ void _openMemberReferralListDialog(
   required List<backend.VeevaMember> allMembers,
 }) {
   final referrals = _referralsForMember(referrer, allMembers);
+  var isExporting = false;
   showDialog<void>(
     context: context,
     builder: (dialogContext) {
-      return AlertDialog(
-        title: Text('${referrer.name} 的推薦清單'),
-        content: SizedBox(
-          width: 760,
-          child: referrals.isEmpty
-              ? const _EmptyListMessage(message: '目前沒有推薦會員紀錄。')
-              : Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '共 ${referrals.length} 位會員',
-                      style: const TextStyle(
-                        color: Color(0xFF6F6357),
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxHeight: 420),
-                      child: SingleChildScrollView(
-                        child: _MemberReferralList(referrals: referrals),
-                      ),
-                    ),
-                  ],
+      return StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: Row(
+              children: [
+                Expanded(child: Text('${referrer.name} 的推薦清單')),
+                const SizedBox(width: 12),
+                FilledButton.icon(
+                  onPressed: isExporting
+                      ? null
+                      : () async {
+                          setDialogState(() => isExporting = true);
+                          try {
+                            await _exportMemberReferralExcel(
+                              dialogContext,
+                              referrer: referrer,
+                              referrals: referrals,
+                            );
+                          } catch (_) {
+                            if (dialogContext.mounted) {
+                              ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                const SnackBar(
+                                  content: Text('推薦名單匯出失敗，請稍後再試。'),
+                                ),
+                              );
+                            }
+                          } finally {
+                            if (dialogContext.mounted) {
+                              setDialogState(() => isExporting = false);
+                            }
+                          }
+                        },
+                  icon: isExporting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.file_download_outlined, size: 18),
+                  label: Text(isExporting ? '匯出中' : '匯出 Excel'),
                 ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('關閉'),
-          ),
-        ],
+              ],
+            ),
+            content: SizedBox(
+              width: 760,
+              child: referrals.isEmpty
+                  ? const _EmptyListMessage(message: '目前沒有推薦會員紀錄。')
+                  : Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '共 ${referrals.length} 位會員',
+                          style: const TextStyle(
+                            color: Color(0xFF6F6357),
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 420),
+                          child: SingleChildScrollView(
+                            child: _MemberReferralList(referrals: referrals),
+                          ),
+                        ),
+                      ],
+                    ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('關閉'),
+              ),
+            ],
+          );
+        },
       );
     },
   );
