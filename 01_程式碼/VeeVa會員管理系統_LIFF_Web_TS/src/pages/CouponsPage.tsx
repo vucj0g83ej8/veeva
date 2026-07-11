@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   ChevronRight,
   Coffee,
+  Copy,
   ExternalLink,
   Info,
   Store,
@@ -181,12 +182,37 @@ function CouponDetailDialog({
   const [iframeLoaded, setIframeLoaded] = useState(false)
   const [redeeming, setRedeeming] = useState(false)
   const [redeemError, setRedeemError] = useState<string | null>(null)
+  const [verificationCodeCopied, setVerificationCodeCopied] = useState(false)
+  const [verificationCodeError, setVerificationCodeError] = useState<
+    string | null
+  >(null)
   const isUsable = reward.status === 'issued'
+  const requiresVerificationCode =
+    rewardDefinition?.requiresVerificationCode ??
+    reward.requiresVerificationCode ??
+    false
+  const verificationCode = reward.verificationCode?.trim() ?? ''
+  const canUseReward =
+    !requiresVerificationCode ||
+    (verificationCode.length > 0 && verificationCodeCopied)
   const storeText = eligibleStoreText(reward.rewardName)
   const instructions = couponInstructions(reward.rewardName, rewardDefinition)
   const closeEmbeddedRedemption = () => {
     setEmbeddedRedemptionUrl(null)
     setIframeLoaded(false)
+  }
+  const copyVerificationCode = async () => {
+    if (!verificationCode) {
+      setVerificationCodeError('此兌換券尚未設定驗證碼')
+      return
+    }
+    setVerificationCodeError(null)
+    try {
+      await copyTextToClipboard(verificationCode)
+      setVerificationCodeCopied(true)
+    } catch {
+      setVerificationCodeError('無法複製驗證碼，請稍後再試')
+    }
   }
   const confirmUseCoupon = async () => {
     if (!confirmingRedemptionUrl) return
@@ -282,16 +308,50 @@ function CouponDetailDialog({
           </section>
 
           {reward.redemptionUrl && isUsable ? (
-            <button
-              className="coupon-detail-use-button"
-              type="button"
-              onClick={() =>
-                setConfirmingRedemptionUrl(reward.redemptionUrl ?? null)
-              }
-            >
-              <Ticket size={22} />
-              使用優惠券
-            </button>
+            <>
+              {requiresVerificationCode ? (
+                <div className="coupon-verification-code-actions">
+                  <button
+                    className={`coupon-verification-code-button${
+                      verificationCodeCopied ? ' copied' : ''
+                    }`}
+                    type="button"
+                    disabled={!verificationCode}
+                    onClick={() => void copyVerificationCode()}
+                  >
+                    {verificationCodeCopied ? (
+                      <CheckCircle2 size={21} />
+                    ) : (
+                      <Copy size={21} />
+                    )}
+                    {verificationCodeCopied
+                      ? '已複製驗證碼'
+                      : verificationCode
+                        ? '複製驗證碼'
+                        : '尚未設定驗證碼'}
+                  </button>
+                  {verificationCodeError ? (
+                    <p className="coupon-verification-code-error">
+                      {verificationCodeError}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+              <button
+                className={`coupon-detail-use-button${
+                  canUseReward ? '' : ' disabled'
+                }`}
+                type="button"
+                disabled={!canUseReward}
+                onClick={() => {
+                  if (!canUseReward) return
+                  setConfirmingRedemptionUrl(reward.redemptionUrl ?? null)
+                }}
+              >
+                <Ticket size={22} />
+                {canUseReward ? '使用優惠券' : '請先複製驗證碼'}
+              </button>
+            </>
           ) : (
             <button className="coupon-detail-use-button disabled" type="button" disabled>
               <Ticket size={22} />
@@ -424,4 +484,26 @@ function couponInstructions(
     '本券若有遺失、破損或影印無效，恕不補發。',
     '主辦單位保留活動修改、變更及終止之權利。',
   ]
+}
+
+async function copyTextToClipboard(text: string) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text)
+      return
+    } catch {
+      // LINE WebView can reject the modern clipboard API; use the fallback.
+    }
+  }
+
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  const copied = document.execCommand('copy')
+  textarea.remove()
+  if (!copied) throw new Error('copy failed')
 }

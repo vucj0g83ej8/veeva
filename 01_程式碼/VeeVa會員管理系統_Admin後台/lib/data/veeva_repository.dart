@@ -43,6 +43,7 @@ abstract class VeevaRepository {
   Future<int> importRewardVoucherLinks({
     required VeevaReward reward,
     required List<String> links,
+    required Map<String, String> verificationCodesByLink,
     required String fileName,
   });
 
@@ -525,6 +526,7 @@ class FirestoreVeevaRepository implements VeevaRepository {
   Future<int> importRewardVoucherLinks({
     required VeevaReward reward,
     required List<String> links,
+    required Map<String, String> verificationCodesByLink,
     required String fileName,
   }) async {
     final cleanLinks = _dedupeVoucherLinks(links);
@@ -543,7 +545,25 @@ class FirestoreVeevaRepository implements VeevaRepository {
       final batch = firestore.batch();
       var batchHasWrites = false;
       for (var index = 0; index < chunk.length; index += 1) {
+        final link = chunk[index];
+        final verificationCode = verificationCodesByLink[link]?.trim();
         if (snapshots[index].exists) {
+          final currentCode =
+              snapshots[index].data()?['verificationCode']?.toString().trim();
+          if (verificationCode != null &&
+              verificationCode.isNotEmpty &&
+              verificationCode != currentCode) {
+            batchHasWrites = true;
+            batch.set(
+              refs[index],
+              {
+                'verificationCode': verificationCode,
+                'sourceFileName': fileName,
+                'updatedAt': FieldValue.serverTimestamp(),
+              },
+              SetOptions(merge: true),
+            );
+          }
           continue;
         }
         added += 1;
@@ -551,7 +571,8 @@ class FirestoreVeevaRepository implements VeevaRepository {
         batch.set(refs[index], {
           'rewardId': reward.id,
           'rewardName': reward.name,
-          'url': chunk[index],
+          'url': link,
+          'verificationCode': verificationCode,
           'status': 'available',
           'sourceFileName': fileName,
           'createdAt': FieldValue.serverTimestamp(),
@@ -1032,12 +1053,18 @@ class FirestoreVeevaRepository implements VeevaRepository {
     final normalizedSource = source.trim().isEmpty ? 'manualAdmin' : source;
     final liveRewardData = (await rewardRef.get()).data();
     final voucherPoolTotal = _readIntLike(liveRewardData?['voucherTotal']);
+    final liveRequiresVerificationCode = liveRewardData == null
+        ? reward.requiresVerificationCode
+        : liveRewardData['requiresVerificationCode'] == true;
     DocumentReference<Map<String, dynamic>>? voucherRef;
     if (voucherPoolTotal > 0) {
       if (quantity != 1) {
         throw StateError('voucher link rewards must be issued one at a time');
       }
-      voucherRef = await _findAvailableVoucherRef(reward.id);
+      voucherRef = await _findAvailableVoucherRef(
+        reward.id,
+        requiresVerificationCode: liveRequiresVerificationCode,
+      );
       if (voucherRef == null) {
         throw StateError('no available voucher link');
       }
@@ -1092,12 +1119,21 @@ class FirestoreVeevaRepository implements VeevaRepository {
           rewardData == null ? reward.stock : _readIntLike(rewardData['stock']);
       final liveStatus =
           rewardData?['status']?.toString() ?? reward.status.name;
+      final requiresVerificationCode = rewardData == null
+          ? reward.requiresVerificationCode
+          : rewardData['requiresVerificationCode'] == true;
+      final verificationCode =
+          voucherData?['verificationCode']?.toString().trim();
 
       if (liveStatus != VeevaRewardStatus.active.name) {
         throw StateError('reward is not active');
       }
       if (liveStock < quantity) {
         throw StateError('insufficient reward stock');
+      }
+      if (requiresVerificationCode &&
+          (verificationCode == null || verificationCode.isEmpty)) {
+        throw StateError('voucher verification code is missing');
       }
 
       for (var index = 0; index < quantity; index += 1) {
@@ -1120,6 +1156,9 @@ class FirestoreVeevaRepository implements VeevaRepository {
           'rewardName': reward.name,
           'rewardCategory': reward.category,
           'rewardImageUrl': reward.imageUrl,
+          'requiresVerificationCode': requiresVerificationCode,
+          'verificationCode':
+              requiresVerificationCode ? verificationCode : null,
           'redemptionUrl': voucherData?['url']?.toString(),
           'voucherId': voucherRef?.id,
           'status': 'issued',
@@ -1244,17 +1283,28 @@ class FirestoreVeevaRepository implements VeevaRepository {
   }
 
   Future<DocumentReference<Map<String, dynamic>>?> _findAvailableVoucherRef(
-    String rewardId,
-  ) async {
+    String rewardId, {
+    required bool requiresVerificationCode,
+  }) async {
     final snapshot = await _rewardVouchers
         .where('rewardId', isEqualTo: rewardId)
         .where('status', isEqualTo: 'available')
-        .limit(1)
+        .limit(requiresVerificationCode ? 50 : 1)
         .get();
     if (snapshot.docs.isEmpty) {
       return null;
     }
-    return snapshot.docs.first.reference;
+    for (final voucher in snapshot.docs) {
+      final url = voucher.data()['url']?.toString().trim();
+      final code = voucher.data()['verificationCode']?.toString().trim();
+      final hasUrl = url != null && url.isNotEmpty;
+      final hasRequiredCode =
+          !requiresVerificationCode || (code != null && code.isNotEmpty);
+      if (hasUrl && hasRequiredCode) {
+        return voucher.reference;
+      }
+    }
+    return null;
   }
 }
 
@@ -1390,6 +1440,7 @@ class DemoVeevaRepository implements VeevaRepository {
   Future<int> importRewardVoucherLinks({
     required VeevaReward reward,
     required List<String> links,
+    required Map<String, String> verificationCodesByLink,
     required String fileName,
   }) async {
     return links.length;

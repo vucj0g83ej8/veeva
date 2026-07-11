@@ -142,6 +142,33 @@ enum _MemberReviewActionMode { approve, rewardDecision, issued, notIssued }
 
 const String _memberReviewSurveyActivityId = 'survey-coffee';
 
+String _rewardGrantErrorMessage(
+  Object error, {
+  required bool requiresVerificationCode,
+}) {
+  final message = error.toString().toLowerCase();
+  if (message.contains('voucher verification code is missing') ||
+      (requiresVerificationCode &&
+          message.contains('no available voucher link'))) {
+    return '兌換券發送失敗：目前沒有同時包含兌換連結與驗證碼的可用資料。請先匯入專屬連結與驗證碼，或暫時關閉「使用驗證碼」。';
+  }
+  if (message.contains('no available voucher link')) {
+    return '兌換券發送失敗：目前沒有可用的兌換連結，請先匯入新的連結。';
+  }
+  if (message.contains('insufficient reward stock') ||
+      message.contains('reward unavailable')) {
+    return '兌換券發送失敗：兌換券未上架或庫存不足。';
+  }
+  if (message.contains('voucher link rewards must be issued one at a time')) {
+    return '兌換券發送失敗：包含專屬連結的兌換券一次只能發送 1 張。';
+  }
+  if (message.contains('permission-denied') ||
+      message.contains('permission_denied')) {
+    return '兌換券發送失敗：目前沒有寫入 Firestore 的權限。';
+  }
+  return '兌換券發送失敗，請確認兌換券庫存與 Firestore 設定。';
+}
+
 class AdminReviewItem {
   AdminReviewItem({
     required this.id,
@@ -293,6 +320,7 @@ class AdminRewardItem {
     required this.expiresAt,
     required this.status,
     this.imageUrl,
+    this.requiresVerificationCode = false,
     this.voucherTotal = 0,
     this.voucherAvailable = 0,
   });
@@ -312,6 +340,7 @@ class AdminRewardItem {
         backend.VeevaRewardStatus.expired => RewardStatus.expired,
       },
       imageUrl: reward.imageUrl,
+      requiresVerificationCode: reward.requiresVerificationCode,
       voucherTotal: reward.voucherTotal,
       voucherAvailable: reward.voucherAvailable,
     );
@@ -326,6 +355,7 @@ class AdminRewardItem {
   final String expiresAt;
   RewardStatus status;
   final String? imageUrl;
+  final bool requiresVerificationCode;
   final int voucherTotal;
   final int voucherAvailable;
 
@@ -338,6 +368,7 @@ class AdminRewardItem {
     String? expiresAt,
     RewardStatus? status,
     Object? imageUrl = _unchangedRewardImageUrl,
+    bool? requiresVerificationCode,
     int? voucherTotal,
     int? voucherAvailable,
   }) {
@@ -353,6 +384,8 @@ class AdminRewardItem {
       imageUrl: identical(imageUrl, _unchangedRewardImageUrl)
           ? this.imageUrl
           : imageUrl as String?,
+      requiresVerificationCode:
+          requiresVerificationCode ?? this.requiresVerificationCode,
       voucherTotal: voucherTotal ?? this.voucherTotal,
       voucherAvailable: voucherAvailable ?? this.voucherAvailable,
     );
@@ -373,6 +406,7 @@ class AdminRewardItem {
         RewardStatus.expired => backend.VeevaRewardStatus.expired,
       },
       imageUrl: imageUrl,
+      requiresVerificationCode: requiresVerificationCode,
       voucherTotal: voucherTotal,
       voucherAvailable: voucherAvailable,
     );
@@ -778,7 +812,7 @@ class _AdminAuthGateState extends State<AdminAuthGate> {
         message = null;
       });
       _cacheAdmin(activeAdmin);
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
       if (adminUser != null) {
         return;
@@ -1568,7 +1602,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
         rewardIssueStatus: statusName,
         reason: trimmedReason,
       );
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
       setState(() {
         reviews
@@ -2885,6 +2919,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       final added = await repository.importRewardVoucherLinks(
         reward: reward.toBackend(),
         links: imported.links,
+        verificationCodesByLink: imported.verificationCodesByLink,
         fileName: imported.fileName,
       );
       if (!mounted) return;
@@ -3427,7 +3462,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
           ),
         );
       }
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
       setState(() {
         members
@@ -3442,7 +3477,10 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
         rewards
           ..clear()
           ..addAll(previousRewards);
-        backendError = '發送兌換券失敗：請確認 Firestore rules 已部署，且兌換券庫存足夠。';
+        backendError = _rewardGrantErrorMessage(
+          error,
+          requiresVerificationCode: reward.requiresVerificationCode,
+        );
       });
       rethrow;
     }
@@ -3474,6 +3512,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
             ? reward.expiresAt
             : _formatAdminDate(DateTime.now().add(const Duration(days: 90))));
     final imageController = TextEditingController(text: reward?.imageUrl ?? '');
+    var requiresVerificationCode = reward?.requiresVerificationCode ?? false;
     var status = reward?.status ?? RewardStatus.active;
     final voucherImporter = createAdminVoucherImporter();
     ImportedVoucherLinks? pendingVoucherImport;
@@ -3508,7 +3547,15 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                 setDialogState(() => formError = '兌換期限請使用 YYYY/MM/DD 格式。');
                 return;
               }
-
+              if (requiresVerificationCode &&
+                  pendingVoucherImport != null &&
+                  pendingVoucherImport!.verificationCodeCount !=
+                      pendingVoucherImport!.count) {
+                setDialogState(
+                  () => formError = '此兌換券已開啟驗證碼，匯入清單中的每一筆連結都必須有驗證碼。',
+                );
+                return;
+              }
               pendingReward = AdminRewardItem(
                 id: rewardId,
                 name: name,
@@ -3519,6 +3566,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                 expiresAt: expiresAt,
                 status: status,
                 imageUrl: _optionalText(imageController.text),
+                requiresVerificationCode: requiresVerificationCode,
                 voucherTotal: reward?.voucherTotal ?? 0,
                 voucherAvailable: reward?.voucherAvailable ?? 0,
               );
@@ -3896,6 +3944,50 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                                     ],
                                   );
                                 },
+                              ),
+                              const SizedBox(height: 28),
+                              Container(
+                                padding: const EdgeInsets.all(18),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFFFAF3),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: const Color(0xFFEADFCE),
+                                  ),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    SwitchListTile.adaptive(
+                                      contentPadding: EdgeInsets.zero,
+                                      value: requiresVerificationCode,
+                                      activeColor: const Color(0xFFFF9812),
+                                      title: const Text(
+                                        '使用驗證碼',
+                                        style: TextStyle(
+                                          color: Color(0xFF303236),
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
+                                      subtitle: const Text(
+                                        '開啟後，會員必須先複製該筆兌換連結的專屬驗證碼，才能使用兌換券。',
+                                        style: TextStyle(
+                                          color: Color(0xFF6F7073),
+                                          height: 1.45,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      onChanged: (value) {
+                                        setDialogState(() {
+                                          requiresVerificationCode = value;
+                                          formError = null;
+                                        });
+                                      },
+                                    ),
+                                  ],
+                                ),
                               ),
                               const SizedBox(height: 28),
                               _RewardImageUploadSection(
@@ -4477,7 +4569,7 @@ class _RewardVoucherImportSection extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           const Text(
-            '支援 .xlsx、.csv、.txt。系統會自動抓取檔案內所有 http / https 連結，發放時每位會員只會拿到一條未使用連結。',
+            '支援 .xlsx、.csv、.txt。可使用「兌換連結、驗證碼」兩欄；發放時每位會員只會拿到一組未使用的專屬連結與驗證碼。',
             style: TextStyle(
               color: Color(0xFF8A8D8F),
               fontSize: 13,
@@ -4502,6 +4594,12 @@ class _RewardVoucherImportSection extends StatelessWidget {
                 _VoucherPoolChip(
                   icon: Icons.add_circle_outline,
                   label: '待匯入 ${pending.count}',
+                  highlight: true,
+                ),
+              if (pending != null && pending.verificationCodeCount > 0)
+                _VoucherPoolChip(
+                  icon: Icons.password_outlined,
+                  label: '含驗證碼 ${pending.verificationCodeCount}',
                   highlight: true,
                 ),
             ],
@@ -8111,11 +8209,15 @@ class _MemberManagementState extends State<_MemberManagement> {
                             if (dialogContext.mounted) {
                               Navigator.of(dialogContext).pop();
                             }
-                          } catch (_) {
+                          } catch (error) {
                             if (!dialogContext.mounted) return;
                             setDialogState(() {
                               isSending = false;
-                              formError = '兌換券發送失敗，請確認庫存與 Firestore 設定。';
+                              formError = _rewardGrantErrorMessage(
+                                error,
+                                requiresVerificationCode:
+                                    reward.requiresVerificationCode,
+                              );
                             });
                           }
                         },

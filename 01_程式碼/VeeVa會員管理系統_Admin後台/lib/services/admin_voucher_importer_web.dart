@@ -70,35 +70,136 @@ class _WebAdminVoucherImporter implements AdminVoucherImporter {
   ImportedVoucherLinks _parseText(String fileName, Uint8List bytes) {
     final text = utf8.decode(bytes, allowMalformed: true);
     final lines = const LineSplitter().convert(text);
+    final entries = <ImportedVoucherEntry>[];
+    for (final line in lines) {
+      entries.addAll(_voucherEntriesFromCells(
+        line.split(RegExp(r'\t|,|，')),
+        fallbackText: line,
+      ));
+    }
     return ImportedVoucherLinks(
       fileName: fileName,
-      links: extractVoucherLinksFromText(text),
+      entries: dedupeVoucherEntries(entries),
       totalRows: lines.length,
     );
   }
 
   ImportedVoucherLinks _parseExcel(String fileName, Uint8List bytes) {
     final excel = Excel.decodeBytes(bytes);
-    final links = <String>[];
+    final entries = <ImportedVoucherEntry>[];
     var totalRows = 0;
     for (final sheetName in excel.tables.keys) {
       final sheet = excel.tables[sheetName];
       if (sheet == null) continue;
       totalRows += sheet.rows.length;
+      int? urlColumn;
+      int? codeColumn;
       for (final row in sheet.rows) {
+        final cells = <String>[];
         for (final cell in row) {
           final value = cell?.value;
           final text = _cellValueText(value);
-          if (text.isEmpty) continue;
-          links.addAll(extractVoucherLinksFromText(text));
+          cells.add(text);
         }
+        if (urlColumn == null) {
+          final detectedUrlColumn = _headerColumnIndex(
+            cells,
+            const {'兌換連結', '連結', 'url', 'link'},
+          );
+          if (detectedUrlColumn != null) {
+            urlColumn = detectedUrlColumn;
+            codeColumn = _headerColumnIndex(
+              cells,
+              const {'驗證碼', 'code', 'verificationcode', 'password'},
+            );
+            continue;
+          }
+        }
+        if (urlColumn != null && urlColumn < cells.length) {
+          final links = extractVoucherLinksFromText(cells[urlColumn]);
+          final code = codeColumn != null && codeColumn < cells.length
+              ? cells[codeColumn].trim()
+              : '';
+          entries.addAll(links.map(
+            (url) => ImportedVoucherEntry(
+              url: url,
+              verificationCode: code.isEmpty ? null : code,
+            ),
+          ));
+          continue;
+        }
+        entries.addAll(_voucherEntriesFromCells(cells));
       }
     }
     return ImportedVoucherLinks(
       fileName: fileName,
-      links: dedupeVoucherLinks(links),
+      entries: dedupeVoucherEntries(entries),
       totalRows: totalRows,
     );
+  }
+
+  List<ImportedVoucherEntry> _voucherEntriesFromCells(
+    List<String> cells, {
+    String? fallbackText,
+  }) {
+    final links = <String>[];
+    for (final cell in cells) {
+      links.addAll(extractVoucherLinksFromText(cell));
+    }
+    if (links.isEmpty && fallbackText != null) {
+      links.addAll(extractVoucherLinksFromText(fallbackText));
+    }
+    final uniqueLinks = dedupeVoucherLinks(links);
+    if (uniqueLinks.isEmpty) return const [];
+    if (uniqueLinks.length > 1) {
+      return uniqueLinks.map((url) => ImportedVoucherEntry(url: url)).toList();
+    }
+
+    final url = uniqueLinks.single;
+    final code = _verificationCodeFromCells(cells, url, fallbackText);
+    return [ImportedVoucherEntry(url: url, verificationCode: code)];
+  }
+
+  String? _verificationCodeFromCells(
+    List<String> cells,
+    String url,
+    String? fallbackText,
+  ) {
+    for (final rawCell in cells) {
+      final cell = rawCell.trim().replaceAll(RegExp(r'''^['"]|['"]$'''), '');
+      if (cell.isEmpty || cell.contains(url) || _isVoucherHeader(cell)) {
+        continue;
+      }
+      return cell;
+    }
+
+    final source = fallbackText?.trim() ?? '';
+    if (source.isEmpty || !source.contains(url)) return null;
+    final remaining = source
+        .replaceFirst(url, '')
+        .replaceAll(RegExp(r'^[\s,，;；|]+|[\s,，;；|]+$'), '')
+        .trim();
+    if (remaining.isEmpty || _isVoucherHeader(remaining)) return null;
+    return remaining;
+  }
+
+  bool _isVoucherHeader(String value) {
+    final normalized = value.toLowerCase().replaceAll(RegExp(r'\s+'), '');
+    return normalized == '驗證碼' ||
+        normalized == 'code' ||
+        normalized == 'verificationcode' ||
+        normalized == '兌換連結' ||
+        normalized == '連結' ||
+        normalized == 'url';
+  }
+
+  int? _headerColumnIndex(List<String> cells, Set<String> candidates) {
+    for (var index = 0; index < cells.length; index += 1) {
+      final normalized =
+          cells[index].toLowerCase().replaceAll(RegExp(r'\s+'), '');
+      if (candidates.contains(normalized)) return index;
+    }
+    return null;
   }
 
   String _cellValueText(CellValue? value) {

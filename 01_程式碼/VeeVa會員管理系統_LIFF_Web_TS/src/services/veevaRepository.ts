@@ -962,6 +962,8 @@ async function queuePendingMemberRewardIfNeeded(input: {
       rewardName: reward.name,
       rewardCategory: reward.category,
       rewardImageUrl: reward.imageUrl ?? null,
+      requiresVerificationCode: reward.requiresVerificationCode === true,
+      verificationCode: null,
       redemptionUrl: null,
       voucherId: null,
       status: "pending",
@@ -1199,6 +1201,10 @@ function rewardFromData(
     expiresAt: dateValue(data.expiresAt),
     imageUrl: optionalString(data.imageUrl),
     description: optionalString(data.description),
+    requiresVerificationCode:
+      data.requiresVerificationCode == null
+        ? undefined
+        : data.requiresVerificationCode === true,
   };
 }
 
@@ -1220,6 +1226,11 @@ function memberRewardFromData(
     rewardImageUrl:
       optionalString(data.rewardImageUrl) ?? optionalString(data.imageUrl),
     redemptionUrl: optionalString(data.redemptionUrl),
+    requiresVerificationCode:
+      data.requiresVerificationCode == null
+        ? undefined
+        : data.requiresVerificationCode === true,
+    verificationCode: optionalString(data.verificationCode),
     voucherId: optionalString(data.voucherId),
     status: enumValue(data.status, "issued"),
     source: enumValue<NonNullable<VeevaMemberReward["source"]>>(

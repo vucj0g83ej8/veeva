@@ -148,6 +148,7 @@ export interface VeevaReward {
   expiresAt?: Date;
   imageUrl?: string;
   description?: string;
+  requiresVerificationCode?: boolean;
 }
 
 export interface VeevaMemberReward {
@@ -157,6 +158,8 @@ export interface VeevaMemberReward {
   rewardName: string;
   rewardImageUrl?: string;
   redemptionUrl?: string;
+  requiresVerificationCode?: boolean;
+  verificationCode?: string;
   voucherId?: string;
   status: "pending" | "issued" | "redeemed" | "expired" | "rejected";
   source?: "manualAdmin" | "activityCompletion" | "referralActivityCompletion";

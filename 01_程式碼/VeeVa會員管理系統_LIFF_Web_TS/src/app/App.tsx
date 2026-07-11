@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { Navigate, Route, Routes, useParams } from 'react-router-dom'
 import { AppShell } from '../components/AppShell'
 import { AuthNotice } from '../components/AuthNotice'
@@ -11,7 +12,29 @@ import { MemberPage } from '../pages/MemberPage'
 import { NewsPage } from '../pages/NewsPage'
 import { SurveyPage } from '../pages/SurveyPage'
 
+const TestVoucherPage = lazy(() =>
+  import('../pages/TestVoucherPage').then((module) => ({
+    default: module.TestVoucherPage,
+  })),
+)
+
 export function App() {
+  return (
+    <Routes>
+      <Route
+        path="/test-voucher/:voucherId"
+        element={
+          <Suspense fallback={<div className="test-voucher-loading">測試券載入中</div>}>
+            <TestVoucherPage />
+          </Suspense>
+        }
+      />
+      <Route path="*" element={<MemberApp />} />
+    </Routes>
+  )
+}
+
+function MemberApp() {
   const app = useVeevaApp()
   const newsEnabled = app.bootstrap.clientSettings.newsEnabled
 

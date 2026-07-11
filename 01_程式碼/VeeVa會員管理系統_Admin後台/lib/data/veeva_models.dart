@@ -728,6 +728,7 @@ class VeevaReward {
     required this.expiresAt,
     required this.status,
     this.imageUrl,
+    this.requiresVerificationCode = false,
     this.voucherTotal = 0,
     this.voucherAvailable = 0,
   });
@@ -747,6 +748,7 @@ class VeevaReward {
         VeevaRewardStatus.active,
       ),
       imageUrl: data['imageUrl']?.toString(),
+      requiresVerificationCode: data['requiresVerificationCode'] == true,
       voucherTotal: _readInt(data['voucherTotal']),
       voucherAvailable: _readInt(data['voucherAvailable']),
     );
@@ -761,6 +763,7 @@ class VeevaReward {
   final DateTime expiresAt;
   final VeevaRewardStatus status;
   final String? imageUrl;
+  final bool requiresVerificationCode;
   final int voucherTotal;
   final int voucherAvailable;
 
@@ -774,6 +777,8 @@ class VeevaReward {
       'expiresAt': Timestamp.fromDate(expiresAt),
       'status': status.name,
       'imageUrl': imageUrl,
+      'requiresVerificationCode': requiresVerificationCode,
+      'verificationCode': FieldValue.delete(),
       'voucherTotal': voucherTotal,
       'voucherAvailable': voucherAvailable,
       'updatedAt': FieldValue.serverTimestamp(),
