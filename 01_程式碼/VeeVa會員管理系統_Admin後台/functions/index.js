@@ -161,13 +161,11 @@ function buildRewardIssuedFlexMessage(data) {
 }
 
 function couponActionUrl(memberRewardId) {
-  const statePath = memberRewardId
+  const couponPath = memberRewardId
     ? `/coupons?reward=${encodeURIComponent(memberRewardId)}`
     : '/coupons';
   const liffId = cleanString(process.env.LINE_LIFF_ID) || defaultLiffId;
-  return `https://liff.line.me/${liffId}?liff.state=${encodeURIComponent(
-    statePath,
-  )}`;
+  return `https://liff.line.me/${liffId}${couponPath}`;
 }
 
 function usableImageUrl(value) {

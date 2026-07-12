@@ -25,5 +25,5 @@ npx firebase-tools@latest deploy --only functions
 卡片按鈕會導向：
 
 ```text
-https://liff.line.me/{LINE_LIFF_ID}?liff.state=/coupons?reward={memberRewardId}
+https://liff.line.me/{LINE_LIFF_ID}/coupons?reward={memberRewardId}
 ```
