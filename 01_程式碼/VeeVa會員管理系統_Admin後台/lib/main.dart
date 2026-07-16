@@ -471,11 +471,7 @@ backend.VeevaMember? _referrerFor(
 String _referrerFallbackLabel(backend.VeevaMember member) {
   final referrerId = member.referredByMemberId?.trim();
   if (referrerId == null || referrerId.isEmpty) return '-';
-  final shareCode = member.referredByShareCode?.trim();
-  if (shareCode != null && shareCode.isNotEmpty) {
-    return shareCode;
-  }
-  return referrerId;
+  return '查無推薦人';
 }
 
 String _referrerNameFor(

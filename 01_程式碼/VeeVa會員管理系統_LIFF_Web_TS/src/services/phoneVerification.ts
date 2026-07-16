@@ -18,8 +18,10 @@ let recaptchaVerifier: RecaptchaVerifier | undefined
 let confirmationResult: ConfirmationResult | undefined
 const smsSendCooldownMs = 60_000
 const smsVerificationCodeLength = 6
-const smsSendTimeoutMs = 25_000
+const smsSendTimeoutMs = 40_000
 const rateLimitTimeoutMs = 8_000
+
+type PhoneVerificationFailureStage = 'recaptcha' | 'firebaseSend'
 
 export interface ConfirmedPhoneVerification {
   phoneNumber: string
@@ -72,6 +74,7 @@ export async function sendPhoneVerificationCode(
   )
   resetPhoneVerificationSession()
   const verifier = getRecaptchaVerifier()
+  let failureStage: PhoneVerificationFailureStage = 'recaptcha'
 
   try {
     await withTimeout(
@@ -79,6 +82,7 @@ export async function sendPhoneVerificationCode(
       smsSendTimeoutMs,
       '簡訊驗證初始化逾時，請重新整理後再試一次',
     )
+    failureStage = 'firebaseSend'
     confirmationResult = await withTimeout(
       signInWithPhoneNumber(firebaseAuth, normalizedPhoneNumber, verifier),
       smsSendTimeoutMs,
@@ -89,7 +93,10 @@ export async function sendPhoneVerificationCode(
     return normalizedPhoneNumber
   } catch (error) {
     // Surface the Firebase error immediately even if Firestore is temporarily slow.
-    void releasePhoneVerificationSmsReservation(rateLimitId).catch(() => undefined)
+    void releasePhoneVerificationSmsReservation(rateLimitId, {
+      errorCode: firebasePhoneAuthErrorCode(error),
+      failureStage,
+    }).catch(() => undefined)
     resetRecaptchaVerifier()
     throw new Error(firebasePhoneAuthMessage(error), { cause: error })
   }
@@ -200,6 +207,7 @@ async function reservePhoneVerificationSend(input: {
         reservedUntilAt: Timestamp.fromMillis(nowMs + smsSendCooldownMs),
         lastReservedAt: serverTimestamp(),
         lastMemberId: input.memberId ?? null,
+        lastStatus: 'reserved',
         updatedAt: serverTimestamp(),
       },
       { merge: true },
@@ -216,18 +224,31 @@ async function markPhoneVerificationSmsSent(rateLimitId: string) {
       lastSentAt: serverTimestamp(),
       reservedUntilAt: null,
       sentCount: increment(1),
+      lastStatus: 'accepted',
+      lastErrorCode: null,
+      lastFailureStage: null,
       updatedAt: serverTimestamp(),
     },
     { merge: true },
   )
 }
 
-async function releasePhoneVerificationSmsReservation(rateLimitId: string) {
+async function releasePhoneVerificationSmsReservation(
+  rateLimitId: string,
+  failure: {
+    errorCode: string
+    failureStage: PhoneVerificationFailureStage
+  },
+) {
   await setDoc(
     doc(firestore, 'phoneVerificationRateLimits', rateLimitId),
     {
       reservedUntilAt: null,
       lastFailedAt: serverTimestamp(),
+      failedCount: increment(1),
+      lastStatus: 'failed',
+      lastErrorCode: failure.errorCode,
+      lastFailureStage: failure.failureStage,
       updatedAt: serverTimestamp(),
     },
     { merge: true },
@@ -262,11 +283,21 @@ function firestoreDateMs(value: unknown) {
   return 0
 }
 
-function firebasePhoneAuthMessage(error: unknown) {
-  const code =
-    typeof error === 'object' && error && 'code' in error
-      ? String((error as { code?: unknown }).code)
-      : ''
+export function firebasePhoneAuthErrorCode(error: unknown) {
+  if (typeof error === 'object' && error && 'code' in error) {
+    return String((error as { code?: unknown }).code ?? 'client/unknown')
+  }
+  if (error instanceof Error && error.message.includes('逾時')) {
+    return 'client/timeout'
+  }
+  if (error instanceof Error && error.message.includes('同一個手機號碼')) {
+    return 'client/cooldown'
+  }
+  return 'client/unknown'
+}
+
+export function firebasePhoneAuthMessage(error: unknown) {
+  const code = firebasePhoneAuthErrorCode(error)
 
   if (code.includes('invalid-phone-number')) {
     return '手機號碼格式不正確，請重新確認'
@@ -282,6 +313,18 @@ function firebasePhoneAuthMessage(error: unknown) {
   }
   if (code.includes('captcha-check-failed')) {
     return '安全驗證失敗，請重新取得驗證碼'
+  }
+  if (
+    code.includes('invalid-app-credential') ||
+    code.includes('missing-app-credential')
+  ) {
+    return '安全驗證已過期，請重新取得驗證碼'
+  }
+  if (code.includes('network-request-failed')) {
+    return '網路連線不穩定，請確認網路後再試一次'
+  }
+  if (code.includes('app-not-authorized')) {
+    return '目前網址尚未獲得手機驗證授權，請聯絡管理員'
   }
   if (code.includes('operation-not-allowed')) {
     return 'Firebase 手機登入或簡訊發送地區尚未開啟，請確認 Phone 登入與台灣 +886 已啟用'

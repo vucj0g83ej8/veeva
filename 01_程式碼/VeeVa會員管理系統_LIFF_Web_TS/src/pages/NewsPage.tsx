@@ -37,6 +37,15 @@ export function NewsPage({ app }: PageProps) {
     [news, selectedCategory],
   )
 
+  if (news.length === 0 && !app.newsReady) {
+    return (
+      <section className="empty-state">
+        <Newspaper size={30} />
+        <h2>正在讀取最新資訊</h2>
+      </section>
+    )
+  }
+
   if (news.length === 0) {
     return (
       <section className="empty-state">

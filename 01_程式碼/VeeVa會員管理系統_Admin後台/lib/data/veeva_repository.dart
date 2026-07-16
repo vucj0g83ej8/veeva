@@ -147,7 +147,7 @@ class FirestoreVeevaRepository implements VeevaRepository {
       _news.limit(30).get(),
       _rewards.limit(50).get(),
       _reviews.limit(500).get(),
-      _members.limit(300).get(),
+      _members.get(),
       _admins.limit(100).get(),
       _activityRegistrations.limit(300).get(),
       _activityCompletions.limit(300).get(),

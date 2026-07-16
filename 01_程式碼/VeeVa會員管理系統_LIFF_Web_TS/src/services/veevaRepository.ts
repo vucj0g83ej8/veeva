@@ -112,6 +112,22 @@ export function subscribeActivities(
   );
 }
 
+export function subscribeNews(
+  onNews: (news: VeevaNews[]) => void,
+  onError?: (error: Error) => void,
+) {
+  return onSnapshot(
+    query(collection(firestore, "news"), limit(60)),
+    (snapshot) => {
+      // Firestore can first emit an empty local cache before the server result
+      // reaches the client. Do not let that transient response hide articles.
+      if (snapshot.metadata.fromCache && snapshot.empty) return;
+      onNews(snapshot.docs.map((item) => newsFromData(item.id, item.data())));
+    },
+    (error) => onError?.(error),
+  );
+}
+
 export async function loadMember(memberId: string) {
   const memberDoc = await getDoc(doc(firestore, "members", memberId));
   if (!memberDoc.exists()) return undefined;
@@ -737,6 +753,7 @@ export async function completeActivity(input: {
     input.activity.id,
   ]);
   const completionRef = doc(firestore, "activityCompletions", completionId);
+  const memberRef = doc(firestore, "members", input.member.id);
   const notificationRef = doc(
     firestore,
     "memberNotifications",
@@ -748,6 +765,10 @@ export async function completeActivity(input: {
   );
 
   await runTransaction(firestore, async (transaction) => {
+    const memberSnapshot = await transaction.get(memberRef);
+    if (!memberSnapshot.exists() || memberSnapshot.data().phoneVerified !== true) {
+      throw new Error("請先完成手機號碼驗證");
+    }
     const completionSnapshot = await transaction.get(completionRef);
     const completionData = completionSnapshot.data();
     const payload: Record<string, unknown> = {

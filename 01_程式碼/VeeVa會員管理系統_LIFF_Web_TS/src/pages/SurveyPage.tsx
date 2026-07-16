@@ -53,6 +53,13 @@ export function SurveyPage({ app }: PageProps) {
           await app.login()
           return
         }
+        if (
+          app.memberAccessStatus !== 'ready' ||
+          app.member.phoneVerified !== true
+        ) {
+          completedRef.current = false
+          return
+        }
 
         const { completeActivity } = await import('../services/veevaRepository')
         await completeActivity({
@@ -116,6 +123,13 @@ export function SurveyPage({ app }: PageProps) {
         </button>
       </section>
     )
+  }
+
+  if (
+    app.memberAccessStatus !== 'ready' ||
+    app.member.phoneVerified !== true
+  ) {
+    return null
   }
 
   return (

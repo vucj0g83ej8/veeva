@@ -26,11 +26,13 @@ import { getCachedOfficialAccountFriendship } from '../utils/officialAccountFrie
 interface AppState {
   initializing: boolean
   authenticating: boolean
+  memberAccessStatus: 'checking' | 'phoneRequired' | 'ready' | 'error'
   memberProfileReady: boolean
   officialAccountFriendshipReady: boolean
   officialAccountFriend: boolean
   officialAccountFriendshipSupported: boolean
   officialAccountFriendshipError?: string
+  newsReady: boolean
   busy: boolean
   error?: string
   liffSession?: LiffSession
@@ -66,10 +68,12 @@ export function useVeevaApp() {
     return {
       initializing: !cachedMember,
       authenticating: false,
+      memberAccessStatus: 'checking',
       memberProfileReady: Boolean(cachedMember),
       officialAccountFriendshipReady: cachedFriendship?.friend === true,
       officialAccountFriend: cachedFriendship?.friend === true,
       officialAccountFriendshipSupported: cachedFriendship?.supported ?? true,
+      newsReady: false,
       busy: false,
       bootstrap: emptyBootstrap,
       member: cachedMember,
@@ -162,11 +166,13 @@ export function useVeevaApp() {
       ...current,
       initializing: !cachedMember,
       authenticating: false,
+      memberAccessStatus: 'checking',
       memberProfileReady: Boolean(cachedMember),
       officialAccountFriendshipReady: cachedFriendship?.friend === true,
       officialAccountFriend: cachedFriendship?.friend === true,
       officialAccountFriendshipSupported: cachedFriendship?.supported ?? true,
       officialAccountFriendshipError: undefined,
+      newsReady: false,
       member: cachedMember ?? current.member,
       error: undefined,
     }))
@@ -180,19 +186,22 @@ export function useVeevaApp() {
       void bootstrapPromise.then((bootstrap) => {
         setState((current) => ({
           ...current,
-          bootstrap,
+          bootstrap: {
+            ...bootstrap,
+            news: current.bootstrap.news,
+            rewards: current.bootstrap.rewards,
+          },
         }))
       })
       void bootstrapPromise.finally(() => {
         window.setTimeout(() => {
           void repositoryPromise
             .then((repository) => repository.loadDeferredBootstrapContent())
-            .then(({ news, rewards }) => {
+            .then(({ rewards }) => {
               setState((current) => ({
                 ...current,
                 bootstrap: {
                   ...current.bootstrap,
-                  news,
                   rewards,
                 },
               }))
@@ -216,6 +225,7 @@ export function useVeevaApp() {
           ...current,
           initializing: true,
           authenticating: true,
+          memberAccessStatus: 'checking',
           liffSession,
           memberProfileReady: false,
           officialAccountFriendshipReady: false,
@@ -249,11 +259,18 @@ export function useVeevaApp() {
         ...current,
         initializing: false,
         authenticating: false,
+        memberAccessStatus: member ? 'checking' : 'ready',
         memberProfileReady: !member,
         officialAccountFriendshipReady: !member,
         officialAccountFriend: false,
         officialAccountFriendshipError: undefined,
-        bootstrap,
+        bootstrap: {
+          ...bootstrap,
+          // News and rewards may have arrived through their deferred loaders
+          // while LINE authentication was still completing.
+          news: current.bootstrap.news,
+          rewards: current.bootstrap.rewards,
+        },
         liffSession,
         member,
         memberActivityRecords: member ? current.memberActivityRecords : [],
@@ -273,18 +290,29 @@ export function useVeevaApp() {
             referralCode,
           })
           .then(async (updatedMember) => {
-            rememberCachedMember(updatedMember)
+            const memberAccessStatus = updatedMember.phoneVerified
+              ? 'ready'
+              : 'phoneRequired'
+            if (updatedMember.phoneVerified) {
+              rememberCachedMember(updatedMember)
+            } else {
+              clearCachedMember()
+            }
             setState((current) => ({
               ...current,
               member: updatedMember,
               memberProfileReady: true,
+              memberAccessStatus,
             }))
-            await refreshMemberDetails(updatedMember)
+            if (updatedMember.phoneVerified) {
+              await refreshMemberDetails(updatedMember)
+            }
           })
           .catch((error) => {
             setState((current) => ({
               ...current,
-              memberProfileReady: true,
+              memberProfileReady: false,
+              memberAccessStatus: 'error',
               error: error instanceof Error ? error.message : String(error),
             }))
           })
@@ -295,6 +323,7 @@ export function useVeevaApp() {
         ...current,
         initializing: false,
         authenticating: false,
+        memberAccessStatus: 'error',
         memberProfileReady: true,
         error: error instanceof Error ? error.message : String(error),
       }))
@@ -338,8 +367,45 @@ export function useVeevaApp() {
     }
   }, [])
 
+  useEffect(() => {
+    let disposed = false
+    let unsubscribe: (() => void) | undefined
+
+    void import('../services/veevaRepository').then((repository) => {
+      if (disposed) return
+      unsubscribe = repository.subscribeNews(
+        (news) => {
+          setState((current) => ({
+            ...current,
+            newsReady: true,
+            bootstrap: {
+              ...current.bootstrap,
+              news,
+            },
+          }))
+        },
+        () => {
+          setState((current) => ({
+            ...current,
+            newsReady: true,
+          }))
+        },
+      )
+    })
+
+    return () => {
+      disposed = true
+      unsubscribe?.()
+    }
+  }, [])
+
   const login = useCallback(async () => {
-    setState((current) => ({ ...current, busy: true, error: undefined }))
+    setState((current) => ({
+      ...current,
+      busy: true,
+      memberAccessStatus: 'checking',
+      error: undefined,
+    }))
     try {
       const [liffApi, repository] = await Promise.all([
         import('../services/liff'),
@@ -347,7 +413,12 @@ export function useVeevaApp() {
       ])
       const liffSession = await liffApi.loginWithLine()
       if (!liffSession.loggedIn || !liffSession.profile) {
-        setState((current) => ({ ...current, busy: false, liffSession }))
+        setState((current) => ({
+          ...current,
+          busy: false,
+          memberAccessStatus: 'ready',
+          liffSession,
+        }))
         return
       }
 
@@ -357,10 +428,16 @@ export function useVeevaApp() {
         referralCode:
           referralCodeFromLocation() ?? state.referralCode ?? readPendingReferralCode(),
       })
-      rememberCachedMember(member)
+      const memberAccessStatus = member.phoneVerified ? 'ready' : 'phoneRequired'
+      if (member.phoneVerified) {
+        rememberCachedMember(member)
+      } else {
+        clearCachedMember()
+      }
       setState((current) => ({
         ...current,
         busy: false,
+        memberAccessStatus,
         memberProfileReady: true,
         officialAccountFriendshipReady: false,
         officialAccountFriend: false,
@@ -371,12 +448,15 @@ export function useVeevaApp() {
         notifications: [],
         referrals: [],
       }))
-      await refreshOfficialAccountFriendship(member.id)
-      await refreshMemberDetails(member)
+      void refreshOfficialAccountFriendship(member.id)
+      if (member.phoneVerified) {
+        await refreshMemberDetails(member)
+      }
     } catch (error) {
       setState((current) => ({
         ...current,
         busy: false,
+        memberAccessStatus: 'error',
         error: error instanceof Error ? error.message : String(error),
       }))
     }
@@ -494,6 +574,7 @@ export function useVeevaApp() {
           busy: false,
           member,
           memberProfileReady: true,
+          memberAccessStatus: 'ready',
         }))
         await refreshMemberDetails(member)
         return member
@@ -507,7 +588,7 @@ export function useVeevaApp() {
         throw new Error(message, { cause: error })
       }
     },
-    [refreshMemberDetails, state.member],
+    [refreshMemberDetails, state.member, state.referralCode],
   )
 
   const shareInvite = useCallback(async () => {

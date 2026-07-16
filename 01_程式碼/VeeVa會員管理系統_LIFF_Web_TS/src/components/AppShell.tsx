@@ -27,12 +27,10 @@ export function AppShell({ app, children }: AppShellProps) {
   const mainClassName = location.pathname.startsWith('/news/')
     ? 'app-main article-main'
     : 'app-main'
+  const checkingMemberAccess = app.memberAccessStatus === 'checking'
+  const memberAccessFailed = app.memberAccessStatus === 'error'
   const requiresPhoneVerification = Boolean(
-    app.member &&
-      app.memberProfileReady &&
-      !app.disabled &&
-      app.officialAccountFriend &&
-      !app.member.phoneVerified,
+    app.member && !app.disabled && app.memberAccessStatus === 'phoneRequired',
   )
   const checkingOfficialAccountFriendship = Boolean(
     app.member &&
@@ -63,11 +61,23 @@ export function AppShell({ app, children }: AppShellProps) {
       </header>
 
       <main className={mainClassName}>
-        {app.initializing ? (
+        {app.initializing || checkingMemberAccess ? (
           <div className="loading-panel">
             <span className="loading-dot" />
-            <span>{app.authenticating ? '正在前往 LINE 登入' : '正在確認登入'}</span>
+            <span>
+              {app.authenticating ? '正在前往 LINE 登入' : '正在確認會員資料'}
+            </span>
           </div>
+        ) : memberAccessFailed ? (
+          <section className="empty-state compact">
+            <h2>會員資料確認失敗</h2>
+            <p>{app.error ?? '請檢查網路後重新嘗試。'}</p>
+            <button className="primary-button" type="button" onClick={app.refresh}>
+              重新檢查
+            </button>
+          </section>
+        ) : requiresPhoneVerification ? (
+          <PhoneVerificationGate app={app} />
         ) : checkingOfficialAccountFriendship ? (
           <div className="loading-panel">
             <span className="loading-dot" />
@@ -75,8 +85,6 @@ export function AppShell({ app, children }: AppShellProps) {
           </div>
         ) : requiresOfficialAccountFriendship ? (
           <OfficialAccountFriendGate app={app} />
-        ) : requiresPhoneVerification ? (
-          <PhoneVerificationGate app={app} />
         ) : (
           children
         )}

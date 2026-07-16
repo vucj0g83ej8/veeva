@@ -1,5 +1,5 @@
 import { MessageSquareText, Phone, ShieldCheck } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { VeevaAppState } from '../hooks/useVeevaApp'
 
 interface PhoneVerificationGateProps {
@@ -13,6 +13,21 @@ export function PhoneVerificationGate({ app }: PhoneVerificationGateProps) {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [resendAvailableAt, setResendAvailableAt] = useState(0)
+  const [countdownNow, setCountdownNow] = useState(() => Date.now())
+  const resendSeconds = Math.max(
+    0,
+    Math.ceil((resendAvailableAt - countdownNow) / 1000),
+  )
+
+  useEffect(() => {
+    if (!resendAvailableAt) return
+    const intervalId = window.setInterval(
+      () => setCountdownNow(Date.now()),
+      500,
+    )
+    return () => window.clearInterval(intervalId)
+  }, [resendAvailableAt])
 
   const formattedPhonePreview = useMemo(() => {
     try {
@@ -36,7 +51,11 @@ export function PhoneVerificationGate({ app }: PhoneVerificationGateProps) {
       )
       setSentPhoneNumber(normalizedPhoneNumber)
       setVerificationCode('')
-      setMessage('驗證碼已送出，請查看手機簡訊。')
+      setCountdownNow(Date.now())
+      setResendAvailableAt(Date.now() + 60_000)
+      setMessage(
+        '簡訊發送要求已受理，通常會在 1 分鐘內抵達，尖峰時可能稍有延遲。',
+      )
     } catch (sendError) {
       setError(sendError instanceof Error ? sendError.message : String(sendError))
     } finally {
@@ -137,6 +156,16 @@ export function PhoneVerificationGate({ app }: PhoneVerificationGateProps) {
               <button
                 className="text-action phone-verification-reset"
                 type="button"
+                disabled={busy || resendSeconds > 0}
+                onClick={sendCode}
+              >
+                {resendSeconds > 0
+                  ? `若未收到，可於 ${resendSeconds} 秒後重新發送`
+                  : '沒有收到簡訊？重新發送'}
+              </button>
+              <button
+                className="text-action phone-verification-reset"
+                type="button"
                 disabled={busy}
                 onClick={async () => {
                   const { resetPhoneVerificationSession } = await import(
@@ -147,6 +176,7 @@ export function PhoneVerificationGate({ app }: PhoneVerificationGateProps) {
                   setVerificationCode('')
                   setMessage('')
                   setError('')
+                  setResendAvailableAt(0)
                 }}
               >
                 重新輸入手機號碼

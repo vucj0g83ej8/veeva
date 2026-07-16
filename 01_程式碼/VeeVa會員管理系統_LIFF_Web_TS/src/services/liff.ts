@@ -258,7 +258,6 @@ export async function shareInviteCard(memberName: string, shareCode: string) {
         body: {
           type: 'box',
           layout: 'vertical',
-          spacing: 'lg',
           paddingAll: '24px',
           backgroundColor: '#FFFFFF',
           contents: [
@@ -347,7 +346,7 @@ export async function shareActivityCard(
       altText: `分享活動：${activity.title}`,
       contents: {
         type: 'bubble',
-        size: 'giga',
+        size: 'mega',
         hero: {
           type: 'image',
           url: imageUrl,
@@ -372,24 +371,8 @@ export async function shareActivityCard(
               text: truncateForLine(activity.title, 46),
               wrap: true,
               weight: 'bold',
-              size: 'xxl',
+              size: 'xl',
               color: '#5B321E',
-            },
-            {
-              type: 'text',
-              text: activityShareIntro(activity),
-              wrap: true,
-              size: 'md',
-              color: '#6B4A38',
-              lineSpacing: '8px',
-            },
-            {
-              type: 'text',
-              text: activityShareHighlight(activity),
-              wrap: true,
-              size: 'lg',
-              weight: 'bold',
-              color: '#98531F',
             },
           ],
         },
@@ -490,36 +473,6 @@ function isLineShareImageUrl(value?: string) {
 
 function absoluteAssetUrl(path: string) {
   return new URL(path, window.location.origin).toString()
-}
-
-function activityShareStatusText(activity: VeevaActivity) {
-  if (activity.status === 'archived' || !activity.active) return '已結束'
-  if (activity.label.includes('即將')) return '即將開始'
-  if (activity.label.includes('報名')) return '報名中'
-  if (activity.type === 'registration') return '報名中'
-  if (activity.type === 'survey') return '進行中'
-  return activity.label || '進行中'
-}
-
-function activityShareLocation(activity: VeevaActivity) {
-  if (activity.type === 'survey') return '線上問卷'
-  if (activity.type === 'external' || activity.type === 'task') return '線上活動'
-  return '活動地點待通知'
-}
-
-function activityShareIntro(activity: VeevaActivity) {
-  const status = activityShareStatusText(activity)
-  const period = activity.periodText ?? '活動時間依公告為準'
-  const location = activity.location ?? activityShareLocation(activity)
-  const description = truncateForLine(activity.description, 70)
-  return `${status}｜${period}\n${description}\n活動地點：${location}`
-}
-
-function activityShareHighlight(activity: VeevaActivity) {
-  if (activity.type === 'survey') return '完成問卷後，將由後台人工確認獎勵！'
-  if (activity.type === 'registration') return '名額有限，立即報名保留席次！'
-  if (activity.type === 'referral') return '邀請好友一起加入，享受會員好禮！'
-  return '點擊下方按鈕，立即查看活動！'
 }
 
 function activityShareButtonLabel(activity: VeevaActivity) {

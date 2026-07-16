@@ -44,21 +44,11 @@ flutter build web --dart-define=LIFF_ID=2010298394-7PwRtpTY
 - LIFF ID：`2010298394-7PwRtpTY`
 - LIFF URL：`https://liff.line.me/2010298394-7PwRtpTY`
 - LINE Official Account：`@896pwyxc` / `veeva 測試`
-- 目前 rich menu ID：`richmenu-a08bca3d20269537e9ae7cd9dc4d3e4e`
-- 舊版測試 rich menu ID：`richmenu-305c6fb4f185b7cef9fb0f10657c1437`
+## LINE 圖文選單管理
 
-目前 LINE@ 預設圖文選單已透過 Messaging API 設為 7-ELEVEN 虛擬商品卡問卷入口，版面為上方主視覺加下方三個入口：
+LINE Rich Menu 統一由 LINE Official Account Manager 管理。專案不保留建立、上傳、綁定或覆蓋 Rich Menu 的 Messaging API 腳本。
 
-- `https://liff.line.me/2010298394-7PwRtpTY/activities/survey-coffee`
-- `https://liff.line.me/2010298394-7PwRtpTY/activities/survey-coffee?share=1`
-- `https://liff.line.me/2010298394-7PwRtpTY/member`
-
-目前圖文選單圖檔與套用腳本在：
-
-- `tools/create_rich_menu_test_image.mjs`
-- `tools/veeva-rich-menu-test.png`
-- `tools/rich-menu/veeva-openpoint-rich-menu.jpg`
-- `tools/rich-menu/setup-openpoint-rich-menu.mjs`
+請在 LINE Official Account Manager 的「圖文選單」頁面建立及套用選單；各區塊連結可直接設定為對應的 LIFF URL。
 
 ## 目前登入流程
 
