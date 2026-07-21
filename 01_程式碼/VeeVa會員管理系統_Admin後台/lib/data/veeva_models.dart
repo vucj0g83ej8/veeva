@@ -221,7 +221,7 @@ class VeevaLineCarouselMessage {
     return VeevaLineCarouselMessage(
       id: data['id']?.toString() ?? '',
       title: data['title']?.toString() ?? '未命名多頁訊息',
-      templateId: data['templateId']?.toString() ?? 'promotion',
+      templateId: data['templateId']?.toString() ?? 'standard',
       altText: data['altText']?.toString() ?? '',
       cards: rawCards is Iterable
           ? rawCards
@@ -877,6 +877,9 @@ class VeevaReward {
     this.requiresVerificationCode = false,
     this.voucherTotal = 0,
     this.voucherAvailable = 0,
+    this.lineNotificationEnabled = true,
+    this.lineMessageType = 'system',
+    this.lineMessageTemplateId,
   });
 
   factory VeevaReward.fromMap(String id, Map<String, Object?> data) {
@@ -897,6 +900,9 @@ class VeevaReward {
       requiresVerificationCode: data['requiresVerificationCode'] == true,
       voucherTotal: _readInt(data['voucherTotal']),
       voucherAvailable: _readInt(data['voucherAvailable']),
+      lineNotificationEnabled: data['lineNotificationEnabled'] != false,
+      lineMessageType: data['lineMessageType']?.toString() ?? 'system',
+      lineMessageTemplateId: data['lineMessageTemplateId']?.toString(),
     );
   }
 
@@ -912,6 +918,9 @@ class VeevaReward {
   final bool requiresVerificationCode;
   final int voucherTotal;
   final int voucherAvailable;
+  final bool lineNotificationEnabled;
+  final String lineMessageType;
+  final String? lineMessageTemplateId;
 
   Map<String, Object?> toMap() {
     return {
@@ -927,6 +936,9 @@ class VeevaReward {
       'verificationCode': FieldValue.delete(),
       'voucherTotal': voucherTotal,
       'voucherAvailable': voucherAvailable,
+      'lineNotificationEnabled': lineNotificationEnabled,
+      'lineMessageType': lineMessageType,
+      'lineMessageTemplateId': lineMessageTemplateId,
       'updatedAt': FieldValue.serverTimestamp(),
     };
   }

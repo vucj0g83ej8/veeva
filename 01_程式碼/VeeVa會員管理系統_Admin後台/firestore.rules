@@ -57,6 +57,11 @@ service cloud.firestore {
       allow delete: if true;
     }
 
+    match /lineMessageTests/{testId} {
+      allow read, create, update: if true;
+      allow delete: if true;
+    }
+
     match /phoneVerificationRateLimits/{phoneHash} {
       allow read, create, update: if true;
       allow delete: if true;

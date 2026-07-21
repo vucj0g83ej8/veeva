@@ -79,7 +79,102 @@ export const sendRewardIssuedLineMessage = onDocumentWritten(
   },
 );
 
+export const sendLineMessageTest = onDocumentWritten(
+  {
+    document: 'lineMessageTests/{testId}',
+    region: 'asia-east1',
+    timeoutSeconds: 30,
+    memory: '256MiB',
+    secrets: [lineChannelAccessToken],
+  },
+  async (event) => {
+    const snapshot = event.data?.after;
+    const testId = event.params.testId;
+    const data = snapshot?.data();
+    if (!snapshot?.exists || !data) return;
+    if (cleanString(data.status) !== 'pending') return;
+
+    const lineUserId = cleanString(data.memberLineUserId);
+    if (!lineUserId) {
+      await markLineMessageTest(testId, {
+        status: 'skipped',
+        error: '此會員沒有可使用的 LINE 帳號識別碼。',
+      });
+      return;
+    }
+
+    await markLineMessageTest(testId, { status: 'sending' });
+    const channelAccessToken = cleanString(lineChannelAccessToken.value());
+    if (!channelAccessToken) {
+      await markLineMessageTest(testId, {
+        status: 'skipped',
+        error: '尚未設定 LINE Channel Access Token。',
+      });
+      return;
+    }
+
+    try {
+      const message = buildRewardIssuedFlexMessage({
+        lineMessageType: data.messageType,
+        lineMessageSnapshot: data.messageSnapshot,
+        rewardName: 'LINE 測試訊息',
+      });
+      const response = await fetch(linePushEndpoint, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${channelAccessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          to: lineUserId,
+          messages: [message],
+        }),
+      });
+
+      if (!response.ok) {
+        const responseBody = await response.text().catch(() => '');
+        await markLineMessageTest(testId, {
+          status: 'failed',
+          error: `LINE 測試發送失敗 (${response.status})：${responseBody}`,
+        });
+        logger.error('LINE message test failed.', {
+          testId,
+          status: response.status,
+          responseBody,
+        });
+        return;
+      }
+
+      await markLineMessageTest(testId, { status: 'sent' });
+      logger.info('LINE message test sent.', { testId });
+    } catch (error) {
+      await markLineMessageTest(testId, {
+        status: 'failed',
+        error: `LINE 測試發送失敗：${error instanceof Error ? error.message : String(error)}`,
+      });
+      logger.error('LINE message test threw an error.', {
+        testId,
+        error,
+      });
+    }
+  },
+);
+
 function buildRewardIssuedFlexMessage(data) {
+  const messageType = cleanString(data.lineMessageType) || 'system';
+  const snapshot = isPlainObject(data.lineMessageSnapshot)
+    ? data.lineMessageSnapshot
+    : null;
+  if (messageType === 'rich' && snapshot) {
+    return buildRichRewardIssuedFlexMessage(data, snapshot);
+  }
+  if (messageType === 'carousel' && snapshot) {
+    return buildCarouselRewardIssuedFlexMessage(data, snapshot);
+  }
+  return buildSystemRewardIssuedFlexMessage(data);
+}
+
+function buildSystemRewardIssuedFlexMessage(data) {
   const rewardName = cleanString(data.rewardName) || '兌換券';
   const activityTitle = cleanString(data.activityTitle);
   const bodyText =
@@ -160,6 +255,163 @@ function buildRewardIssuedFlexMessage(data) {
   };
 }
 
+function buildRichRewardIssuedFlexMessage(data, template) {
+  const rewardName = cleanString(data.rewardName) || '兌換券';
+  const couponUrl = couponActionUrl(cleanString(data.memberRewardId));
+  const imageUrl = usableImageUrl(cleanString(template.imageUrl));
+  if (!imageUrl) return buildSystemRewardIssuedFlexMessage(data);
+  const targetUrl = resolveTemplateUrl(template.targetUrl, couponUrl);
+
+  return {
+    type: 'flex',
+    altText:
+      cleanString(template.altText) || `${rewardName} 已確認，可以正常使用`,
+    contents: {
+      type: 'bubble',
+      hero: {
+        type: 'image',
+        url: imageUrl,
+        size: 'full',
+        aspectRatio: '20:13',
+        aspectMode: 'cover',
+        action: {
+          type: 'uri',
+          uri: targetUrl,
+        },
+      },
+    },
+  };
+}
+
+function buildCarouselRewardIssuedFlexMessage(data, template) {
+  const rewardName = cleanString(data.rewardName) || '兌換券';
+  const couponUrl = couponActionUrl(cleanString(data.memberRewardId));
+  const templateId = normalizeCarouselTemplateId(template.templateId);
+  const cards = Array.isArray(template.cards)
+    ? template.cards
+        .filter(isPlainObject)
+        .slice(0, 10)
+        .map((card) => buildCarouselBubble(card, couponUrl, templateId))
+    : [];
+  if (cards.length === 0) return buildSystemRewardIssuedFlexMessage(data);
+
+  return {
+    type: 'flex',
+    altText:
+      cleanString(template.altText) || `${rewardName} 已確認，可以正常使用`,
+    contents: {
+      type: 'carousel',
+      contents: cards,
+    },
+  };
+}
+
+function buildCarouselBubble(card, couponUrl, templateId) {
+  const title = cleanString(card.title) || '會員好禮';
+  const description = cleanString(card.description);
+  const imageUrl = usableImageUrl(cleanString(card.imageUrl));
+  const actionLabel = cleanString(card.actionLabel) || '立即查看';
+  const actionUrl = resolveTemplateUrl(card.actionUrl, couponUrl);
+  if (templateId === 'fullImage' && imageUrl) {
+    return {
+      type: 'bubble',
+      size: 'mega',
+      hero: {
+        type: 'image',
+        url: imageUrl,
+        size: 'full',
+        aspectRatio: '1:1',
+        aspectMode: 'cover',
+        action: {
+          type: 'uri',
+          label: actionLabel,
+          uri: actionUrl,
+        },
+      },
+    };
+  }
+
+  const compact = templateId === 'compact';
+
+  return {
+    type: 'bubble',
+    ...(compact ? { size: 'deca' } : {}),
+    ...(imageUrl
+      ? {
+          hero: {
+            type: 'image',
+            url: imageUrl,
+            size: 'full',
+            aspectRatio: compact ? '1:1' : '20:13',
+            aspectMode: 'cover',
+          },
+        }
+      : {}),
+    body: {
+      type: 'box',
+      layout: 'vertical',
+      ...(compact ? { paddingAll: '12px' } : {}),
+      contents: [
+        {
+          type: 'text',
+          text: title,
+          weight: 'bold',
+          size: compact ? 'md' : 'xl',
+          wrap: true,
+        },
+        ...(description
+          ? [
+              {
+                type: 'text',
+                text: description,
+                margin: 'md',
+                size: compact ? 'xs' : 'sm',
+                color: '#727577',
+                wrap: true,
+              },
+            ]
+          : []),
+      ],
+    },
+    footer: {
+      type: 'box',
+      layout: 'vertical',
+      ...(compact ? { paddingAll: '8px' } : {}),
+      contents: [
+        {
+          type: 'button',
+          style: 'primary',
+          color: '#FF9812',
+          ...(compact ? { height: 'sm' } : {}),
+          action: {
+            type: 'uri',
+            label: actionLabel,
+            uri: actionUrl,
+          },
+        },
+      ],
+    },
+  };
+}
+
+function normalizeCarouselTemplateId(value) {
+  const templateId = cleanString(value);
+  if (templateId === 'compact' || templateId === 'fullImage') {
+    return templateId;
+  }
+  return 'standard';
+}
+
+function resolveTemplateUrl(value, couponUrl) {
+  const configuredUrl = cleanString(value);
+  if (!configuredUrl || configuredUrl === '{{couponUrl}}') return couponUrl;
+  return configuredUrl.replaceAll('{{couponUrl}}', couponUrl);
+}
+
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
 function couponActionUrl(memberRewardId) {
   const couponPath = memberRewardId
     ? `/coupons?reward=${encodeURIComponent(memberRewardId)}`
@@ -192,6 +444,21 @@ async function markLinePush(notificationId, result) {
         linePushError: result.error ?? null,
         linePushedAt:
           result.status === 'sent' ? FieldValue.serverTimestamp() : null,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+}
+
+async function markLineMessageTest(testId, result) {
+  await db
+    .collection('lineMessageTests')
+    .doc(testId)
+    .set(
+      {
+        status: result.status,
+        error: result.error ?? null,
+        sentAt: result.status === 'sent' ? FieldValue.serverTimestamp() : null,
         updatedAt: FieldValue.serverTimestamp(),
       },
       { merge: true },

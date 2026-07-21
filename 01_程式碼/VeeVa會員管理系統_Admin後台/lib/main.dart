@@ -261,6 +261,8 @@ class _MemberReviewChecklistItem {
 
   bool get canApprove => surveySubmitted && !memberApproved;
 
+  bool get canForceApprove => !surveySubmitted && !memberApproved;
+
   bool get canRejectReview =>
       surveyRecord != null && !memberApproved && !rewardNotIssued;
 
@@ -328,6 +330,9 @@ class AdminRewardItem {
     this.requiresVerificationCode = false,
     this.voucherTotal = 0,
     this.voucherAvailable = 0,
+    this.lineNotificationEnabled = true,
+    this.lineMessageType = 'system',
+    this.lineMessageTemplateId,
   });
 
   factory AdminRewardItem.fromBackend(backend.VeevaReward reward) {
@@ -348,6 +353,9 @@ class AdminRewardItem {
       requiresVerificationCode: reward.requiresVerificationCode,
       voucherTotal: reward.voucherTotal,
       voucherAvailable: reward.voucherAvailable,
+      lineNotificationEnabled: reward.lineNotificationEnabled,
+      lineMessageType: reward.lineMessageType,
+      lineMessageTemplateId: reward.lineMessageTemplateId,
     );
   }
 
@@ -363,6 +371,9 @@ class AdminRewardItem {
   final bool requiresVerificationCode;
   final int voucherTotal;
   final int voucherAvailable;
+  final bool lineNotificationEnabled;
+  final String lineMessageType;
+  final String? lineMessageTemplateId;
 
   AdminRewardItem copyWith({
     String? name,
@@ -376,6 +387,9 @@ class AdminRewardItem {
     bool? requiresVerificationCode,
     int? voucherTotal,
     int? voucherAvailable,
+    bool? lineNotificationEnabled,
+    String? lineMessageType,
+    Object? lineMessageTemplateId = _unchangedRewardLineMessageTemplateId,
   }) {
     return AdminRewardItem(
       id: id,
@@ -393,6 +407,13 @@ class AdminRewardItem {
           requiresVerificationCode ?? this.requiresVerificationCode,
       voucherTotal: voucherTotal ?? this.voucherTotal,
       voucherAvailable: voucherAvailable ?? this.voucherAvailable,
+      lineNotificationEnabled:
+          lineNotificationEnabled ?? this.lineNotificationEnabled,
+      lineMessageType: lineMessageType ?? this.lineMessageType,
+      lineMessageTemplateId: identical(
+              lineMessageTemplateId, _unchangedRewardLineMessageTemplateId)
+          ? this.lineMessageTemplateId
+          : lineMessageTemplateId as String?,
     );
   }
 
@@ -414,11 +435,15 @@ class AdminRewardItem {
       requiresVerificationCode: requiresVerificationCode,
       voucherTotal: voucherTotal,
       voucherAvailable: voucherAvailable,
+      lineNotificationEnabled: lineNotificationEnabled,
+      lineMessageType: lineMessageType,
+      lineMessageTemplateId: lineMessageTemplateId,
     );
   }
 }
 
 const _unchangedRewardImageUrl = Object();
+const _unchangedRewardLineMessageTemplateId = Object();
 const _rewardUnlimitedExpiryLabel = '不限時';
 const _rewardUnlimitedExpiryYear = 9999;
 const _rewardCategoryOptions = [
@@ -1463,12 +1488,14 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
           memberRewards: memberRewards,
           activityRecords: activityRecords,
           adminUsers: adminUsers,
+          clientSettings: clientSettings,
           onApprove: _approveReview,
           onSaveMemberSettings: _saveMemberSettings,
           onDeleteMember: _deleteMember,
           onGrantReward: _grantRewardToMember,
           onSaveReviewRewardDecision: _saveReviewRewardDecision,
           onResetActivityCompletion: _resetActivityCompletion,
+          onForceCompleteSurvey: _forceCompleteSurvey,
         ),
       AdminTab.activities => _ActivityManagement(
           activities: activities,
@@ -1520,12 +1547,17 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
         ),
       AdminTab.lineRich => _LineRichMessageManagement(
           messages: clientSettings.lineRichMessages,
+          members: members,
           onSave: _saveLineRichMessages,
           onUpload: repository.uploadImage,
+          onTestSend: _sendLineMessageTest,
         ),
       AdminTab.lineCarousel => _LineCarouselMessageManagement(
           messages: clientSettings.lineCarouselMessages,
+          members: members,
           onSave: _saveLineCarouselMessages,
+          onUpload: repository.uploadImage,
+          onTestSend: _sendLineMessageTest,
         ),
       AdminTab.settings => const _PlaceholderPanel(
           icon: Icons.settings_outlined,
@@ -1729,6 +1761,32 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       });
       rethrow;
     }
+  }
+
+  Future<void> _forceCompleteSurvey({
+    required backend.VeevaMember member,
+    required backend.VeevaActivity activity,
+  }) async {
+    final record = await repository.forceCompleteSurvey(
+      member: member,
+      activity: activity,
+    );
+
+    bool matchesSurveyRecord(backend.VeevaActivityRecord item) {
+      final sameActivity = item.activityId == activity.id;
+      final sameMember = item.memberId == member.id ||
+          (member.lineUserId != null &&
+              member.lineUserId!.trim().isNotEmpty &&
+              item.memberLineUserId == member.lineUserId);
+      return sameActivity && sameMember;
+    }
+
+    if (!mounted) return;
+    setState(() {
+      activityRecords.removeWhere(matchesSurveyRecord);
+      activityRecords.add(record);
+      backendError = null;
+    });
   }
 
   Future<void> _saveActivity(backend.VeevaActivity activity) async {
@@ -2828,6 +2886,18 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
     );
   }
 
+  Future<void> _sendLineMessageTest({
+    required backend.VeevaMember member,
+    required String messageType,
+    required Map<String, Object?> messageSnapshot,
+  }) {
+    return repository.sendLineMessageTest(
+      member: member,
+      messageType: messageType,
+      messageSnapshot: messageSnapshot,
+    );
+  }
+
   Future<void> _saveLineSettings(
     backend.VeevaClientSettings next, {
     required String successMessage,
@@ -3500,6 +3570,22 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
     });
 
     try {
+      Map<String, Object?>? lineMessageSnapshot;
+      if (reward.lineMessageType == 'rich') {
+        for (final message in clientSettings.lineRichMessages) {
+          if (message.id == reward.lineMessageTemplateId) {
+            lineMessageSnapshot = message.toMap();
+            break;
+          }
+        }
+      } else if (reward.lineMessageType == 'carousel') {
+        for (final message in clientSettings.lineCarouselMessages) {
+          if (message.id == reward.lineMessageTemplateId) {
+            lineMessageSnapshot = message.toMap();
+            break;
+          }
+        }
+      }
       await repository.grantRewardToMember(
         member: member,
         reward: reward.toBackend(),
@@ -3509,6 +3595,10 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
         sourceMember: sourceMember,
         source: source,
         preventDuplicate: preventDuplicate,
+        sendLineMessage: reward.lineNotificationEnabled,
+        lineMessageType: reward.lineMessageType,
+        lineMessageTemplateId: reward.lineMessageTemplateId,
+        lineMessageSnapshot: lineMessageSnapshot,
       );
       if (!mounted) return;
       if (showSnackBar) {
@@ -3569,6 +3659,20 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
             : _formatAdminDate(DateTime.now().add(const Duration(days: 90))));
     final imageController = TextEditingController(text: reward?.imageUrl ?? '');
     var requiresVerificationCode = reward?.requiresVerificationCode ?? false;
+    var lineNotificationEnabled = reward?.lineNotificationEnabled ?? true;
+    var lineMessageType =
+        const ['system', 'rich', 'carousel'].contains(reward?.lineMessageType)
+            ? reward!.lineMessageType
+            : 'system';
+    String? lineMessageTemplateId = reward?.lineMessageTemplateId;
+    final hasSavedLineTemplate = lineMessageType == 'rich'
+        ? clientSettings.lineRichMessages
+            .any((item) => item.id == lineMessageTemplateId)
+        : lineMessageType == 'carousel'
+            ? clientSettings.lineCarouselMessages
+                .any((item) => item.id == lineMessageTemplateId)
+            : true;
+    if (!hasSavedLineTemplate) lineMessageTemplateId = null;
     var status = reward?.status ?? RewardStatus.active;
     final voucherImporter = createAdminVoucherImporter();
     ImportedVoucherLinks? pendingVoucherImport;
@@ -3612,6 +3716,12 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                 );
                 return;
               }
+              if (lineNotificationEnabled &&
+                  lineMessageType != 'system' &&
+                  lineMessageTemplateId == null) {
+                setDialogState(() => formError = '請選擇發放兌換券時要使用的 LINE 訊息。');
+                return;
+              }
               pendingReward = AdminRewardItem(
                 id: rewardId,
                 name: name,
@@ -3625,6 +3735,9 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                 requiresVerificationCode: requiresVerificationCode,
                 voucherTotal: reward?.voucherTotal ?? 0,
                 voucherAvailable: reward?.voucherAvailable ?? 0,
+                lineNotificationEnabled: lineNotificationEnabled,
+                lineMessageType: lineMessageType,
+                lineMessageTemplateId: lineMessageTemplateId,
               );
               Navigator.of(dialogContext).pop();
             }
@@ -4046,6 +4159,140 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                                 ),
                               ),
                               const SizedBox(height: 28),
+                              Container(
+                                padding: const EdgeInsets.all(18),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFFFAF3),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: const Color(0xFFEADFCE),
+                                  ),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    SwitchListTile.adaptive(
+                                      contentPadding: EdgeInsets.zero,
+                                      value: lineNotificationEnabled,
+                                      activeColor: const Color(0xFFFF9812),
+                                      title: const Text(
+                                        '發放後傳送 LINE 訊息',
+                                        style: TextStyle(
+                                          color: Color(0xFF303236),
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
+                                      subtitle: const Text(
+                                        '人工確認發放後，依照這裡的預設設定通知會員。發放當下仍可預覽並臨時切換。',
+                                        style: TextStyle(
+                                          color: Color(0xFF6F7073),
+                                          height: 1.45,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      onChanged: (value) {
+                                        setDialogState(() {
+                                          lineNotificationEnabled = value;
+                                          formError = null;
+                                        });
+                                      },
+                                    ),
+                                    if (lineNotificationEnabled) ...[
+                                      const SizedBox(height: 12),
+                                      DropdownButtonFormField<String>(
+                                        value: lineMessageType,
+                                        decoration: _rewardInputDecoration(
+                                          hintText: '請選擇訊息形式',
+                                          icon: Icons.chat_bubble_outline,
+                                        ),
+                                        items: const [
+                                          DropdownMenuItem(
+                                            value: 'system',
+                                            child: Text('系統預設卡片'),
+                                          ),
+                                          DropdownMenuItem(
+                                            value: 'rich',
+                                            child: Text('單頁圖文訊息'),
+                                          ),
+                                          DropdownMenuItem(
+                                            value: 'carousel',
+                                            child: Text('多頁訊息'),
+                                          ),
+                                        ],
+                                        onChanged: (value) {
+                                          if (value == null) return;
+                                          setDialogState(() {
+                                            lineMessageType = value;
+                                            lineMessageTemplateId = null;
+                                            formError = null;
+                                          });
+                                        },
+                                      ),
+                                      if (lineMessageType == 'rich') ...[
+                                        const SizedBox(height: 12),
+                                        DropdownButtonFormField<String>(
+                                          value: lineMessageTemplateId,
+                                          decoration: _rewardInputDecoration(
+                                            hintText: '請選擇單頁圖文訊息',
+                                            icon: Icons.image_outlined,
+                                          ),
+                                          items: [
+                                            for (final message in clientSettings
+                                                .lineRichMessages)
+                                              DropdownMenuItem(
+                                                value: message.id,
+                                                child: Text(message.title),
+                                              ),
+                                          ],
+                                          onChanged: (value) {
+                                            setDialogState(() {
+                                              lineMessageTemplateId = value;
+                                              formError = null;
+                                            });
+                                          },
+                                        ),
+                                      ],
+                                      if (lineMessageType == 'carousel') ...[
+                                        const SizedBox(height: 12),
+                                        DropdownButtonFormField<String>(
+                                          value: lineMessageTemplateId,
+                                          decoration: _rewardInputDecoration(
+                                            hintText: '請選擇多頁訊息',
+                                            icon: Icons.view_carousel_outlined,
+                                          ),
+                                          items: [
+                                            for (final message in clientSettings
+                                                .lineCarouselMessages)
+                                              DropdownMenuItem(
+                                                value: message.id,
+                                                child: Text(message.title),
+                                              ),
+                                          ],
+                                          onChanged: (value) {
+                                            setDialogState(() {
+                                              lineMessageTemplateId = value;
+                                              formError = null;
+                                            });
+                                          },
+                                        ),
+                                      ],
+                                      if (lineMessageType != 'system') ...[
+                                        const SizedBox(height: 10),
+                                        const Text(
+                                          '模板連結可填入 {{couponUrl}}，發送時會自動換成該會員的兌換券連結。',
+                                          style: TextStyle(
+                                            color: Color(0xFF8A6335),
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 28),
                               _RewardImageUploadSection(
                                 controller: imageController,
                                 storageFolder: 'public/rewards/$rewardId/cover',
@@ -4367,6 +4614,42 @@ class _InlineError extends StatelessWidget {
                 style: const TextStyle(
                   color: Color(0xFF7A2718),
                   fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InlineInfo extends StatelessWidget {
+  const _InlineInfo({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFAF3),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFEADFCE)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+        child: Row(
+          children: [
+            Icon(icon, color: const Color(0xFFC66D00)),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Text(
+                text,
+                style: const TextStyle(
+                  color: Color(0xFF6F5435),
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ),
@@ -6708,7 +6991,7 @@ class _MemberReviewChecklistListBody extends StatelessWidget {
       );
     }
     final tableMinWidth = switch (actionMode) {
-      _MemberReviewActionMode.approve => compact ? 900.0 : 1040.0,
+      _MemberReviewActionMode.approve => compact ? 940.0 : 1080.0,
       _MemberReviewActionMode.rewardDecision => compact ? 940.0 : 1080.0,
       _ => compact ? 780.0 : 920.0,
     };
@@ -6753,7 +7036,7 @@ class _MemberReviewChecklistListBody extends StatelessWidget {
                 DataCell(
                   SizedBox(
                     width: switch (actionMode) {
-                      _MemberReviewActionMode.approve => 210,
+                      _MemberReviewActionMode.approve => 250,
                       _MemberReviewActionMode.rewardDecision => 230,
                       _ => null,
                     },
@@ -6876,16 +7159,25 @@ class _MemberReviewActionCell extends StatelessWidget {
   Widget build(BuildContext context) {
     return switch (mode) {
       _MemberReviewActionMode.approve => SizedBox(
-          width: 210,
+          width: 250,
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Expanded(
                 child: FilledButton.icon(
-                  onPressed: item.canApprove ? () => onApprove(item) : null,
-                  icon: const Icon(Icons.verified_user_outlined),
-                  label: const Text('通過'),
+                  onPressed: item.canApprove || item.canForceApprove
+                      ? () => onApprove(item)
+                      : null,
+                  icon: Icon(
+                    item.canForceApprove
+                        ? Icons.warning_amber_rounded
+                        : Icons.verified_user_outlined,
+                  ),
+                  label: Text(item.canForceApprove ? '強制通過' : '通過'),
                   style: FilledButton.styleFrom(
+                    backgroundColor:
+                        item.canForceApprove ? const Color(0xFFC62828) : null,
+                    foregroundColor: item.canForceApprove ? Colors.white : null,
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                   ),
                 ),
@@ -7109,12 +7401,14 @@ class _MemberManagement extends StatefulWidget {
     required this.memberRewards,
     required this.activityRecords,
     required this.adminUsers,
+    required this.clientSettings,
     required this.onApprove,
     required this.onSaveMemberSettings,
     required this.onDeleteMember,
     required this.onGrantReward,
     required this.onSaveReviewRewardDecision,
     required this.onResetActivityCompletion,
+    required this.onForceCompleteSurvey,
   });
 
   final List<backend.VeevaActivity> activities;
@@ -7124,6 +7418,7 @@ class _MemberManagement extends StatefulWidget {
   final List<backend.VeevaMemberReward> memberRewards;
   final List<backend.VeevaActivityRecord> activityRecords;
   final List<backend.VeevaAdminUser> adminUsers;
+  final backend.VeevaClientSettings clientSettings;
   final ValueChanged<AdminReviewItem> onApprove;
   final Future<void> Function({
     required backend.VeevaMember member,
@@ -7148,6 +7443,10 @@ class _MemberManagement extends StatefulWidget {
   }) onSaveReviewRewardDecision;
   final Future<void> Function(backend.VeevaActivityRecord record)
       onResetActivityCompletion;
+  final Future<void> Function({
+    required backend.VeevaMember member,
+    required backend.VeevaActivity activity,
+  }) onForceCompleteSurvey;
 
   @override
   State<_MemberManagement> createState() => _MemberManagementState();
@@ -7732,8 +8031,52 @@ class _MemberManagementState extends State<_MemberManagement> {
   }
 
   Future<void> _approveMemberReview(_MemberReviewChecklistItem item) async {
-    if (!item.canApprove) return;
+    if (!item.canApprove && !item.canForceApprove) return;
     final member = item.member;
+
+    if (item.canForceApprove) {
+      final activity = _activityForId(_memberReviewSurveyActivityId);
+      if (activity == null) {
+        _showMemberReviewError('強制通過失敗：找不到填寫線上問卷活動設定。');
+        return;
+      }
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('確認強制通過？'),
+          content: Text(
+            '「${member.name}」尚未完成問卷。\n\n'
+            '確認後，系統會將問卷狀態改為已完成，'
+            '並將會員移入已審核清單。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFC62828),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('確認強制通過'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+
+      try {
+        await widget.onForceCompleteSurvey(
+          member: member,
+          activity: activity,
+        );
+      } catch (_) {
+        _showMemberReviewError('強制通過失敗：無法更新問卷完成狀態。');
+        return;
+      }
+    }
 
     try {
       final latestMember = _memberForId(member.id) ?? member;
@@ -7780,11 +8123,17 @@ class _MemberManagementState extends State<_MemberManagement> {
       return;
     }
 
+    final rewardForIssue = await _showRewardIssueMessageDialog(
+      member: member,
+      reward: completionReward,
+    );
+    if (rewardForIssue == null) return;
+
     try {
       if (!_hasIssuedCompletionReward(activity, member)) {
         await widget.onGrantReward(
           member: member,
-          reward: completionReward,
+          reward: rewardForIssue,
           quantity: 1,
           note: '會員審核後人工確認發放',
           activity: activity,
@@ -7829,6 +8178,298 @@ class _MemberManagementState extends State<_MemberManagement> {
     } catch (_) {
       _showMemberReviewError('發放失敗：請確認兌換券庫存、活動設定與 Firestore rules。');
     }
+  }
+
+  Future<AdminRewardItem?> _showRewardIssueMessageDialog({
+    required backend.VeevaMember member,
+    required AdminRewardItem reward,
+  }) async {
+    var sendLineMessage = reward.lineNotificationEnabled;
+    var messageType =
+        const ['system', 'rich', 'carousel'].contains(reward.lineMessageType)
+            ? reward.lineMessageType
+            : 'system';
+    String? templateId = reward.lineMessageTemplateId;
+    final templateStillExists = messageType == 'rich'
+        ? widget.clientSettings.lineRichMessages
+            .any((item) => item.id == templateId)
+        : messageType == 'carousel'
+            ? widget.clientSettings.lineCarouselMessages
+                .any((item) => item.id == templateId)
+            : true;
+    if (!templateStillExists) templateId = null;
+    String? error;
+
+    return showDialog<AdminRewardItem>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            backend.VeevaLineRichMessage? selectedRichMessage;
+            for (final message in widget.clientSettings.lineRichMessages) {
+              if (message.id == templateId) {
+                selectedRichMessage = message;
+                break;
+              }
+            }
+            backend.VeevaLineCarouselMessage? selectedCarouselMessage;
+            for (final message in widget.clientSettings.lineCarouselMessages) {
+              if (message.id == templateId) {
+                selectedCarouselMessage = message;
+                break;
+              }
+            }
+
+            Widget messagePreview() {
+              if (!sendLineMessage) {
+                return const _InlineInfo(
+                  icon: Icons.notifications_off_outlined,
+                  text: '這次只發放兌換券，不傳送 LINE 訊息。',
+                );
+              }
+              if (messageType == 'rich' && selectedRichMessage != null) {
+                return Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFFAF3),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFEADFCE)),
+                  ),
+                  child: Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: Image.network(
+                          selectedRichMessage.imageUrl,
+                          width: 112,
+                          height: 72,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => const SizedBox(
+                            width: 112,
+                            height: 72,
+                            child: Icon(Icons.broken_image_outlined),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              selectedRichMessage.title,
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w900),
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              '單頁圖文訊息',
+                              style: TextStyle(color: Color(0xFF727577)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }
+              if (messageType == 'carousel' &&
+                  selectedCarouselMessage != null) {
+                return Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFFAF3),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFEADFCE)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        selectedCarouselMessage.title,
+                        style: const TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          for (final card in selectedCarouselMessage.cards)
+                            Chip(
+                              avatar: const Icon(
+                                Icons.web_asset_outlined,
+                                size: 16,
+                              ),
+                              label: Text(card.title),
+                              side: BorderSide.none,
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              }
+              return const _InlineInfo(
+                icon: Icons.redeem_outlined,
+                text: '使用系統預設兌換券卡片，按鈕會直接開啟這次發放的兌換券。',
+              );
+            }
+
+            return AlertDialog(
+              title: const Text('確認發放兌換券'),
+              content: SizedBox(
+                width: 620,
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _RewardSummaryTile(reward: reward),
+                      const SizedBox(height: 12),
+                      Text(
+                        '發放對象：${member.name}',
+                        style: const TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                      const SizedBox(height: 16),
+                      SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        value: sendLineMessage,
+                        activeColor: const Color(0xFFFF9812),
+                        title: const Text('同步傳送 LINE 訊息'),
+                        onChanged: (value) {
+                          setDialogState(() {
+                            sendLineMessage = value;
+                            error = null;
+                          });
+                        },
+                      ),
+                      if (sendLineMessage) ...[
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<String>(
+                          value: messageType,
+                          decoration: const InputDecoration(
+                            labelText: '訊息形式',
+                            prefixIcon: Icon(Icons.chat_bubble_outline),
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'system',
+                              child: Text('系統預設卡片'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'rich',
+                              child: Text('單頁圖文訊息'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'carousel',
+                              child: Text('多頁訊息'),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            if (value == null) return;
+                            setDialogState(() {
+                              messageType = value;
+                              templateId = null;
+                              error = null;
+                            });
+                          },
+                        ),
+                        if (messageType == 'rich') ...[
+                          const SizedBox(height: 12),
+                          DropdownButtonFormField<String>(
+                            value: templateId,
+                            decoration: const InputDecoration(
+                              labelText: '單頁圖文訊息',
+                              prefixIcon: Icon(Icons.image_outlined),
+                            ),
+                            items: [
+                              for (final message
+                                  in widget.clientSettings.lineRichMessages)
+                                DropdownMenuItem(
+                                  value: message.id,
+                                  child: Text(message.title),
+                                ),
+                            ],
+                            onChanged: (value) {
+                              setDialogState(() {
+                                templateId = value;
+                                error = null;
+                              });
+                            },
+                          ),
+                        ],
+                        if (messageType == 'carousel') ...[
+                          const SizedBox(height: 12),
+                          DropdownButtonFormField<String>(
+                            value: templateId,
+                            decoration: const InputDecoration(
+                              labelText: '多頁訊息',
+                              prefixIcon: Icon(Icons.view_carousel_outlined),
+                            ),
+                            items: [
+                              for (final message
+                                  in widget.clientSettings.lineCarouselMessages)
+                                DropdownMenuItem(
+                                  value: message.id,
+                                  child: Text(message.title),
+                                ),
+                            ],
+                            onChanged: (value) {
+                              setDialogState(() {
+                                templateId = value;
+                                error = null;
+                              });
+                            },
+                          ),
+                        ],
+                      ],
+                      const SizedBox(height: 14),
+                      messagePreview(),
+                      if (error != null) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          error!,
+                          style: const TextStyle(
+                            color: Colors.red,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('取消'),
+                ),
+                FilledButton.icon(
+                  onPressed: () {
+                    if (sendLineMessage &&
+                        messageType != 'system' &&
+                        templateId == null) {
+                      setDialogState(() => error = '請先選擇要傳送的訊息。');
+                      return;
+                    }
+                    Navigator.of(dialogContext).pop(
+                      reward.copyWith(
+                        lineNotificationEnabled: sendLineMessage,
+                        lineMessageType: messageType,
+                        lineMessageTemplateId:
+                            messageType == 'system' ? null : templateId,
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.redeem_outlined),
+                  label: const Text('確認發放'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _openMemberReviewRejectDialog(
@@ -16446,16 +17087,244 @@ typedef _SaveLineRichMessages = Future<void> Function(
   List<backend.VeevaLineRichMessage> messages,
 );
 
+typedef _SendLineMessageTest = Future<void> Function({
+  required backend.VeevaMember member,
+  required String messageType,
+  required Map<String, Object?> messageSnapshot,
+});
+
+Future<void> _showLineMessageTestDialog(
+  BuildContext context, {
+  required String messageTitle,
+  required String messageType,
+  required Map<String, Object?> messageSnapshot,
+  required List<backend.VeevaMember> members,
+  required _SendLineMessageTest onTestSend,
+}) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final candidates = members
+      .where((member) => member.lineUserId?.trim().isNotEmpty == true)
+      .toList()
+    ..sort((a, b) => a.name.compareTo(b.name));
+  final searchController = TextEditingController();
+  backend.VeevaMember? selectedMember;
+  var sending = false;
+  String? error;
+
+  await showDialog<void>(
+    context: context,
+    barrierDismissible: !sending,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (context, setDialogState) {
+        final keyword = searchController.text.trim().toLowerCase();
+        final filtered = candidates.where((member) {
+          if (keyword.isEmpty) return true;
+          return member.name.toLowerCase().contains(keyword) ||
+              (member.phoneNumber ?? '').toLowerCase().contains(keyword);
+        }).toList();
+
+        return AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.send_outlined, color: Color(0xFFC66D00)),
+              SizedBox(width: 10),
+              Text('測試發送 LINE 訊息'),
+            ],
+          ),
+          content: SizedBox(
+            width: 620,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '選擇一位 LINE 會員，測試「$messageTitle」的實際顯示效果。測試不會發放兌換券或扣除庫存。',
+                  style: const TextStyle(
+                    color: Color(0xFF727577),
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: searchController,
+                  enabled: !sending,
+                  onChanged: (_) => setDialogState(() {}),
+                  decoration: const InputDecoration(
+                    labelText: '搜尋 LINE 會員',
+                    hintText: '輸入會員名稱或電話',
+                    prefixIcon: Icon(Icons.search),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  constraints: const BoxConstraints(maxHeight: 330),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFEADFCE)),
+                  ),
+                  child: candidates.isEmpty
+                      ? const SizedBox(
+                          height: 120,
+                          child: Center(
+                            child: Text('目前沒有可測試發送的 LINE 會員'),
+                          ),
+                        )
+                      : filtered.isEmpty
+                          ? const SizedBox(
+                              height: 120,
+                              child: Center(child: Text('找不到符合的會員')),
+                            )
+                          : ListView.separated(
+                              shrinkWrap: true,
+                              itemCount: filtered.length,
+                              separatorBuilder: (_, __) => const Divider(
+                                height: 1,
+                                color: Color(0xFFEADFCE),
+                              ),
+                              itemBuilder: (context, index) {
+                                final member = filtered[index];
+                                final selected =
+                                    selectedMember?.id == member.id;
+                                final avatarUrl = member.avatarUrl?.trim();
+                                return ListTile(
+                                  enabled: !sending,
+                                  selected: selected,
+                                  selectedTileColor: const Color(0xFFFFF2DF),
+                                  leading: CircleAvatar(
+                                    backgroundColor: const Color(0xFFFFEED8),
+                                    backgroundImage:
+                                        avatarUrl == null || avatarUrl.isEmpty
+                                            ? null
+                                            : NetworkImage(avatarUrl),
+                                    child:
+                                        avatarUrl == null || avatarUrl.isEmpty
+                                            ? const Icon(Icons.person_outline)
+                                            : null,
+                                  ),
+                                  title: Text(
+                                    member.name,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  subtitle: Text(
+                                    member.phoneNumber?.trim().isNotEmpty ==
+                                            true
+                                        ? member.phoneNumber!
+                                        : '未記錄電話',
+                                  ),
+                                  trailing: Icon(
+                                    selected
+                                        ? Icons.check_circle
+                                        : Icons.radio_button_unchecked,
+                                    color: selected
+                                        ? const Color(0xFFFF9812)
+                                        : const Color(0xFFB7B9BA),
+                                  ),
+                                  onTap: () => setDialogState(() {
+                                    selectedMember = member;
+                                    error = null;
+                                  }),
+                                );
+                              },
+                            ),
+                ),
+                if (error != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    error!,
+                    style: const TextStyle(
+                      color: Color(0xFFAD3B24),
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: sending ? null : () => Navigator.pop(dialogContext),
+              child: const Text('取消'),
+            ),
+            FilledButton.icon(
+              onPressed: sending || selectedMember == null
+                  ? null
+                  : () async {
+                      setDialogState(() {
+                        sending = true;
+                        error = null;
+                      });
+                      try {
+                        await onTestSend(
+                          member: selectedMember!,
+                          messageType: messageType,
+                          messageSnapshot: messageSnapshot,
+                        );
+                        if (!dialogContext.mounted) return;
+                        Navigator.pop(dialogContext);
+                        messenger.showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              '測試訊息已發送給 ${selectedMember!.name}。',
+                            ),
+                          ),
+                        );
+                      } catch (sendError) {
+                        if (!dialogContext.mounted) return;
+                        setDialogState(() {
+                          sending = false;
+                          error = sendError
+                              .toString()
+                              .replaceFirst('Bad state: ', '');
+                        });
+                      }
+                    },
+              icon: sending
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.send_outlined),
+              label: Text(sending ? '發送中' : '測試發送'),
+            ),
+          ],
+        );
+      },
+    ),
+  );
+  searchController.dispose();
+}
+
 class _LineRichMessageManagement extends StatelessWidget {
   const _LineRichMessageManagement({
     required this.messages,
+    required this.members,
     required this.onSave,
     required this.onUpload,
+    required this.onTestSend,
   });
 
   final List<backend.VeevaLineRichMessage> messages;
+  final List<backend.VeevaMember> members;
   final _SaveLineRichMessages onSave;
   final _AdminImageUploader onUpload;
+  final _SendLineMessageTest onTestSend;
+
+  Future<void> _testSend(
+    BuildContext context,
+    backend.VeevaLineRichMessage message,
+  ) {
+    return _showLineMessageTestDialog(
+      context,
+      messageTitle: message.title,
+      messageType: 'rich',
+      messageSnapshot: message.toMap(),
+      members: members,
+      onTestSend: onTestSend,
+    );
+  }
 
   Future<void> _openEditor(
     BuildContext context, {
@@ -16503,7 +17372,8 @@ class _LineRichMessageManagement extends StatelessWidget {
                     keyboardType: TextInputType.url,
                     decoration: const InputDecoration(
                       labelText: '點擊連結 *',
-                      hintText: 'https:// 或 LIFF URL',
+                      hintText: 'https://、LIFF URL 或 {{couponUrl}}',
+                      helperText: '{{couponUrl}} 會在發放時換成該會員的兌換券連結',
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -16667,6 +17537,7 @@ class _LineRichMessageManagement extends StatelessWidget {
                             message: message,
                             onEdit: () =>
                                 _openEditor(context, message: message),
+                            onTest: () => _testSend(context, message),
                             onUse: () => _copyJson(context, message),
                             onDelete: () => _delete(context, message),
                           ),
@@ -16686,12 +17557,14 @@ class _LineRichMessageCard extends StatelessWidget {
   const _LineRichMessageCard({
     required this.message,
     required this.onEdit,
+    required this.onTest,
     required this.onUse,
     required this.onDelete,
   });
 
   final backend.VeevaLineRichMessage message;
   final VoidCallback onEdit;
+  final VoidCallback onTest;
   final VoidCallback onUse;
   final VoidCallback onDelete;
 
@@ -16751,6 +17624,11 @@ class _LineRichMessageCard extends StatelessWidget {
                       tooltip: '刪除',
                       onPressed: onDelete,
                       icon: const Icon(Icons.delete_outline),
+                    ),
+                    IconButton.filledTonal(
+                      tooltip: '測試發送',
+                      onPressed: onTest,
+                      icon: const Icon(Icons.send_outlined),
                     ),
                     const Spacer(),
                     FilledButton.icon(
@@ -16873,64 +17751,73 @@ class _LineCarouselTemplate {
 
 const _lineCarouselTemplates = [
   _LineCarouselTemplate(
-    id: 'promotion',
-    label: '優惠推薦',
-    description: '適合兌換券、商品與會員好禮',
-    icon: Icons.redeem_outlined,
+    id: 'compact',
+    label: '窄版',
+    description: '小尺寸卡片，可在畫面中同時看到更多頁面',
+    icon: Icons.view_week_outlined,
   ),
   _LineCarouselTemplate(
-    id: 'event',
-    label: '活動導覽',
-    description: '適合多場活動、講座與報名入口',
-    icon: Icons.event_outlined,
+    id: 'standard',
+    label: '一般',
+    description: '完整呈現圖片、標題、說明文字與操作按鈕',
+    icon: Icons.crop_landscape_outlined,
   ),
   _LineCarouselTemplate(
-    id: 'guide',
-    label: '步驟教學',
-    description: '適合操作說明與分步使用教學',
-    icon: Icons.menu_book_outlined,
+    id: 'fullImage',
+    label: '全圖片',
+    description: '圖片鋪滿整張卡片，點擊圖片直接開啟連結',
+    icon: Icons.image_outlined,
   ),
 ];
 
+String _normalizeCarouselTemplateId(String? templateId) {
+  return switch (templateId) {
+    'compact' => 'compact',
+    'fullImage' => 'fullImage',
+    'standard' || 'promotion' || 'event' || 'guide' => 'standard',
+    _ => 'standard',
+  };
+}
+
 List<backend.VeevaLineCarouselCard> _defaultCarouselCards(String templateId) {
   return switch (templateId) {
-    'event' => const [
+    'compact' => const [
         backend.VeevaLineCarouselCard(
-          title: '近期活動',
-          description: '查看目前開放參加的活動',
+          title: '會員好禮',
+          description: '查看可使用的兌換券',
           imageUrl: '',
-          actionLabel: '查看活動',
+          actionLabel: '立即查看',
+          actionUrl: 'https://veeva.web.app/coupons',
+        ),
+        backend.VeevaLineCarouselCard(
+          title: '推薦活動',
+          description: '參加活動取得獎勵',
+          imageUrl: '',
+          actionLabel: '參加活動',
           actionUrl: 'https://veeva.web.app/activities',
         ),
         backend.VeevaLineCarouselCard(
-          title: '我的活動',
-          description: '查看已報名與已完成的活動',
+          title: '會員資料',
+          description: '查看個人會員資料',
           imageUrl: '',
           actionLabel: '前往查看',
-          actionUrl: 'https://veeva.web.app/activities',
+          actionUrl: 'https://veeva.web.app/member',
         ),
       ],
-    'guide' => const [
+    'fullImage' => const [
         backend.VeevaLineCarouselCard(
-          title: '步驟一',
-          description: '依照說明完成第一個步驟',
+          title: '主視覺一',
+          description: '',
           imageUrl: '',
-          actionLabel: '查看說明',
-          actionUrl: 'https://veeva.web.app/news/coupon-redemption-guide',
+          actionLabel: '立即查看',
+          actionUrl: 'https://veeva.web.app/activities',
         ),
         backend.VeevaLineCarouselCard(
-          title: '步驟二',
-          description: '接著完成第二個步驟',
+          title: '主視覺二',
+          description: '',
           imageUrl: '',
-          actionLabel: '繼續查看',
-          actionUrl: 'https://veeva.web.app/news/coupon-redemption-guide',
-        ),
-        backend.VeevaLineCarouselCard(
-          title: '完成',
-          description: '完成操作並查看結果',
-          imageUrl: '',
-          actionLabel: '查看結果',
-          actionUrl: 'https://veeva.web.app/member',
+          actionLabel: '立即查看',
+          actionUrl: 'https://veeva.web.app/coupons',
         ),
       ],
     _ => const [
@@ -16955,11 +17842,31 @@ List<backend.VeevaLineCarouselCard> _defaultCarouselCards(String templateId) {
 class _LineCarouselMessageManagement extends StatelessWidget {
   const _LineCarouselMessageManagement({
     required this.messages,
+    required this.members,
     required this.onSave,
+    required this.onUpload,
+    required this.onTestSend,
   });
 
   final List<backend.VeevaLineCarouselMessage> messages;
+  final List<backend.VeevaMember> members;
   final _SaveLineCarouselMessages onSave;
+  final _AdminImageUploader onUpload;
+  final _SendLineMessageTest onTestSend;
+
+  Future<void> _testSend(
+    BuildContext context,
+    backend.VeevaLineCarouselMessage message,
+  ) {
+    return _showLineMessageTestDialog(
+      context,
+      messageTitle: message.title,
+      messageType: 'carousel',
+      messageSnapshot: message.toMap(),
+      members: members,
+      onTestSend: onTestSend,
+    );
+  }
 
   Future<void> _openEditor(
     BuildContext context, {
@@ -16968,22 +17875,13 @@ class _LineCarouselMessageManagement extends StatelessWidget {
     final id = message?.id ?? createVeevaId('line-carousel');
     final titleController = TextEditingController(text: message?.title ?? '');
     final altController = TextEditingController(text: message?.altText ?? '');
-    var templateId = message?.templateId ?? 'promotion';
-    var cardDrafts = (message?.cards.isNotEmpty == true
+    var templateId = _normalizeCarouselTemplateId(message?.templateId);
+    final cardDrafts = (message?.cards.isNotEmpty == true
             ? message!.cards
             : _defaultCarouselCards(templateId))
         .map(_LineCarouselCardDraft.fromCard)
         .toList();
     String? error;
-
-    void replaceDrafts(String nextTemplateId) {
-      for (final draft in cardDrafts) {
-        draft.dispose();
-      }
-      cardDrafts = _defaultCarouselCards(nextTemplateId)
-          .map(_LineCarouselCardDraft.fromCard)
-          .toList();
-    }
 
     final result = await showDialog<backend.VeevaLineCarouselMessage>(
       context: context,
@@ -17003,18 +17901,17 @@ class _LineCarouselMessageManagement extends StatelessWidget {
                   ),
                   const SizedBox(height: 10),
                   Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
+                    spacing: 12,
+                    runSpacing: 12,
                     children: [
                       for (final template in _lineCarouselTemplates)
-                        ChoiceChip(
-                          avatar: Icon(template.icon, size: 18),
-                          label: Text(template.label),
+                        _LineCarouselTemplatePreview(
+                          template: template,
                           selected: templateId == template.id,
-                          onSelected: (_) {
+                          onTap: () {
                             setDialogState(() {
                               templateId = template.id;
-                              replaceDrafts(template.id);
+                              error = null;
                             });
                           },
                         ),
@@ -17078,6 +17975,9 @@ class _LineCarouselMessageManagement extends StatelessWidget {
                     _LineCarouselCardEditor(
                       index: index,
                       draft: cardDrafts[index],
+                      messageId: id,
+                      templateId: templateId,
+                      onUpload: onUpload,
                       canDelete: cardDrafts.length > 1,
                       onDelete: () {
                         setDialogState(() {
@@ -17103,14 +18003,20 @@ class _LineCarouselMessageManagement extends StatelessWidget {
                 final title = titleController.text.trim();
                 final altText = altController.text.trim();
                 final cards = cardDrafts.map((item) => item.toCard()).toList();
-                final invalidCard = cards.any((item) =>
-                    item.title.isEmpty ||
-                    item.description.isEmpty ||
-                    item.actionLabel.isEmpty ||
-                    item.actionUrl.isEmpty);
+                final invalidCard = cards.any((item) {
+                  if (templateId == 'fullImage') {
+                    return item.imageUrl.isEmpty || item.actionUrl.isEmpty;
+                  }
+                  return item.title.isEmpty ||
+                      item.description.isEmpty ||
+                      item.actionLabel.isEmpty ||
+                      item.actionUrl.isEmpty;
+                });
                 if (title.isEmpty || altText.isEmpty || invalidCard) {
                   setDialogState(() {
-                    error = '請填寫訊息名稱、替代文字及每張卡片的必要欄位。';
+                    error = templateId == 'fullImage'
+                        ? '請填寫訊息名稱、替代文字，並為每一頁上傳圖片及設定連結。'
+                        : '請填寫訊息名稱、替代文字及每張卡片的必要欄位。';
                   });
                   return;
                 }
@@ -17174,33 +18080,59 @@ class _LineCarouselMessageManagement extends StatelessWidget {
     await onSave(messages.where((item) => item.id != message.id).toList());
   }
 
-  Map<String, Object?> _cardJson(backend.VeevaLineCarouselCard card) {
+  Map<String, Object?> _cardJson(
+    backend.VeevaLineCarouselCard card,
+    String templateId,
+  ) {
+    final layout = _normalizeCarouselTemplateId(templateId);
+    if (layout == 'fullImage' && card.imageUrl.isNotEmpty) {
+      return {
+        'type': 'bubble',
+        'size': 'mega',
+        'hero': {
+          'type': 'image',
+          'url': card.imageUrl,
+          'size': 'full',
+          'aspectRatio': '1:1',
+          'aspectMode': 'cover',
+          'action': {
+            'type': 'uri',
+            'label': card.actionLabel,
+            'uri': card.actionUrl,
+          },
+        },
+      };
+    }
+
+    final compact = layout == 'compact';
     return {
       'type': 'bubble',
+      if (compact) 'size': 'deca',
       if (card.imageUrl.isNotEmpty)
         'hero': {
           'type': 'image',
           'url': card.imageUrl,
           'size': 'full',
-          'aspectRatio': '20:13',
+          'aspectRatio': compact ? '1:1' : '20:13',
           'aspectMode': 'cover',
         },
       'body': {
         'type': 'box',
         'layout': 'vertical',
+        if (compact) 'paddingAll': '12px',
         'contents': [
           {
             'type': 'text',
             'text': card.title,
             'weight': 'bold',
-            'size': 'xl',
+            'size': compact ? 'md' : 'xl',
             'wrap': true,
           },
           {
             'type': 'text',
             'text': card.description,
             'margin': 'md',
-            'size': 'sm',
+            'size': compact ? 'xs' : 'sm',
             'color': '#727577',
             'wrap': true,
           },
@@ -17209,11 +18141,13 @@ class _LineCarouselMessageManagement extends StatelessWidget {
       'footer': {
         'type': 'box',
         'layout': 'vertical',
+        if (compact) 'paddingAll': '8px',
         'contents': [
           {
             'type': 'button',
             'style': 'primary',
             'color': '#FF9812',
+            if (compact) 'height': 'sm',
             'action': {
               'type': 'uri',
               'label': card.actionLabel,
@@ -17234,7 +18168,9 @@ class _LineCarouselMessageManagement extends StatelessWidget {
       'altText': message.altText,
       'contents': {
         'type': 'carousel',
-        'contents': message.cards.map(_cardJson).toList(),
+        'contents': message.cards
+            .map((card) => _cardJson(card, message.templateId))
+            .toList(),
       },
     };
     await Clipboard.setData(ClipboardData(text: jsonEncode(payload)));
@@ -17272,6 +18208,7 @@ class _LineCarouselMessageManagement extends StatelessWidget {
                     _LineCarouselMessageTile(
                       message: message,
                       onEdit: () => _openEditor(context, message: message),
+                      onTest: () => _testSend(context, message),
                       onUse: () => _copyJson(context, message),
                       onDelete: () => _delete(context, message),
                     ),
@@ -17280,6 +18217,295 @@ class _LineCarouselMessageManagement extends StatelessWidget {
                 ],
               ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LineCarouselTemplatePreview extends StatelessWidget {
+  const _LineCarouselTemplatePreview({
+    required this.template,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final _LineCarouselTemplate template;
+  final bool selected;
+  final VoidCallback onTap;
+
+  Widget _imageArea({required int index, required double iconSize}) {
+    const colors = [
+      Color(0xFFFFE4C1),
+      Color(0xFFE5F3EE),
+      Color(0xFFE8ECF8),
+    ];
+    const icons = [
+      Icons.redeem_outlined,
+      Icons.event_outlined,
+      Icons.person_outline,
+    ];
+    return ColoredBox(
+      color: colors[index % colors.length],
+      child: Center(
+        child: Icon(
+          icons[index % icons.length],
+          color: index == 0 ? const Color(0xFFC66D00) : const Color(0xFF4C625B),
+          size: iconSize,
+        ),
+      ),
+    );
+  }
+
+  Widget _compactBubble(int index) {
+    return Container(
+      width: 68,
+      height: 116,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(5),
+        border: Border.all(color: const Color(0xFFDADDE0)),
+      ),
+      child: Column(
+        children: [
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: _imageArea(index: index, iconSize: 20),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(5),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '會員好禮',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 7,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  const Text(
+                    '查看優惠',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Color(0xFF727577),
+                      fontSize: 5,
+                    ),
+                  ),
+                  const Spacer(),
+                  Container(
+                    height: 10,
+                    width: double.infinity,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF9812),
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                    child: const Text(
+                      '立即查看',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _standardBubble(int index) {
+    return Container(
+      width: 82,
+      height: 116,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: const Color(0xFFDADDE0)),
+      ),
+      child: Column(
+        children: [
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: _imageArea(index: index, iconSize: 25),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '會員好禮',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 8,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  const Text(
+                    '查看可使用的會員兌換券',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Color(0xFF727577),
+                      fontSize: 5,
+                    ),
+                  ),
+                  const Spacer(),
+                  Container(
+                    height: 10,
+                    width: double.infinity,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF9812),
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                    child: const Text(
+                      '立即查看',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _fullImageBubble(int index) {
+    return Container(
+      width: 82,
+      height: 116,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: const Color(0xFFDADDE0)),
+      ),
+      child: _imageArea(index: index, iconSize: 34),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cardCount = template.id == 'compact' ? 3 : 2;
+
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: '${template.label}模板',
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          width: 218,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: selected ? const Color(0xFFFFFAF3) : Colors.white,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color:
+                  selected ? const Color(0xFFFF9812) : const Color(0xFFEADFCE),
+              width: selected ? 2 : 1,
+            ),
+            boxShadow: selected
+                ? const [
+                    BoxShadow(
+                      color: Color(0x1FFF9812),
+                      blurRadius: 12,
+                      offset: Offset(0, 4),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                height: 126,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF2F3F4),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      for (var index = 0; index < cardCount; index++) ...[
+                        if (index > 0) const SizedBox(width: 6),
+                        switch (template.id) {
+                          'compact' => _compactBubble(index),
+                          'fullImage' => _fullImageBubble(index),
+                          _ => _standardBubble(index),
+                        },
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Icon(template.icon, size: 18, color: const Color(0xFFC66D00)),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: Text(
+                      template.label,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    selected
+                        ? Icons.check_circle
+                        : Icons.radio_button_unchecked,
+                    size: 19,
+                    color: selected
+                        ? const Color(0xFFFF9812)
+                        : const Color(0xFFB7B9BA),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                template.description,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Color(0xFF727577),
+                  fontSize: 12,
+                  height: 1.35,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -17323,17 +18549,24 @@ class _LineCarouselCardEditor extends StatelessWidget {
   const _LineCarouselCardEditor({
     required this.index,
     required this.draft,
+    required this.messageId,
+    required this.templateId,
+    required this.onUpload,
     required this.canDelete,
     required this.onDelete,
   });
 
   final int index;
   final _LineCarouselCardDraft draft;
+  final String messageId;
+  final String templateId;
+  final _AdminImageUploader onUpload;
   final bool canDelete;
   final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
+    final fullImage = templateId == 'fullImage';
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -17360,37 +18593,48 @@ class _LineCarouselCardEditor extends StatelessWidget {
           ),
           TextField(
             controller: draft.title,
-            decoration: const InputDecoration(labelText: '卡片標題 *'),
-          ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: draft.description,
-            maxLines: 2,
-            decoration: const InputDecoration(labelText: '內容說明 *'),
-          ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: draft.imageUrl,
-            decoration: const InputDecoration(
-              labelText: '圖片網址（選填）',
-              hintText: 'https://',
+            decoration: InputDecoration(
+              labelText: fullImage ? '頁面名稱（僅後台辨識）' : '卡片標題 *',
             ),
+          ),
+          if (!fullImage) ...[
+            const SizedBox(height: 10),
+            TextField(
+              controller: draft.description,
+              maxLines: 2,
+              decoration: const InputDecoration(labelText: '內容說明 *'),
+            ),
+          ],
+          const SizedBox(height: 10),
+          _ImageUploadField(
+            controller: draft.imageUrl,
+            label: fullImage ? '全版圖片 *' : '卡片圖片（選填）',
+            storageFolder:
+                'public/line-messages/$messageId/cards/card-${index + 1}',
+            onUpload: onUpload,
+            helperText:
+                fullImage ? '此版型必須上傳圖片，整張圖片都可以點擊。' : '直接選擇圖片上傳，圖片會顯示在這一頁卡片上方。',
           ),
           const SizedBox(height: 10),
           Row(
             children: [
-              Expanded(
-                child: TextField(
-                  controller: draft.actionLabel,
-                  decoration: const InputDecoration(labelText: '按鈕文字 *'),
+              if (!fullImage) ...[
+                Expanded(
+                  child: TextField(
+                    controller: draft.actionLabel,
+                    decoration: const InputDecoration(labelText: '按鈕文字 *'),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
+                const SizedBox(width: 12),
+              ],
               Expanded(
-                flex: 2,
+                flex: fullImage ? 1 : 2,
                 child: TextField(
                   controller: draft.actionUrl,
-                  decoration: const InputDecoration(labelText: '按鈕連結 *'),
+                  decoration: const InputDecoration(
+                    labelText: '點擊連結 *',
+                    hintText: 'https:// 或 {{couponUrl}}',
+                  ),
                 ),
               ),
             ],
@@ -17405,20 +18649,22 @@ class _LineCarouselMessageTile extends StatelessWidget {
   const _LineCarouselMessageTile({
     required this.message,
     required this.onEdit,
+    required this.onTest,
     required this.onUse,
     required this.onDelete,
   });
 
   final backend.VeevaLineCarouselMessage message;
   final VoidCallback onEdit;
+  final VoidCallback onTest;
   final VoidCallback onUse;
   final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
     final template = _lineCarouselTemplates.firstWhere(
-      (item) => item.id == message.templateId,
-      orElse: () => _lineCarouselTemplates.first,
+      (item) => item.id == _normalizeCarouselTemplateId(message.templateId),
+      orElse: () => _lineCarouselTemplates[1],
     );
     return Container(
       width: double.infinity,
@@ -17468,6 +18714,11 @@ class _LineCarouselMessageTile extends StatelessWidget {
             tooltip: '刪除',
             onPressed: onDelete,
             icon: const Icon(Icons.delete_outline),
+          ),
+          IconButton.filledTonal(
+            tooltip: '測試發送',
+            onPressed: onTest,
+            icon: const Icon(Icons.send_outlined),
           ),
           const SizedBox(width: 8),
           FilledButton.icon(

@@ -38,6 +38,11 @@ abstract class VeevaRepository {
 
   Future<void> resetActivityCompletion(VeevaActivityRecord record);
 
+  Future<VeevaActivityRecord> forceCompleteSurvey({
+    required VeevaMember member,
+    required VeevaActivity activity,
+  });
+
   Future<void> saveReward(VeevaReward reward);
 
   Future<int> importRewardVoucherLinks({
@@ -83,6 +88,16 @@ abstract class VeevaRepository {
     VeevaMember? sourceMember,
     String source = 'manualAdmin',
     bool preventDuplicate = false,
+    bool sendLineMessage = true,
+    String lineMessageType = 'system',
+    String? lineMessageTemplateId,
+    Map<String, Object?>? lineMessageSnapshot,
+  });
+
+  Future<void> sendLineMessageTest({
+    required VeevaMember member,
+    required String messageType,
+    required Map<String, Object?> messageSnapshot,
   });
 
   Future<String> uploadImage({
@@ -122,6 +137,8 @@ class FirestoreVeevaRepository implements VeevaRepository {
       firestore.collection('memberRewardClaims');
   CollectionReference<Map<String, dynamic>> get _memberNotifications =>
       firestore.collection('memberNotifications');
+  CollectionReference<Map<String, dynamic>> get _lineMessageTests =>
+      firestore.collection('lineMessageTests');
   CollectionReference<Map<String, dynamic>> get _systemSettings =>
       firestore.collection('systemSettings');
   CollectionReference<Map<String, dynamic>> get _rewardVouchers =>
@@ -515,6 +532,46 @@ class FirestoreVeevaRepository implements VeevaRepository {
       }
     }
     await batch.commit();
+  }
+
+  @override
+  Future<VeevaActivityRecord> forceCompleteSurvey({
+    required VeevaMember member,
+    required VeevaActivity activity,
+  }) async {
+    final now = DateTime.now();
+    final recordId = _activityCompletionDocumentId(
+      memberId: member.id,
+      activityId: activity.id,
+    );
+    await _activityCompletions.doc(recordId).set({
+      'activityId': activity.id,
+      'activityTitle': activity.title,
+      'activityType': activity.type.name,
+      'memberId': member.id,
+      'memberName': member.name,
+      'memberAvatarUrl': member.avatarUrl,
+      'memberLineUserId': member.lineUserId,
+      'status': 'completed',
+      'completedAt': FieldValue.serverTimestamp(),
+      'approvedAt': FieldValue.serverTimestamp(),
+      'forcedCompletedByAdmin': true,
+      'forcedCompletedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    return VeevaActivityRecord(
+      id: recordId,
+      activityId: activity.id,
+      activityTitle: activity.title,
+      activityType: activity.type.name,
+      memberId: member.id,
+      memberName: member.name,
+      memberAvatarUrl: member.avatarUrl,
+      memberLineUserId: member.lineUserId,
+      status: 'completed',
+      completedAt: now,
+      updatedAt: now,
+    );
   }
 
   @override
@@ -1041,6 +1098,10 @@ class FirestoreVeevaRepository implements VeevaRepository {
     VeevaMember? sourceMember,
     String source = 'manualAdmin',
     bool preventDuplicate = false,
+    bool sendLineMessage = true,
+    String lineMessageType = 'system',
+    String? lineMessageTemplateId,
+    Map<String, Object?>? lineMessageSnapshot,
   }) async {
     if (quantity <= 0) {
       throw ArgumentError.value(quantity, 'quantity', 'must be positive');
@@ -1193,8 +1254,13 @@ class FirestoreVeevaRepository implements VeevaRepository {
               'activityId': activity?.id,
               'activityTitle': activity?.title,
               'actionPath': '/coupons?reward=${grantRef.id}',
-              'linePushStatus':
-                  member.lineUserId == null || member.lineUserId!.trim().isEmpty
+              'lineMessageType': lineMessageType,
+              'lineMessageTemplateId': lineMessageTemplateId,
+              'lineMessageSnapshot': lineMessageSnapshot,
+              'linePushStatus': !sendLineMessage
+                  ? 'disabled'
+                  : member.lineUserId == null ||
+                          member.lineUserId!.trim().isEmpty
                       ? 'skipped'
                       : 'pending',
               'linePushError': null,
@@ -1280,6 +1346,46 @@ class FirestoreVeevaRepository implements VeevaRepository {
     final reference = storage.ref(path);
     await reference.putData(bytes, SettableMetadata(contentType: contentType));
     return reference.getDownloadURL();
+  }
+
+  @override
+  Future<void> sendLineMessageTest({
+    required VeevaMember member,
+    required String messageType,
+    required Map<String, Object?> messageSnapshot,
+  }) async {
+    final lineUserId = member.lineUserId?.trim();
+    if (lineUserId == null || lineUserId.isEmpty) {
+      throw StateError('此會員沒有可使用的 LINE 帳號識別碼。');
+    }
+
+    final request = _lineMessageTests.doc();
+    await request.set({
+      'memberId': member.id,
+      'memberName': member.name,
+      'memberLineUserId': lineUserId,
+      'messageType': messageType,
+      'messageSnapshot': messageSnapshot,
+      'status': 'pending',
+      'error': null,
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    for (var attempt = 0; attempt < 30; attempt += 1) {
+      await Future<void>.delayed(const Duration(seconds: 1));
+      final snapshot = await request.get();
+      final data = snapshot.data();
+      final status = data?['status']?.toString();
+      if (status == 'sent') return;
+      if (status == 'failed' || status == 'skipped') {
+        final error = data?['error']?.toString().trim();
+        throw StateError(
+          error == null || error.isEmpty ? 'LINE 測試訊息發送失敗。' : error,
+        );
+      }
+    }
+    throw StateError('LINE 測試訊息等待逾時，請稍後再試。');
   }
 
   Future<DocumentReference<Map<String, dynamic>>?> _findAvailableVoucherRef(
@@ -1434,6 +1540,30 @@ class DemoVeevaRepository implements VeevaRepository {
   Future<void> resetActivityCompletion(VeevaActivityRecord record) async {}
 
   @override
+  Future<VeevaActivityRecord> forceCompleteSurvey({
+    required VeevaMember member,
+    required VeevaActivity activity,
+  }) async {
+    final now = DateTime.now();
+    return VeevaActivityRecord(
+      id: _activityCompletionDocumentId(
+        memberId: member.id,
+        activityId: activity.id,
+      ),
+      activityId: activity.id,
+      activityTitle: activity.title,
+      activityType: activity.type.name,
+      memberId: member.id,
+      memberName: member.name,
+      memberAvatarUrl: member.avatarUrl,
+      memberLineUserId: member.lineUserId,
+      status: 'completed',
+      completedAt: now,
+      updatedAt: now,
+    );
+  }
+
+  @override
   Future<void> saveReward(VeevaReward reward) async {}
 
   @override
@@ -1508,6 +1638,17 @@ class DemoVeevaRepository implements VeevaRepository {
     VeevaMember? sourceMember,
     String source = 'manualAdmin',
     bool preventDuplicate = false,
+    bool sendLineMessage = true,
+    String lineMessageType = 'system',
+    String? lineMessageTemplateId,
+    Map<String, Object?>? lineMessageSnapshot,
+  }) async {}
+
+  @override
+  Future<void> sendLineMessageTest({
+    required VeevaMember member,
+    required String messageType,
+    required Map<String, Object?> messageSnapshot,
   }) async {}
 
   @override
