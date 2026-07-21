@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -104,6 +105,8 @@ class VeevaAdminApp extends StatelessWidget {
       'rewards' => AdminTab.rewards,
       'permissions' => AdminTab.permissions,
       'employees' || 'staff' => AdminTab.employees,
+      'line-rich' || 'lineRich' => AdminTab.lineRich,
+      'line-carousel' || 'lineCarousel' => AdminTab.lineCarousel,
       'settings' => AdminTab.settings,
       _ => AdminTab.dashboard,
     };
@@ -119,6 +122,8 @@ enum AdminTab {
   rewards,
   permissions,
   employees,
+  lineRich,
+  lineCarousel,
   settings,
 }
 
@@ -1428,6 +1433,8 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
       AdminTab.rewards => '兌換券管理',
       AdminTab.permissions => '權限管理',
       AdminTab.employees => '員工管理',
+      AdminTab.lineRich => 'LINE@ 圖文訊息',
+      AdminTab.lineCarousel => 'LINE@ 多頁訊息',
       AdminTab.settings => '系統設定',
     };
   }
@@ -1436,6 +1443,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
     return switch (tab) {
       AdminTab.permissions => Icons.verified_user_outlined,
       AdminTab.employees => Icons.badge_outlined,
+      AdminTab.lineRich || AdminTab.lineCarousel => Icons.chat_bubble_outline,
       _ => null,
     };
   }
@@ -1509,6 +1517,15 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
           employeeAttributions: employeeAttributions,
           onSaveEmployeeStatus: _saveEmployeeStatus,
           onCreateEmployeeActivityLink: _createEmployeeActivityLink,
+        ),
+      AdminTab.lineRich => _LineRichMessageManagement(
+          messages: clientSettings.lineRichMessages,
+          onSave: _saveLineRichMessages,
+          onUpload: repository.uploadImage,
+        ),
+      AdminTab.lineCarousel => _LineCarouselMessageManagement(
+          messages: clientSettings.lineCarouselMessages,
+          onSave: _saveLineCarouselMessages,
         ),
       AdminTab.settings => const _PlaceholderPanel(
           icon: Icons.settings_outlined,
@@ -2770,7 +2787,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
 
   Future<void> _setNewsEnabled(bool enabled) async {
     final previous = clientSettings;
-    final next = backend.VeevaClientSettings(newsEnabled: enabled);
+    final next = clientSettings.copyWith(newsEnabled: enabled);
     setState(() {
       clientSettings = next;
       backendError = null;
@@ -2790,6 +2807,49 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
         clientSettings = previous;
         backendError = '最新資訊頁面顯示設定更新失敗：請確認 Firestore rules 已部署。';
       });
+    }
+  }
+
+  Future<void> _saveLineRichMessages(
+    List<backend.VeevaLineRichMessage> messages,
+  ) async {
+    await _saveLineSettings(
+      clientSettings.copyWith(lineRichMessages: messages),
+      successMessage: '圖文訊息設定已儲存。',
+    );
+  }
+
+  Future<void> _saveLineCarouselMessages(
+    List<backend.VeevaLineCarouselMessage> messages,
+  ) async {
+    await _saveLineSettings(
+      clientSettings.copyWith(lineCarouselMessages: messages),
+      successMessage: '多頁訊息設定已儲存。',
+    );
+  }
+
+  Future<void> _saveLineSettings(
+    backend.VeevaClientSettings next, {
+    required String successMessage,
+  }) async {
+    final previous = clientSettings;
+    setState(() {
+      clientSettings = next;
+      backendError = null;
+    });
+    try {
+      await repository.saveClientSettings(next);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(successMessage)),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        clientSettings = previous;
+        backendError = 'LINE@ 訊息設定儲存失敗，請確認 Firestore rules 已部署。';
+      });
+      rethrow;
     }
   }
 
@@ -5733,6 +5793,7 @@ class _AdminSidebar extends StatefulWidget {
 
 class _AdminSidebarState extends State<_AdminSidebar> {
   late bool _activityExpanded = _isActivityGroup(widget.selected);
+  late bool _lineExpanded = _isLineGroup(widget.selected);
 
   @override
   void didUpdateWidget(covariant _AdminSidebar oldWidget) {
@@ -5741,10 +5802,17 @@ class _AdminSidebarState extends State<_AdminSidebar> {
         _isActivityGroup(widget.selected)) {
       _activityExpanded = true;
     }
+    if (!_isLineGroup(oldWidget.selected) && _isLineGroup(widget.selected)) {
+      _lineExpanded = true;
+    }
   }
 
   static bool _isActivityGroup(AdminTab tab) {
     return tab == AdminTab.activities || tab == AdminTab.rewardDistribution;
+  }
+
+  static bool _isLineGroup(AdminTab tab) {
+    return tab == AdminTab.lineRich || tab == AdminTab.lineCarousel;
   }
 
   void _toggleActivityGroup() {
@@ -5757,9 +5825,20 @@ class _AdminSidebarState extends State<_AdminSidebar> {
     }
   }
 
+  void _toggleLineGroup() {
+    final isSelectedGroup = _isLineGroup(widget.selected);
+    setState(() {
+      _lineExpanded = !_lineExpanded;
+    });
+    if (!isSelectedGroup && _lineExpanded) {
+      widget.onSelected(AdminTab.lineRich);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final activityGroupSelected = _isActivityGroup(widget.selected);
+    final lineGroupSelected = _isLineGroup(widget.selected);
     return Container(
       width: 232,
       color: _BrandColors.sidebar,
@@ -5815,6 +5894,37 @@ class _AdminSidebarState extends State<_AdminSidebar> {
             label: '員工管理',
             selected: widget.selected == AdminTab.employees,
             onTap: () => widget.onSelected(AdminTab.employees),
+          ),
+          _SidebarGroupHeader(
+            icon: Icons.chat_bubble_outline,
+            label: 'LINE@',
+            selected: lineGroupSelected,
+            expanded: _lineExpanded,
+            onTap: _toggleLineGroup,
+          ),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 180),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            child: _lineExpanded
+                ? Column(
+                    key: const ValueKey('line-subnav-open'),
+                    children: [
+                      _SidebarSubItem(
+                        label: '圖文訊息',
+                        selected: widget.selected == AdminTab.lineRich,
+                        onTap: () => widget.onSelected(AdminTab.lineRich),
+                      ),
+                      _SidebarSubItem(
+                        label: '多頁訊息',
+                        selected: widget.selected == AdminTab.lineCarousel,
+                        onTap: () => widget.onSelected(AdminTab.lineCarousel),
+                      ),
+                    ],
+                  )
+                : const SizedBox.shrink(
+                    key: ValueKey('line-subnav-closed'),
+                  ),
           ),
           _SidebarGroupHeader(
             icon: Icons.campaign_outlined,
@@ -16328,6 +16438,1045 @@ class _RewardStatusChip extends StatelessWidget {
       label: Text(label),
       backgroundColor: color,
       side: BorderSide.none,
+    );
+  }
+}
+
+typedef _SaveLineRichMessages = Future<void> Function(
+  List<backend.VeevaLineRichMessage> messages,
+);
+
+class _LineRichMessageManagement extends StatelessWidget {
+  const _LineRichMessageManagement({
+    required this.messages,
+    required this.onSave,
+    required this.onUpload,
+  });
+
+  final List<backend.VeevaLineRichMessage> messages;
+  final _SaveLineRichMessages onSave;
+  final _AdminImageUploader onUpload;
+
+  Future<void> _openEditor(
+    BuildContext context, {
+    backend.VeevaLineRichMessage? message,
+  }) async {
+    final id = message?.id ?? createVeevaId('line-rich');
+    final titleController = TextEditingController(text: message?.title ?? '');
+    final imageController =
+        TextEditingController(text: message?.imageUrl ?? '');
+    final targetController =
+        TextEditingController(text: message?.targetUrl ?? '');
+    final altController = TextEditingController(text: message?.altText ?? '');
+    String? error;
+
+    final result = await showDialog<backend.VeevaLineRichMessage>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(message == null ? '新增圖文訊息' : '編輯圖文訊息'),
+          content: SizedBox(
+            width: 680,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: titleController,
+                    decoration: const InputDecoration(
+                      labelText: '訊息名稱 *',
+                      hintText: '例如：問卷活動主視覺',
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: altController,
+                    maxLength: 400,
+                    decoration: const InputDecoration(
+                      labelText: '替代文字 *',
+                      hintText: 'LINE 通知與無法載入圖片時顯示',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: targetController,
+                    keyboardType: TextInputType.url,
+                    decoration: const InputDecoration(
+                      labelText: '點擊連結 *',
+                      hintText: 'https:// 或 LIFF URL',
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _ImageUploadField(
+                    controller: imageController,
+                    label: '圖文訊息圖片',
+                    storageFolder: 'public/line-messages/$id',
+                    onUpload: onUpload,
+                    helperText: '建議使用橫式圖片，點擊圖片後會開啟設定連結。',
+                  ),
+                  if (error != null) ...[
+                    const SizedBox(height: 12),
+                    Text(error!, style: const TextStyle(color: Colors.red)),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('取消'),
+            ),
+            FilledButton.icon(
+              onPressed: () {
+                final title = titleController.text.trim();
+                final imageUrl = imageController.text.trim();
+                final targetUrl = targetController.text.trim();
+                final altText = altController.text.trim();
+                if (title.isEmpty ||
+                    imageUrl.isEmpty ||
+                    targetUrl.isEmpty ||
+                    altText.isEmpty) {
+                  setDialogState(() => error = '請完整填寫名稱、替代文字、連結與圖片。');
+                  return;
+                }
+                Navigator.pop(
+                  dialogContext,
+                  backend.VeevaLineRichMessage(
+                    id: id,
+                    title: title,
+                    imageUrl: imageUrl,
+                    targetUrl: targetUrl,
+                    altText: altText,
+                  ),
+                );
+              },
+              icon: const Icon(Icons.save_outlined),
+              label: const Text('儲存'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    titleController.dispose();
+    imageController.dispose();
+    targetController.dispose();
+    altController.dispose();
+    if (result == null || !context.mounted) return;
+    final next = [...messages];
+    final index = next.indexWhere((item) => item.id == result.id);
+    if (index == -1) {
+      next.insert(0, result);
+    } else {
+      next[index] = result;
+    }
+    await onSave(next);
+  }
+
+  Future<void> _delete(
+    BuildContext context,
+    backend.VeevaLineRichMessage message,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('刪除圖文訊息'),
+        content: Text('確定要刪除「${message.title}」嗎？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('刪除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await onSave(messages.where((item) => item.id != message.id).toList());
+  }
+
+  Future<void> _copyJson(
+    BuildContext context,
+    backend.VeevaLineRichMessage message,
+  ) async {
+    final payload = {
+      'type': 'flex',
+      'altText': message.altText,
+      'contents': {
+        'type': 'bubble',
+        'hero': {
+          'type': 'image',
+          'url': message.imageUrl,
+          'size': 'full',
+          'aspectRatio': '20:13',
+          'aspectMode': 'cover',
+          'action': {'type': 'uri', 'uri': message.targetUrl},
+        },
+      },
+    };
+    await Clipboard.setData(ClipboardData(text: jsonEncode(payload)));
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('LINE 圖文訊息 JSON 已複製。')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(22),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _LineMessagePageHeader(
+              icon: Icons.image_outlined,
+              title: '圖文訊息',
+              description: '建立單張圖片訊息，設定點擊後開啟的網頁或 LIFF 連結。',
+              buttonLabel: '新增圖文訊息',
+              onCreate: () => _openEditor(context),
+            ),
+            const SizedBox(height: 20),
+            if (messages.isEmpty)
+              const _LineMessageEmptyState(
+                icon: Icons.image_outlined,
+                message: '尚未建立圖文訊息',
+              )
+            else
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final columns = constraints.maxWidth >= 1000
+                      ? 3
+                      : constraints.maxWidth >= 620
+                          ? 2
+                          : 1;
+                  final width =
+                      (constraints.maxWidth - ((columns - 1) * 14)) / columns;
+                  return Wrap(
+                    spacing: 14,
+                    runSpacing: 14,
+                    children: [
+                      for (final message in messages)
+                        SizedBox(
+                          width: width,
+                          child: _LineRichMessageCard(
+                            message: message,
+                            onEdit: () =>
+                                _openEditor(context, message: message),
+                            onUse: () => _copyJson(context, message),
+                            onDelete: () => _delete(context, message),
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LineRichMessageCard extends StatelessWidget {
+  const _LineRichMessageCard({
+    required this.message,
+    required this.onEdit,
+    required this.onUse,
+    required this.onDelete,
+  });
+
+  final backend.VeevaLineRichMessage message;
+  final VoidCallback onEdit;
+  final VoidCallback onUse;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFAF3),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _BrandColors.border),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AspectRatio(
+            aspectRatio: 20 / 13,
+            child: Image.network(
+              message.imageUrl,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => const ColoredBox(
+                color: Color(0xFFF1F2F3),
+                child: Center(child: Icon(Icons.broken_image_outlined)),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  message.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  message.altText,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Color(0xFF727577)),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    IconButton(
+                      tooltip: '編輯',
+                      onPressed: onEdit,
+                      icon: const Icon(Icons.edit_outlined),
+                    ),
+                    IconButton(
+                      tooltip: '刪除',
+                      onPressed: onDelete,
+                      icon: const Icon(Icons.delete_outline),
+                    ),
+                    const Spacer(),
+                    FilledButton.icon(
+                      onPressed: onUse,
+                      icon: const Icon(Icons.copy_outlined),
+                      label: const Text('使用'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LineMessagePageHeader extends StatelessWidget {
+  const _LineMessagePageHeader({
+    required this.icon,
+    required this.title,
+    required this.description,
+    required this.buttonLabel,
+    required this.onCreate,
+  });
+
+  final IconData icon;
+  final String title;
+  final String description;
+  final String buttonLabel;
+  final VoidCallback onCreate;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 16,
+      runSpacing: 14,
+      alignment: WrapAlignment.spaceBetween,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: const Color(0xFFC66D00), size: 28),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 21,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  description,
+                  style: const TextStyle(color: Color(0xFF727577)),
+                ),
+              ],
+            ),
+          ],
+        ),
+        FilledButton.icon(
+          onPressed: onCreate,
+          icon: const Icon(Icons.add),
+          label: Text(buttonLabel),
+        ),
+      ],
+    );
+  }
+}
+
+class _LineMessageEmptyState extends StatelessWidget {
+  const _LineMessageEmptyState({required this.icon, required this.message});
+
+  final IconData icon;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 52),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFAF3),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _BrandColors.border),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, size: 42, color: const Color(0xFFC8C2B9)),
+          const SizedBox(height: 12),
+          Text(message, style: const TextStyle(color: Color(0xFF727577))),
+        ],
+      ),
+    );
+  }
+}
+
+typedef _SaveLineCarouselMessages = Future<void> Function(
+  List<backend.VeevaLineCarouselMessage> messages,
+);
+
+class _LineCarouselTemplate {
+  const _LineCarouselTemplate({
+    required this.id,
+    required this.label,
+    required this.description,
+    required this.icon,
+  });
+
+  final String id;
+  final String label;
+  final String description;
+  final IconData icon;
+}
+
+const _lineCarouselTemplates = [
+  _LineCarouselTemplate(
+    id: 'promotion',
+    label: '優惠推薦',
+    description: '適合兌換券、商品與會員好禮',
+    icon: Icons.redeem_outlined,
+  ),
+  _LineCarouselTemplate(
+    id: 'event',
+    label: '活動導覽',
+    description: '適合多場活動、講座與報名入口',
+    icon: Icons.event_outlined,
+  ),
+  _LineCarouselTemplate(
+    id: 'guide',
+    label: '步驟教學',
+    description: '適合操作說明與分步使用教學',
+    icon: Icons.menu_book_outlined,
+  ),
+];
+
+List<backend.VeevaLineCarouselCard> _defaultCarouselCards(String templateId) {
+  return switch (templateId) {
+    'event' => const [
+        backend.VeevaLineCarouselCard(
+          title: '近期活動',
+          description: '查看目前開放參加的活動',
+          imageUrl: '',
+          actionLabel: '查看活動',
+          actionUrl: 'https://veeva.web.app/activities',
+        ),
+        backend.VeevaLineCarouselCard(
+          title: '我的活動',
+          description: '查看已報名與已完成的活動',
+          imageUrl: '',
+          actionLabel: '前往查看',
+          actionUrl: 'https://veeva.web.app/activities',
+        ),
+      ],
+    'guide' => const [
+        backend.VeevaLineCarouselCard(
+          title: '步驟一',
+          description: '依照說明完成第一個步驟',
+          imageUrl: '',
+          actionLabel: '查看說明',
+          actionUrl: 'https://veeva.web.app/news/coupon-redemption-guide',
+        ),
+        backend.VeevaLineCarouselCard(
+          title: '步驟二',
+          description: '接著完成第二個步驟',
+          imageUrl: '',
+          actionLabel: '繼續查看',
+          actionUrl: 'https://veeva.web.app/news/coupon-redemption-guide',
+        ),
+        backend.VeevaLineCarouselCard(
+          title: '完成',
+          description: '完成操作並查看結果',
+          imageUrl: '',
+          actionLabel: '查看結果',
+          actionUrl: 'https://veeva.web.app/member',
+        ),
+      ],
+    _ => const [
+        backend.VeevaLineCarouselCard(
+          title: '會員好禮',
+          description: '查看目前可使用的會員兌換券',
+          imageUrl: '',
+          actionLabel: '立即查看',
+          actionUrl: 'https://veeva.web.app/coupons',
+        ),
+        backend.VeevaLineCarouselCard(
+          title: '推薦活動',
+          description: '完成活動即可取得會員獎勵',
+          imageUrl: '',
+          actionLabel: '參加活動',
+          actionUrl: 'https://veeva.web.app/activities',
+        ),
+      ],
+  };
+}
+
+class _LineCarouselMessageManagement extends StatelessWidget {
+  const _LineCarouselMessageManagement({
+    required this.messages,
+    required this.onSave,
+  });
+
+  final List<backend.VeevaLineCarouselMessage> messages;
+  final _SaveLineCarouselMessages onSave;
+
+  Future<void> _openEditor(
+    BuildContext context, {
+    backend.VeevaLineCarouselMessage? message,
+  }) async {
+    final id = message?.id ?? createVeevaId('line-carousel');
+    final titleController = TextEditingController(text: message?.title ?? '');
+    final altController = TextEditingController(text: message?.altText ?? '');
+    var templateId = message?.templateId ?? 'promotion';
+    var cardDrafts = (message?.cards.isNotEmpty == true
+            ? message!.cards
+            : _defaultCarouselCards(templateId))
+        .map(_LineCarouselCardDraft.fromCard)
+        .toList();
+    String? error;
+
+    void replaceDrafts(String nextTemplateId) {
+      for (final draft in cardDrafts) {
+        draft.dispose();
+      }
+      cardDrafts = _defaultCarouselCards(nextTemplateId)
+          .map(_LineCarouselCardDraft.fromCard)
+          .toList();
+    }
+
+    final result = await showDialog<backend.VeevaLineCarouselMessage>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(message == null ? '建立多頁訊息' : '編輯多頁訊息'),
+          content: SizedBox(
+            width: 760,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '選擇模板',
+                    style: TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      for (final template in _lineCarouselTemplates)
+                        ChoiceChip(
+                          avatar: Icon(template.icon, size: 18),
+                          label: Text(template.label),
+                          selected: templateId == template.id,
+                          onSelected: (_) {
+                            setDialogState(() {
+                              templateId = template.id;
+                              replaceDrafts(template.id);
+                            });
+                          },
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _lineCarouselTemplates
+                        .firstWhere((item) => item.id == templateId)
+                        .description,
+                    style: const TextStyle(color: Color(0xFF727577)),
+                  ),
+                  const SizedBox(height: 18),
+                  TextField(
+                    controller: titleController,
+                    decoration: const InputDecoration(labelText: '訊息名稱 *'),
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: altController,
+                    maxLength: 400,
+                    decoration: const InputDecoration(
+                      labelText: '替代文字 *',
+                      hintText: 'LINE 通知顯示的摘要文字',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          '卡片內容',
+                          style: TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: cardDrafts.length >= 10
+                            ? null
+                            : () {
+                                setDialogState(() {
+                                  cardDrafts.add(
+                                    _LineCarouselCardDraft.fromCard(
+                                      const backend.VeevaLineCarouselCard(
+                                        title: '',
+                                        description: '',
+                                        imageUrl: '',
+                                        actionLabel: '立即查看',
+                                        actionUrl: '',
+                                      ),
+                                    ),
+                                  );
+                                });
+                              },
+                        icon: const Icon(Icons.add),
+                        label: const Text('新增一頁'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  for (var index = 0; index < cardDrafts.length; index++) ...[
+                    _LineCarouselCardEditor(
+                      index: index,
+                      draft: cardDrafts[index],
+                      canDelete: cardDrafts.length > 1,
+                      onDelete: () {
+                        setDialogState(() {
+                          cardDrafts.removeAt(index).dispose();
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  if (error != null)
+                    Text(error!, style: const TextStyle(color: Colors.red)),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('取消'),
+            ),
+            FilledButton.icon(
+              onPressed: () {
+                final title = titleController.text.trim();
+                final altText = altController.text.trim();
+                final cards = cardDrafts.map((item) => item.toCard()).toList();
+                final invalidCard = cards.any((item) =>
+                    item.title.isEmpty ||
+                    item.description.isEmpty ||
+                    item.actionLabel.isEmpty ||
+                    item.actionUrl.isEmpty);
+                if (title.isEmpty || altText.isEmpty || invalidCard) {
+                  setDialogState(() {
+                    error = '請填寫訊息名稱、替代文字及每張卡片的必要欄位。';
+                  });
+                  return;
+                }
+                Navigator.pop(
+                  dialogContext,
+                  backend.VeevaLineCarouselMessage(
+                    id: id,
+                    title: title,
+                    templateId: templateId,
+                    altText: altText,
+                    cards: cards,
+                  ),
+                );
+              },
+              icon: const Icon(Icons.save_outlined),
+              label: const Text('儲存'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    titleController.dispose();
+    altController.dispose();
+    for (final draft in cardDrafts) {
+      draft.dispose();
+    }
+    if (result == null || !context.mounted) return;
+    final next = [...messages];
+    final index = next.indexWhere((item) => item.id == result.id);
+    if (index == -1) {
+      next.insert(0, result);
+    } else {
+      next[index] = result;
+    }
+    await onSave(next);
+  }
+
+  Future<void> _delete(
+    BuildContext context,
+    backend.VeevaLineCarouselMessage message,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('刪除多頁訊息'),
+        content: Text('確定要刪除「${message.title}」嗎？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('刪除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await onSave(messages.where((item) => item.id != message.id).toList());
+  }
+
+  Map<String, Object?> _cardJson(backend.VeevaLineCarouselCard card) {
+    return {
+      'type': 'bubble',
+      if (card.imageUrl.isNotEmpty)
+        'hero': {
+          'type': 'image',
+          'url': card.imageUrl,
+          'size': 'full',
+          'aspectRatio': '20:13',
+          'aspectMode': 'cover',
+        },
+      'body': {
+        'type': 'box',
+        'layout': 'vertical',
+        'contents': [
+          {
+            'type': 'text',
+            'text': card.title,
+            'weight': 'bold',
+            'size': 'xl',
+            'wrap': true,
+          },
+          {
+            'type': 'text',
+            'text': card.description,
+            'margin': 'md',
+            'size': 'sm',
+            'color': '#727577',
+            'wrap': true,
+          },
+        ],
+      },
+      'footer': {
+        'type': 'box',
+        'layout': 'vertical',
+        'contents': [
+          {
+            'type': 'button',
+            'style': 'primary',
+            'color': '#FF9812',
+            'action': {
+              'type': 'uri',
+              'label': card.actionLabel,
+              'uri': card.actionUrl,
+            },
+          },
+        ],
+      },
+    };
+  }
+
+  Future<void> _copyJson(
+    BuildContext context,
+    backend.VeevaLineCarouselMessage message,
+  ) async {
+    final payload = {
+      'type': 'flex',
+      'altText': message.altText,
+      'contents': {
+        'type': 'carousel',
+        'contents': message.cards.map(_cardJson).toList(),
+      },
+    };
+    await Clipboard.setData(ClipboardData(text: jsonEncode(payload)));
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('LINE 多頁訊息 JSON 已複製。')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(22),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _LineMessagePageHeader(
+              icon: Icons.view_carousel_outlined,
+              title: '多頁訊息',
+              description: '選擇模板建立可左右滑動的 LINE Flex Message。',
+              buttonLabel: '建立多頁訊息',
+              onCreate: () => _openEditor(context),
+            ),
+            const SizedBox(height: 20),
+            if (messages.isEmpty)
+              const _LineMessageEmptyState(
+                icon: Icons.view_carousel_outlined,
+                message: '尚未建立多頁訊息，請先選擇模板開始製作',
+              )
+            else
+              Column(
+                children: [
+                  for (final message in messages) ...[
+                    _LineCarouselMessageTile(
+                      message: message,
+                      onEdit: () => _openEditor(context, message: message),
+                      onUse: () => _copyJson(context, message),
+                      onDelete: () => _delete(context, message),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LineCarouselCardDraft {
+  _LineCarouselCardDraft.fromCard(backend.VeevaLineCarouselCard card)
+      : title = TextEditingController(text: card.title),
+        description = TextEditingController(text: card.description),
+        imageUrl = TextEditingController(text: card.imageUrl),
+        actionLabel = TextEditingController(text: card.actionLabel),
+        actionUrl = TextEditingController(text: card.actionUrl);
+
+  final TextEditingController title;
+  final TextEditingController description;
+  final TextEditingController imageUrl;
+  final TextEditingController actionLabel;
+  final TextEditingController actionUrl;
+
+  backend.VeevaLineCarouselCard toCard() {
+    return backend.VeevaLineCarouselCard(
+      title: title.text.trim(),
+      description: description.text.trim(),
+      imageUrl: imageUrl.text.trim(),
+      actionLabel: actionLabel.text.trim(),
+      actionUrl: actionUrl.text.trim(),
+    );
+  }
+
+  void dispose() {
+    title.dispose();
+    description.dispose();
+    imageUrl.dispose();
+    actionLabel.dispose();
+    actionUrl.dispose();
+  }
+}
+
+class _LineCarouselCardEditor extends StatelessWidget {
+  const _LineCarouselCardEditor({
+    required this.index,
+    required this.draft,
+    required this.canDelete,
+    required this.onDelete,
+  });
+
+  final int index;
+  final _LineCarouselCardDraft draft;
+  final bool canDelete;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFAF3),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _BrandColors.border),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '第 ${index + 1} 頁',
+                  style: const TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ),
+              IconButton(
+                tooltip: '刪除此頁',
+                onPressed: canDelete ? onDelete : null,
+                icon: const Icon(Icons.delete_outline),
+              ),
+            ],
+          ),
+          TextField(
+            controller: draft.title,
+            decoration: const InputDecoration(labelText: '卡片標題 *'),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: draft.description,
+            maxLines: 2,
+            decoration: const InputDecoration(labelText: '內容說明 *'),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: draft.imageUrl,
+            decoration: const InputDecoration(
+              labelText: '圖片網址（選填）',
+              hintText: 'https://',
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: draft.actionLabel,
+                  decoration: const InputDecoration(labelText: '按鈕文字 *'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                flex: 2,
+                child: TextField(
+                  controller: draft.actionUrl,
+                  decoration: const InputDecoration(labelText: '按鈕連結 *'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LineCarouselMessageTile extends StatelessWidget {
+  const _LineCarouselMessageTile({
+    required this.message,
+    required this.onEdit,
+    required this.onUse,
+    required this.onDelete,
+  });
+
+  final backend.VeevaLineCarouselMessage message;
+  final VoidCallback onEdit;
+  final VoidCallback onUse;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final template = _lineCarouselTemplates.firstWhere(
+      (item) => item.id == message.templateId,
+      orElse: () => _lineCarouselTemplates.first,
+    );
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFAF3),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _BrandColors.border),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFEED8),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(template.icon, color: const Color(0xFFC66D00)),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  message.title,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${template.label} · ${message.cards.length} 頁',
+                  style: const TextStyle(color: Color(0xFF727577)),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: '編輯',
+            onPressed: onEdit,
+            icon: const Icon(Icons.edit_outlined),
+          ),
+          IconButton(
+            tooltip: '刪除',
+            onPressed: onDelete,
+            icon: const Icon(Icons.delete_outline),
+          ),
+          const SizedBox(width: 8),
+          FilledButton.icon(
+            onPressed: onUse,
+            icon: const Icon(Icons.copy_outlined),
+            label: const Text('使用'),
+          ),
+        ],
+      ),
     );
   }
 }

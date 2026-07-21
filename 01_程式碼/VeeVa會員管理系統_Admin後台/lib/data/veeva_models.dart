@@ -139,22 +139,168 @@ class VeevaBootstrap {
   final VeevaClientSettings clientSettings;
 }
 
+class VeevaLineRichMessage {
+  const VeevaLineRichMessage({
+    required this.id,
+    required this.title,
+    required this.imageUrl,
+    required this.targetUrl,
+    required this.altText,
+  });
+
+  factory VeevaLineRichMessage.fromMap(Map<String, Object?> data) {
+    return VeevaLineRichMessage(
+      id: data['id']?.toString() ?? '',
+      title: data['title']?.toString() ?? '未命名圖文訊息',
+      imageUrl: data['imageUrl']?.toString() ?? '',
+      targetUrl: data['targetUrl']?.toString() ?? '',
+      altText: data['altText']?.toString() ?? '',
+    );
+  }
+
+  final String id;
+  final String title;
+  final String imageUrl;
+  final String targetUrl;
+  final String altText;
+
+  Map<String, Object?> toMap() => {
+        'id': id,
+        'title': title,
+        'imageUrl': imageUrl,
+        'targetUrl': targetUrl,
+        'altText': altText,
+      };
+}
+
+class VeevaLineCarouselCard {
+  const VeevaLineCarouselCard({
+    required this.title,
+    required this.description,
+    required this.imageUrl,
+    required this.actionLabel,
+    required this.actionUrl,
+  });
+
+  factory VeevaLineCarouselCard.fromMap(Map<String, Object?> data) {
+    return VeevaLineCarouselCard(
+      title: data['title']?.toString() ?? '',
+      description: data['description']?.toString() ?? '',
+      imageUrl: data['imageUrl']?.toString() ?? '',
+      actionLabel: data['actionLabel']?.toString() ?? '立即查看',
+      actionUrl: data['actionUrl']?.toString() ?? '',
+    );
+  }
+
+  final String title;
+  final String description;
+  final String imageUrl;
+  final String actionLabel;
+  final String actionUrl;
+
+  Map<String, Object?> toMap() => {
+        'title': title,
+        'description': description,
+        'imageUrl': imageUrl,
+        'actionLabel': actionLabel,
+        'actionUrl': actionUrl,
+      };
+}
+
+class VeevaLineCarouselMessage {
+  const VeevaLineCarouselMessage({
+    required this.id,
+    required this.title,
+    required this.templateId,
+    required this.altText,
+    required this.cards,
+  });
+
+  factory VeevaLineCarouselMessage.fromMap(Map<String, Object?> data) {
+    final rawCards = data['cards'];
+    return VeevaLineCarouselMessage(
+      id: data['id']?.toString() ?? '',
+      title: data['title']?.toString() ?? '未命名多頁訊息',
+      templateId: data['templateId']?.toString() ?? 'promotion',
+      altText: data['altText']?.toString() ?? '',
+      cards: rawCards is Iterable
+          ? rawCards
+              .whereType<Map>()
+              .map((item) => VeevaLineCarouselCard.fromMap(
+                    Map<String, Object?>.from(item),
+                  ))
+              .toList()
+          : const [],
+    );
+  }
+
+  final String id;
+  final String title;
+  final String templateId;
+  final String altText;
+  final List<VeevaLineCarouselCard> cards;
+
+  Map<String, Object?> toMap() => {
+        'id': id,
+        'title': title,
+        'templateId': templateId,
+        'altText': altText,
+        'cards': cards.map((item) => item.toMap()).toList(),
+      };
+}
+
 class VeevaClientSettings {
   const VeevaClientSettings({
     this.newsEnabled = true,
+    this.lineRichMessages = const [],
+    this.lineCarouselMessages = const [],
   });
 
   factory VeevaClientSettings.fromMap(Map<String, Object?> data) {
+    List<T> readItems<T>(
+        Object? value, T Function(Map<String, Object?>) fromMap) {
+      if (value is! Iterable) return const [];
+      return value
+          .whereType<Map>()
+          .map((item) => fromMap(Map<String, Object?>.from(item)))
+          .toList();
+    }
+
     return VeevaClientSettings(
       newsEnabled: data['newsEnabled'] != false,
+      lineRichMessages: readItems(
+        data['lineRichMessages'],
+        VeevaLineRichMessage.fromMap,
+      ),
+      lineCarouselMessages: readItems(
+        data['lineCarouselMessages'],
+        VeevaLineCarouselMessage.fromMap,
+      ),
     );
   }
 
   final bool newsEnabled;
+  final List<VeevaLineRichMessage> lineRichMessages;
+  final List<VeevaLineCarouselMessage> lineCarouselMessages;
+
+  VeevaClientSettings copyWith({
+    bool? newsEnabled,
+    List<VeevaLineRichMessage>? lineRichMessages,
+    List<VeevaLineCarouselMessage>? lineCarouselMessages,
+  }) {
+    return VeevaClientSettings(
+      newsEnabled: newsEnabled ?? this.newsEnabled,
+      lineRichMessages: lineRichMessages ?? this.lineRichMessages,
+      lineCarouselMessages: lineCarouselMessages ?? this.lineCarouselMessages,
+    );
+  }
 
   Map<String, Object?> toMap() {
     return {
       'newsEnabled': newsEnabled,
+      'lineRichMessages': lineRichMessages.map((item) => item.toMap()).toList(),
+      'lineCarouselMessages':
+          lineCarouselMessages.map((item) => item.toMap()).toList(),
       'updatedAt': FieldValue.serverTimestamp(),
     };
   }
