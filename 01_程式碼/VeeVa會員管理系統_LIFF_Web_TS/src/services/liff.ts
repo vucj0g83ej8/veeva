@@ -125,6 +125,27 @@ export function officialAccountAddUrl() {
   return `https://line.me/R/ti/p/${normalizedId}`
 }
 
+export function openUrlInApp(url: string) {
+  const targetUrl = new URL(url, window.location.href)
+  if (!['http:', 'https:'].includes(targetUrl.protocol)) {
+    throw new Error('無法開啟此連結。')
+  }
+
+  if (safeRead(() => liff.isInClient())) {
+    try {
+      liff.openWindow({
+        url: targetUrl.toString(),
+        external: false,
+      })
+      return
+    } catch {
+      // Fall through to same-window navigation when LINE cannot open its browser.
+    }
+  }
+
+  window.location.assign(targetUrl.toString())
+}
+
 export async function getOfficialAccountFriendship(): Promise<OfficialAccountFriendshipResult> {
   const session = await initializeLiff()
   if (!session.loggedIn) {

@@ -6,13 +6,13 @@ import {
   ChevronRight,
   Coffee,
   Copy,
-  ExternalLink,
   Info,
   Store,
   Ticket,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { VeevaAppState } from '../hooks/useVeevaApp'
+import { openUrlInApp } from '../services/liff'
 import type { VeevaMemberReward, VeevaReward } from '../types/veeva'
 import { formatDate } from '../utils/date'
 
@@ -154,13 +154,9 @@ function CouponDetailDialog({
   imageUrl,
   onClose,
 }: CouponDetailDialogProps) {
-  const [embeddedRedemptionUrl, setEmbeddedRedemptionUrl] = useState<
-    string | null
-  >(null)
   const [confirmingRedemptionUrl, setConfirmingRedemptionUrl] = useState<
     string | null
   >(null)
-  const [iframeLoaded, setIframeLoaded] = useState(false)
   const [verificationCodeCopied, setVerificationCodeCopied] = useState(false)
   const [verificationCodeError, setVerificationCodeError] = useState<
     string | null
@@ -176,10 +172,6 @@ function CouponDetailDialog({
     (verificationCode.length > 0 && verificationCodeCopied)
   const storeText = eligibleStoreText(reward.rewardName)
   const instructions = couponInstructions(reward.rewardName, rewardDefinition)
-  const closeEmbeddedRedemption = () => {
-    setEmbeddedRedemptionUrl(null)
-    setIframeLoaded(false)
-  }
   const copyVerificationCode = async () => {
     if (!verificationCode) {
       setVerificationCodeError('此兌換券尚未設定驗證碼')
@@ -195,9 +187,9 @@ function CouponDetailDialog({
   }
   const confirmUseCoupon = () => {
     if (!confirmingRedemptionUrl) return
-    setIframeLoaded(false)
-    setEmbeddedRedemptionUrl(confirmingRedemptionUrl)
+    const redemptionUrl = confirmingRedemptionUrl
     setConfirmingRedemptionUrl(null)
+    openUrlInApp(redemptionUrl)
   }
 
   return (
@@ -367,52 +359,6 @@ function CouponDetailDialog({
         </div>
       ) : null}
 
-      {embeddedRedemptionUrl ? (
-        <div
-          aria-modal="true"
-          className="coupon-redemption-overlay"
-          role="dialog"
-          aria-label="使用優惠券"
-        >
-          <header className="coupon-redemption-header">
-            <button
-              className="coupon-detail-icon-button"
-              type="button"
-              aria-label="返回兌換券詳情"
-              onClick={closeEmbeddedRedemption}
-            >
-              <ArrowLeft size={28} />
-            </button>
-            <h2>使用優惠券</h2>
-            <a
-              className="coupon-redemption-external"
-              href={embeddedRedemptionUrl}
-              target="_blank"
-              rel="noreferrer"
-              aria-label="另開兌換網頁"
-            >
-              <ExternalLink size={20} />
-            </a>
-          </header>
-          <div className="coupon-redemption-frame-wrap">
-            {!iframeLoaded ? (
-              <div className="coupon-redemption-loading">
-                <span className="loading-dot" />
-                <span>正在開啟兌換頁</span>
-              </div>
-            ) : null}
-            <iframe
-              className="coupon-redemption-frame"
-              src={embeddedRedemptionUrl}
-              title={`${reward.rewardName} 兌換頁`}
-              loading="eager"
-              sandbox="allow-forms allow-popups allow-same-origin allow-scripts allow-top-navigation-by-user-activation"
-              allow="clipboard-read; clipboard-write"
-              onLoad={() => setIframeLoaded(true)}
-            />
-          </div>
-        </div>
-      ) : null}
     </div>
   )
 }
