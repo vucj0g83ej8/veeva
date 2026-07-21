@@ -11722,11 +11722,6 @@ class _RewardDistributionManagementState
                         ),
                       ),
                     ),
-                    FilledButton.icon(
-                      onPressed: _openBatchDistributionDialog,
-                      icon: const Icon(Icons.playlist_add_check_outlined),
-                      label: const Text('批量發放'),
-                    ),
                   ],
                 ),
                 const SizedBox(height: 14),
@@ -11748,7 +11743,6 @@ class _RewardDistributionManagementState
                               _manualIssuedRewardCountFor(activity),
                           totalIssuedCount:
                               _totalIssuedRewardCountFor(activity),
-                          onOpen: () => _openDistributionDialog(activity),
                         ),
                     ],
                   )
@@ -11769,7 +11763,6 @@ class _RewardDistributionManagementState
                         DataColumn(label: Text('發放狀態')),
                         DataColumn(label: Text('已發放總數')),
                         DataColumn(label: Text('狀態')),
-                        DataColumn(label: Text('操作')),
                       ],
                       rows: [
                         for (final activity in rewardActivities)
@@ -11788,15 +11781,6 @@ class _RewardDistributionManagementState
                               DataCell(Text(
                                   '${_totalIssuedRewardCountFor(activity)} 張')),
                               DataCell(_ActivityStatusChip(activity: activity)),
-                              DataCell(
-                                FilledButton.icon(
-                                  onPressed: () =>
-                                      _openDistributionDialog(activity),
-                                  icon:
-                                      const Icon(Icons.card_giftcard_outlined),
-                                  label: const Text('發放獎勵'),
-                                ),
-                              ),
                             ],
                           ),
                       ],
@@ -13101,7 +13085,6 @@ class _DistributionActivityCard extends StatelessWidget {
     required this.referralIssuedCount,
     required this.manualIssuedCount,
     required this.totalIssuedCount,
-    required this.onOpen,
   });
 
   final backend.VeevaActivity activity;
@@ -13111,7 +13094,6 @@ class _DistributionActivityCard extends StatelessWidget {
   final int referralIssuedCount;
   final int manualIssuedCount;
   final int totalIssuedCount;
-  final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) {
@@ -13143,15 +13125,6 @@ class _DistributionActivityCard extends StatelessWidget {
           Text('參加者：$participantCount 位，已發放 $issuedCount 張'),
           const SizedBox(height: 4),
           Text('已發放總數：$totalIssuedCount 張'),
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerRight,
-            child: FilledButton.icon(
-              onPressed: onOpen,
-              icon: const Icon(Icons.card_giftcard_outlined),
-              label: const Text('發放獎勵'),
-            ),
-          ),
         ],
       ),
     );

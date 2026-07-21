@@ -27,22 +27,6 @@ export function CouponsPage({ app }: PageProps) {
   const [handledDeepLinkRewardId, setHandledDeepLinkRewardId] = useState<
     string | null
   >(null)
-  const handleRedeemReward = async (reward: VeevaMemberReward) => {
-    if (!app.member) {
-      throw new Error('請先登入會員')
-    }
-    const { redeemMemberReward } = await import('../services/veevaRepository')
-    const redeemedReward = await redeemMemberReward({
-      memberId: app.member.id,
-      memberRewardId: reward.id,
-    })
-    setSelectedReward((current) =>
-      current?.id === redeemedReward.id ? redeemedReward : current,
-    )
-    await app.refreshMemberData()
-    return redeemedReward
-  }
-
   useEffect(() => {
     if (!selectedReward) return undefined
     const onKeyDown = (event: KeyboardEvent) => {
@@ -151,7 +135,6 @@ export function CouponsPage({ app }: PageProps) {
             selectedReward.rewardId,
           )}
           onClose={() => setSelectedReward(null)}
-          onRedeem={handleRedeemReward}
         />
       ) : null}
     </>
@@ -163,7 +146,6 @@ interface CouponDetailDialogProps {
   rewardDefinition?: VeevaReward
   imageUrl?: string
   onClose: () => void
-  onRedeem: (reward: VeevaMemberReward) => Promise<VeevaMemberReward>
 }
 
 function CouponDetailDialog({
@@ -171,7 +153,6 @@ function CouponDetailDialog({
   rewardDefinition,
   imageUrl,
   onClose,
-  onRedeem,
 }: CouponDetailDialogProps) {
   const [embeddedRedemptionUrl, setEmbeddedRedemptionUrl] = useState<
     string | null
@@ -180,8 +161,6 @@ function CouponDetailDialog({
     string | null
   >(null)
   const [iframeLoaded, setIframeLoaded] = useState(false)
-  const [redeeming, setRedeeming] = useState(false)
-  const [redeemError, setRedeemError] = useState<string | null>(null)
   const [verificationCodeCopied, setVerificationCodeCopied] = useState(false)
   const [verificationCodeError, setVerificationCodeError] = useState<
     string | null
@@ -214,20 +193,11 @@ function CouponDetailDialog({
       setVerificationCodeError('無法複製驗證碼，請稍後再試')
     }
   }
-  const confirmUseCoupon = async () => {
+  const confirmUseCoupon = () => {
     if (!confirmingRedemptionUrl) return
-    setRedeeming(true)
-    setRedeemError(null)
-    try {
-      await onRedeem(reward)
-      setIframeLoaded(false)
-      setEmbeddedRedemptionUrl(confirmingRedemptionUrl)
-      setConfirmingRedemptionUrl(null)
-    } catch (error) {
-      setRedeemError(error instanceof Error ? error.message : String(error))
-    } finally {
-      setRedeeming(false)
-    }
+    setIframeLoaded(false)
+    setEmbeddedRedemptionUrl(confirmingRedemptionUrl)
+    setConfirmingRedemptionUrl(null)
   }
 
   return (
@@ -359,7 +329,7 @@ function CouponDetailDialog({
             </button>
           )}
           <p className="coupon-detail-warning">
-            使用後將無法恢復，請於門市結帳時出示給店員掃描
+            請於門市結帳時出示優惠券給店員掃描
           </p>
         </article>
       </div>
@@ -375,16 +345,12 @@ function CouponDetailDialog({
             <span className="coupon-use-confirm-icon">
               <Ticket size={26} />
             </span>
-            <h3 id="coupon-use-confirm-title">確定使用優惠券嗎</h3>
-            <p>點擊後即使用優惠券，確定使用優惠券嗎</p>
-            {redeemError ? (
-              <p className="coupon-use-confirm-error">{redeemError}</p>
-            ) : null}
+            <h3 id="coupon-use-confirm-title">開啟優惠券</h3>
+            <p>確認後將開啟兌換券頁面。</p>
             <div className="coupon-use-confirm-actions">
               <button
                 className="coupon-use-confirm-cancel"
                 type="button"
-                disabled={redeeming}
                 onClick={() => setConfirmingRedemptionUrl(null)}
               >
                 取消
@@ -392,10 +358,9 @@ function CouponDetailDialog({
               <button
                 className="coupon-use-confirm-submit"
                 type="button"
-                disabled={redeeming}
                 onClick={confirmUseCoupon}
               >
-                {redeeming ? '處理中' : '確認使用'}
+                確認開啟
               </button>
             </div>
           </div>
