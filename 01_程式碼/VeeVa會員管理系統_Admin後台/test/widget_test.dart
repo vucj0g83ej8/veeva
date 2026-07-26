@@ -42,12 +42,14 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     await tester.pumpWidget(const VeevaAdminApp(requireLineLogin: false));
+    await tester.pumpAndSettle();
 
-    expect(find.text('VeeVa Admin'), findsOneWidget);
+    expect(_brandLogo(), findsOneWidget);
     expect(find.text('儀表板'), findsWidgets);
     expect(find.text('問卷完成'), findsOneWidget);
     expect(find.text('待審核'), findsWidgets);
-    expect(find.byType(DataTable), findsOneWidget);
+    expect(find.text('最新待審核'), findsOneWidget);
+    expect(find.text('目前沒有待審核會員。'), findsOneWidget);
 
     await tester.tap(find.text('會員管理').first);
     await tester.pumpAndSettle();
@@ -58,23 +60,21 @@ void main() {
     expect(find.text('LINE Token'), findsNothing);
     expect(find.text('院所 / 科別'), findsNothing);
     expect(find.text('會員名稱'), findsOneWidget);
-    expect(find.text('第一次登入時間'), findsOneWidget);
     expect(find.text('最後一次登入時間'), findsOneWidget);
-    expect(find.text('會員設定'), findsOneWidget);
+    expect(find.text('操作'), findsOneWidget);
     expect(find.text('陳怡君'), findsOneWidget);
 
     await tester.tap(find.text('待審核').last);
     await tester.pumpAndSettle();
 
     expect(find.text('待審核名單'), findsWidgets);
-    expect(find.text('張雅雯'), findsOneWidget);
-    expect(find.text('通過'), findsWidgets);
+    expect(find.text('目前沒有待審核會員。'), findsOneWidget);
 
     await tester.tap(find.text('已審核').last);
     await tester.pumpAndSettle();
 
     expect(find.text('已審核名單'), findsWidgets);
-    expect(find.text('王小明'), findsWidgets);
+    expect(find.text('目前沒有已審核待發放會員。'), findsOneWidget);
     expect(find.text('後台管理者權限'), findsNothing);
   });
 
@@ -85,6 +85,7 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     await tester.pumpWidget(const VeevaAdminApp(requireLineLogin: false));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.text('權限管理').first);
     await tester.pumpAndSettle();
@@ -97,17 +98,11 @@ void main() {
     await tester.tap(find.text('會員管理').first);
     await tester.pumpAndSettle();
 
-    final unassignedRoleDropdown = find
-        .ancestor(
-          of: find.text('一般會員'),
-          matching: find.byWidgetPredicate(
-            (widget) => widget is DropdownButtonFormField,
-          ),
-        )
-        .first;
-    await tester.tap(unassignedRoleDropdown);
+    await tester.tap(find.byTooltip('編輯會員設定').first);
     await tester.pumpAndSettle();
     await tester.tap(find.text('管理員').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('儲存設定').last);
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('權限管理').first);
@@ -120,17 +115,11 @@ void main() {
     await tester.tap(find.text('會員管理').first);
     await tester.pumpAndSettle();
 
-    final managerDropdown = find
-        .ancestor(
-          of: find.text('管理員'),
-          matching: find.byWidgetPredicate(
-            (widget) => widget is DropdownButtonFormField,
-          ),
-        )
-        .first;
-    await tester.tap(managerDropdown);
+    await tester.tap(find.byTooltip('編輯會員設定').first);
     await tester.pumpAndSettle();
     await tester.tap(find.text('停用帳號').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('儲存設定').last);
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('權限管理').first);
@@ -170,7 +159,7 @@ void main() {
     final searchField = find.byWidgetPredicate(
       (widget) =>
           widget is TextField &&
-          widget.decoration?.hintText == '搜尋姓名、LINE ID、Email、院所、科別',
+          widget.decoration?.hintText == '搜尋姓名、電話、LINE ID、Email',
     );
     await tester.ensureVisible(searchField);
     await tester.enterText(searchField, 'member13@example.com');
@@ -189,15 +178,16 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     await tester.pumpWidget(const VeevaAdminApp(requireLineLogin: false));
+    await tester.pumpAndSettle();
 
     expect(find.byIcon(Icons.menu), findsOneWidget);
     await tester.tap(find.byIcon(Icons.menu));
     await tester.pumpAndSettle();
 
-    expect(find.text('VeeVa Admin'), findsOneWidget);
+    expect(_brandLogo(), findsOneWidget);
     expect(find.byType(DataTable), findsNothing);
     expect(find.text('問卷完成'), findsOneWidget);
-    expect(find.text('張雅雯'), findsOneWidget);
+    expect(find.text('目前沒有待審核會員。'), findsOneWidget);
     expect(find.text('名單狀態分布'), findsOneWidget);
   });
 
@@ -208,6 +198,7 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     await tester.pumpWidget(const VeevaAdminApp(requireLineLogin: false));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.text('兌換券管理').first);
     await tester.pumpAndSettle();
@@ -222,7 +213,20 @@ void main() {
     expect(find.text('新增兌換券'), findsWidgets);
     expect(_rewardField('已發放'), findsNothing);
     expect(_rewardField('已兌換'), findsNothing);
-    expect(find.text('兌換期限類型'), findsOneWidget);
+    final rewardDialog = find.ancestor(
+      of: find.text('新增兌換券').last,
+      matching: find.byType(Dialog),
+    );
+    final rewardDialogScroll = find.descendant(
+      of: rewardDialog,
+      matching: find.byType(SingleChildScrollView),
+    );
+    await tester.drag(rewardDialogScroll, const Offset(0, -700));
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('兌換期限類型', findRichText: true),
+      findsOneWidget,
+    );
     expect(find.text('不限時'), findsOneWidget);
     expect(_rewardField('兌換日期'), findsNothing);
     await tester.tap(find.text('取消').last);
@@ -274,6 +278,7 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     await tester.pumpWidget(const VeevaAdminApp(requireLineLogin: false));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.text('活動管理').first);
     await tester.pumpAndSettle();
@@ -316,10 +321,10 @@ void main() {
 
     expect(find.text('文章編輯器'), findsOneWidget);
     expect(find.byTooltip('粗體'), findsOneWidget);
-    expect(find.byTooltip('小標題'), findsOneWidget);
+    expect(find.byTooltip('字體大小'), findsOneWidget);
 
     await tester.enterText(_newsField('文章標題'), '新品上市資訊');
-    await tester.enterText(_newsField('摘要'), '這是一篇給會員閱讀的最新資訊摘要。');
+    await tester.enterText(_newsField('列表摘要'), '這是一篇給會員閱讀的最新資訊摘要。');
     await tester.enterText(
         _newsField('文章內容'), '完整文章內容可以在後台編輯，並會儲存在 Firestore。');
     await tester.enterText(_newsField('來源'), 'Veeva');
@@ -397,10 +402,10 @@ void main() {
     expect(_activityField('問卷網址'), findsOneWidget);
 
     await tester.enterText(_activityField('活動名稱'), '端午會員任務');
-    await tester.enterText(_activityField('活動說明'), '完成任務即可取得會員獎勵。');
+    await tester.enterText(_activityField('活動概述'), '完成任務即可取得會員獎勵。');
     await tester.enterText(_activityField('獎勵內容'), '咖啡券 1 張');
-    await tester.enterText(_activityField('活動期間'), '2026/06/01 - 2026/06/30');
-    await tester.tap(find.text('建立'));
+    await tester.enterText(_activityField('活動日期'), '2026/06/01 - 2026/06/30');
+    await tester.tap(find.text('儲存草稿'));
     await tester.pumpAndSettle();
 
     expect(find.text('端午會員任務'), findsOneWidget);
@@ -422,17 +427,27 @@ void main() {
     await tester.tap(find.text('關閉'));
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.byTooltip('停用').first);
-    await tester.tap(find.byTooltip('停用').first);
+    await tester.ensureVisible(find.byTooltip('啟用').first);
+    await tester.tap(find.byTooltip('啟用').first);
     await tester.pumpAndSettle();
 
-    expect(find.byTooltip('啟用'), findsWidgets);
+    expect(find.byTooltip('停用'), findsWidgets);
   });
 }
 
 Finder _activityField(String label) {
+  const hints = {
+    '問卷網址': 'https://',
+    '活動名稱': '請輸入活動名稱',
+    '活動概述': '請輸入活動列表與上方摘要使用的活動概述...',
+    '獎勵內容': '例如：星巴克美式冰咖啡',
+    '活動日期': '例如：2026/06/15 - 2026/07/15',
+  };
   return find.byWidgetPredicate(
-    (widget) => widget is TextField && widget.decoration?.labelText == label,
+    (widget) =>
+        widget is TextField &&
+        (widget.decoration?.labelText == label ||
+            widget.decoration?.hintText == hints[label]),
   );
 }
 
@@ -443,8 +458,23 @@ Finder _newsField(String label) {
 }
 
 Finder _rewardField(String label) {
+  const hints = {
+    '商品名稱': '請輸入商品名稱',
+  };
   return find.byWidgetPredicate(
-    (widget) => widget is TextField && widget.decoration?.labelText == label,
+    (widget) =>
+        widget is TextField &&
+        (widget.decoration?.labelText == label ||
+            widget.decoration?.hintText == hints[label]),
+  );
+}
+
+Finder _brandLogo() {
+  return find.byWidgetPredicate(
+    (widget) =>
+        widget is Image &&
+        widget.image is AssetImage &&
+        (widget.image as AssetImage).assetName == 'assets/brand/veeva-logo.png',
   );
 }
 

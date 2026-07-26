@@ -21,17 +21,16 @@ interface PageProps {
 }
 
 export function CouponsPage({ app }: PageProps) {
-  const [selectedReward, setSelectedReward] = useState<VeevaMemberReward | null>(
-    null,
+  const [selectedRewardId, setSelectedRewardId] = useState<string | null>(
+    () => new URLSearchParams(window.location.search).get('reward'),
   )
-  const [handledDeepLinkRewardId, setHandledDeepLinkRewardId] = useState<
-    string | null
-  >(null)
+  const selectedReward =
+    app.memberRewards.find((item) => item.id === selectedRewardId) ?? null
   useEffect(() => {
     if (!selectedReward) return undefined
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setSelectedReward(null)
+        setSelectedRewardId(null)
       }
     }
     document.body.classList.add('coupon-detail-open')
@@ -41,15 +40,6 @@ export function CouponsPage({ app }: PageProps) {
       window.removeEventListener('keydown', onKeyDown)
     }
   }, [selectedReward])
-
-  useEffect(() => {
-    const rewardId = new URLSearchParams(window.location.search).get('reward')
-    if (!rewardId || handledDeepLinkRewardId === rewardId) return
-    const reward = app.memberRewards.find((item) => item.id === rewardId)
-    if (!reward) return
-    setSelectedReward(reward)
-    setHandledDeepLinkRewardId(rewardId)
-  }, [app.memberRewards, handledDeepLinkRewardId])
 
   if (!app.member) {
     return (
@@ -88,7 +78,7 @@ export function CouponsPage({ app }: PageProps) {
               className="coupon-card coupon-card-button"
               key={reward.id}
               type="button"
-              onClick={() => setSelectedReward(reward)}
+              onClick={() => setSelectedRewardId(reward.id)}
             >
               <div className="coupon-media">
                 {imageUrl ? (
@@ -134,7 +124,7 @@ export function CouponsPage({ app }: PageProps) {
             app.bootstrap.rewards,
             selectedReward.rewardId,
           )}
-          onClose={() => setSelectedReward(null)}
+          onClose={() => setSelectedRewardId(null)}
         />
       ) : null}
     </>

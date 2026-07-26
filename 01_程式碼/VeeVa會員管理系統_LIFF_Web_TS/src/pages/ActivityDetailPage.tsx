@@ -16,7 +16,14 @@ import {
   UserRound,
   UsersRound,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import type { VeevaAppState } from "../hooks/useVeevaApp";
 import type { VeevaActivity, VeevaActivityRegistration } from "../types/veeva";
@@ -74,20 +81,6 @@ function ActivityDetailContent({
       ),
     [activity.id, app.memberActivityRecords],
   );
-  if (!shouldShowActivityDetail(activity, memberActivityRecord)) {
-    return (
-      <section className="empty-state">
-        <Megaphone size={30} />
-        <h2>活動尚未開放</h2>
-        <p>這個活動目前未上架或已封存。</p>
-        <Link className="secondary-button" to="/activities">
-          <ArrowLeft size={18} />
-          回活動列表
-        </Link>
-      </section>
-    );
-  }
-
   const statusLabel = activityStatusLabel(activity, memberActivityRecord);
   const registrationStatus =
     activity.type === "registration" ? memberActivityRecord?.status : undefined;
@@ -174,7 +167,7 @@ function ActivityDetailContent({
     }
   }
 
-  async function handleShareAction() {
+  const handleShareAction = useCallback(async () => {
     if (shareBusy) return;
 
     setMessage("");
@@ -239,7 +232,7 @@ function ActivityDetailContent({
     } finally {
       setShareBusy(false);
     }
-  }
+  }, [activity, app, shareBusy]);
 
   useEffect(() => {
     if (
@@ -261,8 +254,23 @@ function ActivityDetailContent({
     app.initializing,
     app.memberProfileReady,
     autoShareRequested,
+    handleShareAction,
     shareBusy,
   ]);
+
+  if (!shouldShowActivityDetail(activity, memberActivityRecord)) {
+    return (
+      <section className="empty-state">
+        <Megaphone size={30} />
+        <h2>活動尚未開放</h2>
+        <p>這個活動目前未上架或已封存。</p>
+        <Link className="secondary-button" to="/activities">
+          <ArrowLeft size={18} />
+          回活動列表
+        </Link>
+      </section>
+    );
+  }
 
   return (
     <article className="activity-detail-page">
