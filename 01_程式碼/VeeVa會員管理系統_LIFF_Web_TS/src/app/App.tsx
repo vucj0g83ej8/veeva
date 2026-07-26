@@ -10,6 +10,7 @@ import { EmployeeQrRedirectPage } from '../pages/EmployeeQrRedirectPage'
 import { NewsDetailPage } from '../pages/NewsDetailPage'
 import { MemberPage } from '../pages/MemberPage'
 import { NewsPage } from '../pages/NewsPage'
+import { PhoneVerificationPage } from '../pages/PhoneVerificationPage'
 import { SurveyPage } from '../pages/SurveyPage'
 
 const TestVoucherPage = lazy(() =>
@@ -72,6 +73,10 @@ function MemberApp() {
         />
         <Route path="/coupons" element={<CouponsPage app={app} />} />
         <Route path="/member" element={<MemberPage app={app} />} />
+        <Route
+          path="/phone-verification"
+          element={<PhoneVerificationPage app={app} />}
+        />
         <Route path="*" element={<Navigate to="/activities" replace />} />
       </Routes>
     </AppShell>

@@ -3209,6 +3209,18 @@ button:disabled {
   font-weight: 850;
 }
 
+.phone-verification-complete .phone-verification-icon {
+  background: #e5f5ed;
+  color: #14845f;
+}
+
+.phone-verification-number {
+  margin: -6px 0 20px;
+  color: #263b34;
+  font-size: 1rem;
+  font-weight: 850;
+}
+
 #phone-recaptcha-container {
   min-height: 1px;
 }

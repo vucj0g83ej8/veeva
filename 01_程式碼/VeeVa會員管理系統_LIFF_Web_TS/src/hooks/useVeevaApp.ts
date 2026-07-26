@@ -26,7 +26,7 @@ import { getCachedOfficialAccountFriendship } from '../utils/officialAccountFrie
 interface AppState {
   initializing: boolean
   authenticating: boolean
-  memberAccessStatus: 'checking' | 'phoneRequired' | 'ready' | 'error'
+  memberAccessStatus: 'checking' | 'ready' | 'error'
   memberProfileReady: boolean
   officialAccountFriendshipReady: boolean
   officialAccountFriend: boolean
@@ -68,7 +68,7 @@ export function useVeevaApp() {
     return {
       initializing: !cachedMember,
       authenticating: false,
-      memberAccessStatus: 'checking',
+      memberAccessStatus: cachedMember ? 'ready' : 'checking',
       memberProfileReady: Boolean(cachedMember),
       officialAccountFriendshipReady: cachedFriendship?.friend === true,
       officialAccountFriend: cachedFriendship?.friend === true,
@@ -166,7 +166,7 @@ export function useVeevaApp() {
       ...current,
       initializing: !cachedMember,
       authenticating: false,
-      memberAccessStatus: 'checking',
+      memberAccessStatus: cachedMember ? 'ready' : 'checking',
       memberProfileReady: Boolean(cachedMember),
       officialAccountFriendshipReady: cachedFriendship?.friend === true,
       officialAccountFriend: cachedFriendship?.friend === true,
@@ -259,7 +259,7 @@ export function useVeevaApp() {
         ...current,
         initializing: false,
         authenticating: false,
-        memberAccessStatus: member ? 'checking' : 'ready',
+        memberAccessStatus: 'ready',
         memberProfileReady: !member,
         officialAccountFriendshipReady: !member,
         officialAccountFriend: false,
@@ -290,29 +290,20 @@ export function useVeevaApp() {
             referralCode,
           })
           .then(async (updatedMember) => {
-            const memberAccessStatus = updatedMember.phoneVerified
-              ? 'ready'
-              : 'phoneRequired'
-            if (updatedMember.phoneVerified) {
-              rememberCachedMember(updatedMember)
-            } else {
-              clearCachedMember()
-            }
+            rememberCachedMember(updatedMember)
             setState((current) => ({
               ...current,
               member: updatedMember,
               memberProfileReady: true,
-              memberAccessStatus,
+              memberAccessStatus: 'ready',
             }))
-            if (updatedMember.phoneVerified) {
-              await refreshMemberDetails(updatedMember)
-            }
+            await refreshMemberDetails(updatedMember)
           })
           .catch((error) => {
             setState((current) => ({
               ...current,
-              memberProfileReady: false,
-              memberAccessStatus: 'error',
+              memberProfileReady: true,
+              memberAccessStatus: 'ready',
               error: error instanceof Error ? error.message : String(error),
             }))
           })
@@ -428,16 +419,11 @@ export function useVeevaApp() {
         referralCode:
           referralCodeFromLocation() ?? state.referralCode ?? readPendingReferralCode(),
       })
-      const memberAccessStatus = member.phoneVerified ? 'ready' : 'phoneRequired'
-      if (member.phoneVerified) {
-        rememberCachedMember(member)
-      } else {
-        clearCachedMember()
-      }
+      rememberCachedMember(member)
       setState((current) => ({
         ...current,
         busy: false,
-        memberAccessStatus,
+        memberAccessStatus: 'ready',
         memberProfileReady: true,
         officialAccountFriendshipReady: false,
         officialAccountFriend: false,
@@ -449,9 +435,7 @@ export function useVeevaApp() {
         referrals: [],
       }))
       void refreshOfficialAccountFriendship(member.id)
-      if (member.phoneVerified) {
-        await refreshMemberDetails(member)
-      }
+      await refreshMemberDetails(member)
     } catch (error) {
       setState((current) => ({
         ...current,

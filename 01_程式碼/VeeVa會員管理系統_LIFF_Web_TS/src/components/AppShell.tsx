@@ -4,7 +4,6 @@ import { NavLink, useLocation } from 'react-router-dom'
 import type { VeevaAppState } from '../hooks/useVeevaApp'
 import { NotificationCenter } from './NotificationCenter'
 import { OfficialAccountFriendGate } from './OfficialAccountFriendGate'
-import { PhoneVerificationGate } from './PhoneVerificationGate'
 
 const navItems = [
   { to: '/activities', label: '活動', icon: CalendarDays },
@@ -29,9 +28,6 @@ export function AppShell({ app, children }: AppShellProps) {
     : 'app-main'
   const checkingMemberAccess = app.memberAccessStatus === 'checking'
   const memberAccessFailed = app.memberAccessStatus === 'error'
-  const requiresPhoneVerification = Boolean(
-    app.member && !app.disabled && app.memberAccessStatus === 'phoneRequired',
-  )
   const checkingOfficialAccountFriendship = Boolean(
     app.member &&
       app.memberProfileReady &&
@@ -76,8 +72,6 @@ export function AppShell({ app, children }: AppShellProps) {
               重新檢查
             </button>
           </section>
-        ) : requiresPhoneVerification ? (
-          <PhoneVerificationGate app={app} />
         ) : checkingOfficialAccountFriendship ? (
           <div className="loading-panel">
             <span className="loading-dot" />
@@ -114,6 +108,7 @@ export function AppShell({ app, children }: AppShellProps) {
 }
 
 function titleForPath(pathname: string, newsEnabled: boolean) {
+  if (pathname.startsWith('/phone-verification')) return '電話驗證'
   if (pathname.startsWith('/news') && newsEnabled) return '最新資訊'
   if (pathname.startsWith('/coupons')) return '兌換券'
   if (pathname.startsWith('/member') || pathname.startsWith('/r/')) return '會員中心'

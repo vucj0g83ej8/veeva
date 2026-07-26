@@ -23,6 +23,7 @@
 *.log
 *.tmp
 *.swp
+tmp/
 
 # Python generated files
 __pycache__/

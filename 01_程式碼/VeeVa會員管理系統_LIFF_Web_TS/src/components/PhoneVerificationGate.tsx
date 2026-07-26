@@ -90,9 +90,9 @@ export function PhoneVerificationGate({ app }: PhoneVerificationGateProps) {
           <ShieldCheck size={30} />
         </div>
         <p className="eyebrow">會員安全驗證</p>
-        <h2>請完成手機號碼驗證</h2>
+        <h2>手機號碼驗證</h2>
         <p className="phone-verification-copy">
-          LINE 登入成功後，請再驗證手機號碼，完成後即可使用活動、兌換券與會員功能。
+          需要使用會員審核或其他身份確認功能時，可在此完成手機號碼驗證。
         </p>
 
         <div className="phone-verification-form">

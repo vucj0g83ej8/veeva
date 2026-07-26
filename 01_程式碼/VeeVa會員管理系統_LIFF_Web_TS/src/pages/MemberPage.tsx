@@ -8,6 +8,7 @@ import {
   Save,
   Send,
   Share2,
+  ShieldCheck,
   Ticket,
   UserPlus,
   UserRound,
@@ -15,6 +16,7 @@ import {
   X,
 } from 'lucide-react'
 import { useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
 import type { VeevaAppState } from '../hooks/useVeevaApp'
 import type { VeevaMember, VeevaMemberStatus } from '../types/veeva'
 import { formatDateTime } from '../utils/date'
@@ -25,6 +27,7 @@ interface PageProps {
 }
 
 export function MemberPage({ app }: PageProps) {
+  const navigate = useNavigate()
   const [recordsOpen, setRecordsOpen] = useState(false)
   const [profileEditorOpen, setProfileEditorOpen] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -112,6 +115,16 @@ export function MemberPage({ app }: PageProps) {
             title="編輯會員資料"
             subtitle="更新姓名與 email"
             onClick={() => setProfileEditorOpen(true)}
+          />
+          <MemberFeatureButton
+            icon={<ShieldCheck size={21} />}
+            title="電話驗證"
+            subtitle={
+              app.member.phoneVerified
+                ? '已完成手機號碼驗證'
+                : '尚未驗證，可視需要完成'
+            }
+            onClick={() => navigate('/phone-verification')}
           />
           <MemberFeatureButton
             icon={<UsersRound size={21} />}

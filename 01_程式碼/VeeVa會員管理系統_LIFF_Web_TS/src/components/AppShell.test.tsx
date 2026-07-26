@@ -75,19 +75,19 @@ describe('AppShell member access gate', () => {
     expect(screen.queryByTestId('protected-content')).not.toBeInTheDocument()
   })
 
-  it('手機尚未驗證時只顯示手機驗證頁', () => {
+  it('手機尚未驗證時仍可顯示原頁面', () => {
     renderShell(
       appState({
-        memberAccessStatus: 'phoneRequired',
+        memberAccessStatus: 'ready',
         member: { ...member, phoneVerified: false },
       }),
     )
 
-    expect(screen.getByText('請完成手機號碼驗證')).toBeInTheDocument()
-    expect(screen.queryByTestId('protected-content')).not.toBeInTheDocument()
+    expect(screen.getByTestId('protected-content')).toBeInTheDocument()
+    expect(screen.queryByText('手機號碼驗證')).not.toBeInTheDocument()
   })
 
-  it('完整會員資料與手機驗證通過後才顯示原頁面', () => {
+  it('完整會員資料確認後顯示原頁面', () => {
     renderShell(appState())
 
     expect(screen.getByTestId('protected-content')).toBeInTheDocument()
