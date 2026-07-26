@@ -53,10 +53,7 @@ export function SurveyPage({ app }: PageProps) {
           await app.login()
           return
         }
-        if (
-          app.memberAccessStatus !== 'ready' ||
-          app.member.phoneVerified !== true
-        ) {
+        if (app.memberAccessStatus !== 'ready') {
           completedRef.current = false
           return
         }
@@ -125,10 +122,7 @@ export function SurveyPage({ app }: PageProps) {
     )
   }
 
-  if (
-    app.memberAccessStatus !== 'ready' ||
-    app.member.phoneVerified !== true
-  ) {
+  if (app.memberAccessStatus !== 'ready') {
     return null
   }
 

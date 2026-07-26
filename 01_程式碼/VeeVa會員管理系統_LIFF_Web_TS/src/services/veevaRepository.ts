@@ -753,7 +753,6 @@ export async function completeActivity(input: {
     input.activity.id,
   ]);
   const completionRef = doc(firestore, "activityCompletions", completionId);
-  const memberRef = doc(firestore, "members", input.member.id);
   const notificationRef = doc(
     firestore,
     "memberNotifications",
@@ -765,10 +764,6 @@ export async function completeActivity(input: {
   );
 
   await runTransaction(firestore, async (transaction) => {
-    const memberSnapshot = await transaction.get(memberRef);
-    if (!memberSnapshot.exists() || memberSnapshot.data().phoneVerified !== true) {
-      throw new Error("請先完成手機號碼驗證");
-    }
     const completionSnapshot = await transaction.get(completionRef);
     const completionData = completionSnapshot.data();
     const payload: Record<string, unknown> = {
