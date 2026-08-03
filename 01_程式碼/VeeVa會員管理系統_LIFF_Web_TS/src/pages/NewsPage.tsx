@@ -67,7 +67,7 @@ export function NewsPage({ app }: PageProps) {
             type="button"
             onClick={() => setSelectedCategory('all')}
           >
-            全部資訊
+            常見問題
           </button>
           {categories.map((category) => (
             <button

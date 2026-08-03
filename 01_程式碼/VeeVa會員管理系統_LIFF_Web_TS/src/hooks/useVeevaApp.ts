@@ -282,7 +282,6 @@ export function useVeevaApp() {
       }))
 
       if (member) {
-        void refreshOfficialAccountFriendship(member.id)
         void repository
           .upsertLineMember({
             profile: liffSession.profile!,
@@ -319,7 +318,7 @@ export function useVeevaApp() {
         error: error instanceof Error ? error.message : String(error),
       }))
     }
-  }, [refreshMemberDetails, refreshOfficialAccountFriendship, state.referralCode])
+  }, [refreshMemberDetails, state.referralCode])
 
   useEffect(() => {
     if (initializedRef.current) return
@@ -434,7 +433,6 @@ export function useVeevaApp() {
         notifications: [],
         referrals: [],
       }))
-      void refreshOfficialAccountFriendship(member.id)
       await refreshMemberDetails(member)
     } catch (error) {
       setState((current) => ({
@@ -444,7 +442,7 @@ export function useVeevaApp() {
         error: error instanceof Error ? error.message : String(error),
       }))
     }
-  }, [refreshMemberDetails, refreshOfficialAccountFriendship, state.referralCode])
+  }, [refreshMemberDetails, state.referralCode])
 
   const logout = useCallback(async () => {
     clearCachedMember()

@@ -1,0 +1,22 @@
+swagger: "2.0"
+info:
+  title: VeeVa LINE Webhook Gateway
+  description: Public LINE Messaging API webhook backed by a private Cloud Run function.
+  version: "1.0.0"
+schemes:
+  - https
+produces:
+  - text/plain
+paths:
+  /line-webhook:
+    post:
+      operationId: receiveLineWebhook
+      x-google-backend:
+        address: https://linewebhook-mkqqn6bh6q-de.a.run.app
+        jwt_audience: https://linewebhook-mkqqn6bh6q-de.a.run.app
+        path_translation: CONSTANT_ADDRESS
+      responses:
+        "200":
+          description: LINE webhook accepted
+        "401":
+          description: Invalid LINE signature

@@ -29,9 +29,9 @@ const friendshipRequestTimeoutMs = 7_000
 const publicAppUrl =
   import.meta.env.VITE_PUBLIC_LIFF_URL?.replace(/\/$/, '') ||
   'https://veeva.web.app'
-const inviteImageUrl = `${publicAppUrl}/assets/share/openpoint-member-gift-v1.png`
+const inviteImageUrl = `${publicAppUrl}/assets/share/veeva-711-survey-gift-v2.png`
 const officialAccountId =
-  import.meta.env.VITE_LINE_OFFICIAL_ACCOUNT_ID?.trim() || '@896pwyxc'
+  import.meta.env.VITE_LINE_OFFICIAL_ACCOUNT_ID?.trim() || '@veevaconnect'
 export const lineCardShareUnsupportedError = 'LINE_CARD_SHARE_UNSUPPORTED'
 
 let initPromise: Promise<LiffSession> | undefined
@@ -260,7 +260,7 @@ export async function shareInviteCard(memberName: string, shareCode: string) {
   await liff.shareTargetPicker([
     {
       type: 'flex',
-      altText: `${memberName} 邀請你填寫問卷，審核通過送 OPENPOINT 100 點`,
+      altText: `${memberName} 邀請你填寫問卷，審核通過送 7-ELEVEN 虛擬商品卡`,
       contents: {
         type: 'bubble',
         size: 'giga',
@@ -279,31 +279,33 @@ export async function shareInviteCard(memberName: string, shareCode: string) {
         body: {
           type: 'box',
           layout: 'vertical',
+          spacing: 'lg',
           paddingAll: '24px',
-          backgroundColor: '#FFFFFF',
+          backgroundColor: '#FFF8F1',
           contents: [
             {
               type: 'text',
-              text: '填問卷送 OPENPOINT 100點',
+              text: '填問卷送 7-ELEVEN 虛擬商品卡',
               weight: 'bold',
-              size: 'xxl',
-              color: '#006D6F',
+              size: 'xl',
+              wrap: true,
+              color: '#D95700',
             },
             {
               type: 'text',
-              text: `${memberName} 邀請你加入 VeeVa 會員並填寫線上問卷，審核通過即可獲得 7-ELEVEN OPENPOINT 100 點。`,
+              text: `${memberName} 邀請你加入 VeeVa 會員並填寫線上問卷，審核通過即可領取 7-ELEVEN 虛擬商品卡。`,
               wrap: true,
-              color: '#3F5652',
+              color: '#3A281C',
               size: 'md',
               lineSpacing: '8px',
             },
             {
               type: 'text',
-              text: '完成線上問卷，審核通過立即送！',
+              text: '加入帳號、填寫問卷，審核後領取好禮！',
               wrap: true,
-              size: 'lg',
+              size: 'md',
               weight: 'bold',
-              color: '#C66D00',
+              color: '#E56A00',
             },
           ],
         },
@@ -314,17 +316,17 @@ export async function shareInviteCard(memberName: string, shareCode: string) {
           paddingBottom: '24px',
           paddingStart: '24px',
           paddingEnd: '24px',
-          backgroundColor: '#FFFFFF',
+          backgroundColor: '#FFF8F1',
           contents: [
             {
               type: 'button',
               style: 'primary',
               height: 'md',
-              color: '#C66D00',
+              color: '#E56400',
               action: {
                 type: 'uri',
-                label: '立即填寫問卷',
-                uri: inviteUrl,
+                label: '加入官網，填寫問卷',
+                uri: officialAccountAddUrl(),
               },
             },
           ],

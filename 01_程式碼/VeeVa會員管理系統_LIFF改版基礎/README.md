@@ -43,7 +43,7 @@ flutter build web --dart-define=LIFF_ID=2010298394-7PwRtpTY
 - LINE Login channel ID：`2010298394`
 - LIFF ID：`2010298394-7PwRtpTY`
 - LIFF URL：`https://liff.line.me/2010298394-7PwRtpTY`
-- LINE Official Account：`@896pwyxc` / `veeva 測試`
+- LINE Official Account：`@veevaconnect`
 ## LINE 圖文選單管理
 
 LINE Rich Menu 統一由 LINE Official Account Manager 管理。專案不保留建立、上傳、綁定或覆蓋 Rich Menu 的 Messaging API 腳本。

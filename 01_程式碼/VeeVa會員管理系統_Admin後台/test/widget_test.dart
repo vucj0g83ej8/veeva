@@ -433,6 +433,193 @@ void main() {
 
     expect(find.byTooltip('停用'), findsWidgets);
   });
+
+  testWidgets('LINE navigation sends a text message to a selected member',
+      (tester) async {
+    tester.view.physicalSize = const Size(1440, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final repository = _MessageCaptureRepository();
+
+    await tester.pumpWidget(VeevaAdminApp(
+      repository: repository,
+      requireLineLogin: false,
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('LINE@'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('發送訊息'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('全部會員'), findsOneWidget);
+    expect(find.text('王小明'), findsWidgets);
+    expect(find.text('陳怡君'), findsOneWidget);
+    expect(find.text('您好，我想詢問兌換券。'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('line-message-field')),
+      '您好，這是一則 LINE 測試訊息。',
+    );
+    await tester.pump();
+    expect(find.text('預覽'), findsNothing);
+    await tester.testTextInput.receiveAction(TextInputAction.send);
+    await tester.pumpAndSettle();
+
+    expect(repository.sentMember?.name, '王小明');
+    expect(repository.sentMessageType, 'text');
+    expect(repository.sentSnapshot?['text'], '您好，這是一則 LINE 測試訊息。');
+    expect(find.text('發送成功'), findsOneWidget);
+  });
+
+  testWidgets('LINE chat stays blank when the selected member has no messages',
+      (tester) async {
+    tester.view.physicalSize = const Size(1440, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(const VeevaAdminApp(
+      requireLineLogin: false,
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('LINE@'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('發送訊息'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('尚無對話紀錄，可從下方開始傳送訊息'), findsNothing);
+    expect(find.text('對話紀錄載入失敗，請稍後再試'), findsNothing);
+  });
+
+  testWidgets('LINE chat renders sent rich and carousel message previews',
+      (tester) async {
+    tester.view.physicalSize = const Size(1440, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(VeevaAdminApp(
+      repository: _TemplatePreviewRepository(),
+      requireLineLogin: false,
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('LINE@'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('發送訊息'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('line-rich-message-preview')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('line-carousel-message-preview')),
+      findsOneWidget,
+    );
+    expect(find.text('第一頁內容'), findsOneWidget);
+  });
+
+  testWidgets('LINE chat prioritizes unread members by newest message time',
+      (tester) async {
+    tester.view.physicalSize = const Size(1440, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final repository = _UnreadMessageRepository();
+
+    await tester.pumpWidget(VeevaAdminApp(
+      repository: repository,
+      requireLineLogin: false,
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('LINE@'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('發送訊息'));
+    await tester.pumpAndSettle();
+
+    final chenTile = find.byKey(const ValueKey('line-member-line-demo-chen'));
+    final wangTile = find.byKey(const ValueKey('line-member-line-demo-wang'));
+    expect(tester.getTopLeft(chenTile).dy,
+        lessThan(tester.getTopLeft(wangTile).dy));
+    expect(
+      find.byKey(const ValueKey('line-unread-line-demo-chen')),
+      findsOneWidget,
+    );
+    final unreadBadge = tester.widget<Container>(
+      find.byKey(const ValueKey('line-unread-line-demo-chen')),
+    );
+    expect(unreadBadge.constraints?.minWidth, 28);
+    expect(unreadBadge.constraints?.minHeight, 28);
+    expect(
+      (unreadBadge.decoration as BoxDecoration).shape,
+      BoxShape.circle,
+    );
+    expect(find.text('1'), findsWidgets);
+
+    await tester.tap(chenTile);
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(of: chenTile, matching: find.byIcon(Icons.check_circle)),
+      findsNothing,
+    );
+    expect(repository.markedReadLineUserId, 'line-demo-chen');
+  });
+
+  testWidgets('LINE chat sends saved single-page and multi-page templates',
+      (tester) async {
+    tester.view.physicalSize = const Size(1440, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final repository = _MessageCaptureRepository();
+
+    await tester.pumpWidget(VeevaAdminApp(
+      repository: repository,
+      requireLineLogin: false,
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('LINE@'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('發送訊息'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('line-template-message-button')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('單頁圖文'), findsOneWidget);
+    expect(find.text('多頁圖文'), findsOneWidget);
+    await tester.tap(find.text('測試單頁模板'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('line-template-send-button')));
+    await tester.pumpAndSettle();
+
+    expect(repository.sentMessageType, 'rich');
+    expect(repository.sentSnapshot?['id'], 'rich-test');
+    expect(find.text('發送成功'), findsOneWidget);
+    await tester.tap(find.text('完成'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('line-template-message-button')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('多頁圖文'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('測試多頁模板'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('line-template-send-button')));
+    await tester.pumpAndSettle();
+
+    expect(repository.sentMessageType, 'carousel');
+    expect(repository.sentSnapshot?['id'], 'carousel-test');
+  });
 }
 
 Finder _activityField(String label) {
@@ -610,5 +797,152 @@ class _NoAdminRepository extends DemoVeevaRepository {
     String lineUserId,
   ) async {
     return null;
+  }
+}
+
+class _MessageCaptureRepository extends DemoVeevaRepository {
+  backend.VeevaMember? sentMember;
+  String? sentMessageType;
+  Map<String, Object?>? sentSnapshot;
+
+  @override
+  Future<backend.VeevaBootstrap> loadBootstrap() async {
+    return const backend.VeevaBootstrap(
+      activities: [],
+      news: [],
+      rewards: [],
+      reviews: [],
+      members: [],
+      adminUsers: [],
+      activityRecords: [],
+      memberRewards: [],
+      employeeLinks: [],
+      clientSettings: backend.VeevaClientSettings(
+        lineRichMessages: [
+          backend.VeevaLineRichMessage(
+            id: 'rich-test',
+            title: '測試單頁模板',
+            imageUrl: 'https://example.com/rich.jpg',
+            targetUrl: 'https://example.com/rich',
+            altText: '測試單頁圖文訊息',
+          ),
+        ],
+        lineCarouselMessages: [
+          backend.VeevaLineCarouselMessage(
+            id: 'carousel-test',
+            title: '測試多頁模板',
+            templateId: 'standard',
+            altText: '測試多頁圖文訊息',
+            cards: [
+              backend.VeevaLineCarouselCard(
+                title: '第一頁',
+                description: '第一頁內容',
+                imageUrl: 'https://example.com/carousel.jpg',
+                actionLabel: '立即查看',
+                actionUrl: 'https://example.com/carousel',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Future<void> sendLineMessageTest({
+    required backend.VeevaMember member,
+    required String messageType,
+    required Map<String, Object?> messageSnapshot,
+  }) async {
+    sentMember = member;
+    sentMessageType = messageType;
+    sentSnapshot = messageSnapshot;
+  }
+
+  @override
+  Stream<List<backend.VeevaLineChatMessage>> watchLineConversation(
+    String lineUserId,
+  ) {
+    return Stream.value([
+      backend.VeevaLineChatMessage(
+        id: 'incoming-test-1',
+        lineUserId: lineUserId,
+        direction: backend.VeevaLineChatDirection.incoming,
+        type: 'text',
+        text: '您好，我想詢問兌換券。',
+        sentAt: DateTime(2026, 7, 30, 10, 30),
+        memberId: 'line-demo-wang',
+        memberName: '王小明',
+      ),
+    ]);
+  }
+}
+
+class _TemplatePreviewRepository extends _MessageCaptureRepository {
+  @override
+  Stream<List<backend.VeevaLineChatMessage>> watchLineConversation(
+    String lineUserId,
+  ) {
+    return Stream.value([
+      backend.VeevaLineChatMessage(
+        id: 'outgoing-rich-test',
+        lineUserId: lineUserId,
+        direction: backend.VeevaLineChatDirection.outgoing,
+        type: 'rich',
+        text: '[單頁圖文] 測試單頁模板',
+        sentAt: DateTime(2026, 7, 30, 10, 31),
+      ),
+      backend.VeevaLineChatMessage(
+        id: 'outgoing-carousel-test',
+        lineUserId: lineUserId,
+        direction: backend.VeevaLineChatDirection.outgoing,
+        type: 'carousel',
+        text: '[多頁圖文] 測試多頁模板',
+        sentAt: DateTime(2026, 7, 30, 10, 32),
+        messageSnapshot: const backend.VeevaLineCarouselMessage(
+          id: 'carousel-test',
+          title: '測試多頁模板',
+          templateId: 'standard',
+          altText: '測試多頁圖文訊息',
+          cards: [
+            backend.VeevaLineCarouselCard(
+              title: '第一頁',
+              description: '第一頁內容',
+              imageUrl: 'https://example.com/carousel.jpg',
+              actionLabel: '立即查看',
+              actionUrl: 'https://example.com/carousel',
+            ),
+          ],
+        ).toMap(),
+      ),
+    ]);
+  }
+}
+
+class _UnreadMessageRepository extends DemoVeevaRepository {
+  String? markedReadLineUserId;
+
+  @override
+  Stream<List<backend.VeevaLineConversationSummary>>
+      watchLineConversationSummaries() {
+    return Stream.value([
+      backend.VeevaLineConversationSummary(
+        lineUserId: 'line-demo-wang',
+        unreadCount: 4,
+        lastMessage: '較早的未讀訊息',
+        lastMessageAt: DateTime(2026, 8, 3, 10),
+      ),
+      backend.VeevaLineConversationSummary(
+        lineUserId: 'line-demo-chen',
+        unreadCount: 1,
+        lastMessage: '最新的未讀訊息',
+        lastMessageAt: DateTime(2026, 8, 3, 11),
+      ),
+    ]);
+  }
+
+  @override
+  Future<void> markLineConversationRead(String lineUserId) async {
+    markedReadLineUserId = lineUserId;
   }
 }

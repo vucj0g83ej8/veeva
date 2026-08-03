@@ -23,6 +23,88 @@ enum VeevaAdminRole { owner, manager, editor, viewer }
 
 enum VeevaAdminStatus { active, disabled }
 
+enum VeevaLineChatDirection { incoming, outgoing }
+
+class VeevaLineConversationSummary {
+  const VeevaLineConversationSummary({
+    required this.lineUserId,
+    required this.unreadCount,
+    this.lastMessage,
+    this.lastDirection,
+    this.lastMessageAt,
+  });
+
+  factory VeevaLineConversationSummary.fromMap(
+    String id,
+    Map<String, dynamic> data,
+  ) {
+    return VeevaLineConversationSummary(
+      lineUserId: data['lineUserId']?.toString() ?? id,
+      unreadCount: _readInt(data['unreadCount']),
+      lastMessage: data['lastMessage']?.toString(),
+      lastDirection: data['lastDirection']?.toString(),
+      lastMessageAt: _readDate(data['lastMessageAt']),
+    );
+  }
+
+  final String lineUserId;
+  final int unreadCount;
+  final String? lastMessage;
+  final String? lastDirection;
+  final DateTime? lastMessageAt;
+}
+
+class VeevaLineChatMessage {
+  const VeevaLineChatMessage({
+    required this.id,
+    required this.lineUserId,
+    required this.direction,
+    required this.type,
+    required this.text,
+    required this.sentAt,
+    this.memberId,
+    this.memberName,
+    this.messageSnapshot,
+  });
+
+  factory VeevaLineChatMessage.fromMap(
+    String id,
+    Map<String, dynamic> data,
+  ) {
+    return VeevaLineChatMessage(
+      id: id,
+      lineUserId: data['lineUserId']?.toString() ?? '',
+      direction: _readEnum(
+        VeevaLineChatDirection.values,
+        data['direction'],
+        VeevaLineChatDirection.incoming,
+      ),
+      type: data['type']?.toString() ?? 'text',
+      text: data['text']?.toString() ?? '',
+      sentAt: _readDate(data['sentAt']) ??
+          _readDate(data['createdAt']) ??
+          DateTime.fromMillisecondsSinceEpoch(0),
+      memberId: data['memberId']?.toString(),
+      memberName: data['memberName']?.toString(),
+      messageSnapshot: data['messageSnapshot'] is Map
+          ? Map<String, Object?>.from(data['messageSnapshot'] as Map)
+          : null,
+    );
+  }
+
+  final String id;
+  final String lineUserId;
+  final VeevaLineChatDirection direction;
+  final String type;
+  final String text;
+  final DateTime sentAt;
+  final String? memberId;
+  final String? memberName;
+  final Map<String, Object?>? messageSnapshot;
+
+  bool get isIncoming => direction == VeevaLineChatDirection.incoming;
+}
+
 DateTime? _readDate(Object? value) {
   if (value is Timestamp) {
     return value.toDate();

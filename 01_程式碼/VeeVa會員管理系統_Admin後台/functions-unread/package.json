@@ -1,13 +1,12 @@
 {
-  "name": "veeva-admin-functions",
+  "name": "veeva-line-unread-functions",
   "private": true,
   "type": "module",
   "engines": {
-    "node": "20"
+    "node": "22"
   },
   "scripts": {
-    "lint": "node --check index.js",
-    "test": "node --test line-url.test.js"
+    "lint": "node --check index.js"
   },
   "dependencies": {
     "firebase-admin": "^13.6.0",

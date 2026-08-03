@@ -1,8 +1,11 @@
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
 import { defineSecret } from 'firebase-functions/params';
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
+import { onRequest } from 'firebase-functions/v2/https';
+import { resolveTemplateUrl } from './line-url.js';
 
 initializeApp();
 
@@ -10,6 +13,39 @@ const db = getFirestore();
 const linePushEndpoint = 'https://api.line.me/v2/bot/message/push';
 const defaultLiffId = '2010298394-7PwRtpTY';
 const lineChannelAccessToken = defineSecret('LINE_CHANNEL_ACCESS_TOKEN');
+const lineChannelSecret = defineSecret('LINE_CHANNEL_SECRET');
+
+export const lineWebhook = onRequest(
+  {
+    region: 'asia-east1',
+    timeoutSeconds: 30,
+    memory: '256MiB',
+    secrets: [lineChannelSecret],
+  },
+  async (request, response) => {
+    if (request.method !== 'POST') {
+      response.status(405).send('Method Not Allowed');
+      return;
+    }
+
+    const channelSecret = cleanString(lineChannelSecret.value());
+    const signature = cleanString(request.get('x-line-signature'));
+    if (
+      !channelSecret ||
+      !signature ||
+      !isValidLineSignature(request.rawBody, signature, channelSecret)
+    ) {
+      logger.warn('Rejected LINE webhook with an invalid signature.');
+      response.status(401).send('Invalid signature');
+      return;
+    }
+
+    const events = Array.isArray(request.body?.events) ? request.body.events : [];
+    await Promise.all(events.map(saveIncomingLineEvent));
+    response.status(200).send('OK');
+  },
+);
+
 export const sendRewardIssuedLineMessage = onDocumentWritten(
   {
     document: 'memberNotifications/{notificationId}',
@@ -145,6 +181,19 @@ export const sendLineMessageTest = onDocumentWritten(
         return;
       }
 
+      await saveLineConversationMessage({
+        lineUserId,
+        messageId: `out-${testId}`,
+        memberId: cleanString(data.memberId),
+        memberName: cleanString(data.memberName),
+        direction: 'outgoing',
+        type: cleanString(data.messageType) || 'text',
+        text: lineConversationSummary(data.messageType, data.messageSnapshot),
+        messageSnapshot: isPlainObject(data.messageSnapshot)
+          ? data.messageSnapshot
+          : null,
+        sentAt: new Date(),
+      });
       await markLineMessageTest(testId, { status: 'sent' });
       logger.info('LINE message test sent.', { testId });
     } catch (error) {
@@ -160,11 +209,115 @@ export const sendLineMessageTest = onDocumentWritten(
   },
 );
 
+function isValidLineSignature(rawBody, signature, channelSecret) {
+  if (!Buffer.isBuffer(rawBody)) return false;
+  const expected = createHmac('sha256', channelSecret)
+    .update(rawBody)
+    .digest('base64');
+  const actualBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+  return (
+    actualBuffer.length === expectedBuffer.length &&
+    timingSafeEqual(actualBuffer, expectedBuffer)
+  );
+}
+
+async function saveIncomingLineEvent(event) {
+  if (!isPlainObject(event) || event.type !== 'message') return;
+  const lineUserId = cleanString(event.source?.userId);
+  const messageId = cleanString(event.message?.id);
+  if (!lineUserId || !messageId) return;
+
+  const memberSnapshot = await db
+    .collection('members')
+    .where('lineUserId', '==', lineUserId)
+    .limit(1)
+    .get();
+  const memberDocument = memberSnapshot.docs[0];
+  const member = memberDocument?.data();
+  const type = cleanString(event.message?.type) || 'unknown';
+
+  await saveLineConversationMessage({
+    lineUserId,
+    messageId: `in-${messageId}`,
+    memberId: memberDocument?.id || '',
+    memberName: cleanString(member?.name),
+    direction: 'incoming',
+    type,
+    text: incomingLineMessageText(event.message, type),
+    sentAt:
+      Number.isFinite(event.timestamp) && event.timestamp > 0
+        ? new Date(event.timestamp)
+        : new Date(),
+  });
+}
+
+function incomingLineMessageText(message, type) {
+  if (type === 'text') return cleanString(message?.text) || '[空白訊息]';
+  const labels = {
+    image: '[圖片]',
+    sticker: '[貼圖]',
+    video: '[影片]',
+    audio: '[語音訊息]',
+    file: `[檔案] ${cleanString(message?.fileName)}`.trim(),
+    location: `[位置] ${cleanString(message?.title)}`.trim(),
+  };
+  return labels[type] || `[${type || '未知'}訊息]`;
+}
+
+async function saveLineConversationMessage({
+  lineUserId,
+  messageId,
+  memberId,
+  memberName,
+  direction,
+  type,
+  text,
+  messageSnapshot = null,
+  sentAt,
+}) {
+  const conversation = db.collection('lineConversations').doc(lineUserId);
+  const message = conversation.collection('messages').doc(messageId);
+  const batch = db.batch();
+  batch.set(
+    message,
+    {
+      lineUserId,
+      memberId: memberId || null,
+      memberName: memberName || null,
+      direction,
+      type,
+      text,
+      messageSnapshot,
+      sentAt,
+      createdAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+  batch.set(
+    conversation,
+    {
+      lineUserId,
+      memberId: memberId || null,
+      memberName: memberName || null,
+      lastMessage: text,
+      lastDirection: direction,
+      lastMessageAt: sentAt,
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+  await batch.commit();
+}
+
 function buildRewardIssuedFlexMessage(data) {
   const messageType = cleanString(data.lineMessageType) || 'system';
   const snapshot = isPlainObject(data.lineMessageSnapshot)
     ? data.lineMessageSnapshot
     : null;
+  if (messageType === 'text' && snapshot) {
+    return buildTextLineMessage(snapshot);
+  }
   if (messageType === 'rich' && snapshot) {
     return buildRichRewardIssuedFlexMessage(data, snapshot);
   }
@@ -172,6 +325,27 @@ function buildRewardIssuedFlexMessage(data) {
     return buildCarouselRewardIssuedFlexMessage(data, snapshot);
   }
   return buildSystemRewardIssuedFlexMessage(data);
+}
+
+function lineConversationSummary(messageType, snapshot) {
+  const type = cleanString(messageType) || 'text';
+  const text = cleanString(snapshot?.text);
+  if (text) return text;
+  const title = cleanString(snapshot?.title);
+  if (type === 'rich') return `[單頁圖文] ${title || '圖文訊息'}`;
+  if (type === 'carousel') return `[多頁圖文] ${title || '多頁訊息'}`;
+  return '[LINE 訊息]';
+}
+
+function buildTextLineMessage(snapshot) {
+  const text = cleanString(snapshot.text);
+  if (!text) {
+    throw new Error('文字訊息內容不可空白。');
+  }
+  return {
+    type: 'text',
+    text: text.slice(0, 5000),
+  };
 }
 
 function buildSystemRewardIssuedFlexMessage(data) {
@@ -274,10 +448,14 @@ function buildRichRewardIssuedFlexMessage(data, template) {
         size: 'full',
         aspectRatio: '20:13',
         aspectMode: 'cover',
-        action: {
-          type: 'uri',
-          uri: targetUrl,
-        },
+        ...(targetUrl
+          ? {
+              action: {
+                type: 'uri',
+                uri: targetUrl,
+              },
+            }
+          : {}),
       },
     },
   };
@@ -322,11 +500,15 @@ function buildCarouselBubble(card, couponUrl, templateId) {
         size: 'full',
         aspectRatio: '1:1',
         aspectMode: 'cover',
-        action: {
-          type: 'uri',
-          label: actionLabel,
-          uri: actionUrl,
-        },
+        ...(actionUrl
+          ? {
+              action: {
+                type: 'uri',
+                label: actionLabel,
+                uri: actionUrl,
+              },
+            }
+          : {}),
       },
     };
   }
@@ -373,24 +555,28 @@ function buildCarouselBubble(card, couponUrl, templateId) {
           : []),
       ],
     },
-    footer: {
-      type: 'box',
-      layout: 'vertical',
-      ...(compact ? { paddingAll: '8px' } : {}),
-      contents: [
-        {
-          type: 'button',
-          style: 'primary',
-          color: '#FF9812',
-          ...(compact ? { height: 'sm' } : {}),
-          action: {
-            type: 'uri',
-            label: actionLabel,
-            uri: actionUrl,
+    ...(actionUrl
+      ? {
+          footer: {
+            type: 'box',
+            layout: 'vertical',
+            ...(compact ? { paddingAll: '8px' } : {}),
+            contents: [
+              {
+                type: 'button',
+                style: 'primary',
+                color: '#FF9812',
+                ...(compact ? { height: 'sm' } : {}),
+                action: {
+                  type: 'uri',
+                  label: actionLabel,
+                  uri: actionUrl,
+                },
+              },
+            ],
           },
-        },
-      ],
-    },
+        }
+      : {}),
   };
 }
 
@@ -400,12 +586,6 @@ function normalizeCarouselTemplateId(value) {
     return templateId;
   }
   return 'standard';
-}
-
-function resolveTemplateUrl(value, couponUrl) {
-  const configuredUrl = cleanString(value);
-  if (!configuredUrl || configuredUrl === '{{couponUrl}}') return couponUrl;
-  return configuredUrl.replaceAll('{{couponUrl}}', couponUrl);
 }
 
 function isPlainObject(value) {

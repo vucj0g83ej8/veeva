@@ -3,11 +3,10 @@ import type { PropsWithChildren } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import type { VeevaAppState } from '../hooks/useVeevaApp'
 import { NotificationCenter } from './NotificationCenter'
-import { OfficialAccountFriendGate } from './OfficialAccountFriendGate'
 
 const navItems = [
   { to: '/activities', label: '活動', icon: CalendarDays },
-  { to: '/news', label: '最新資訊', icon: Newspaper },
+  { to: '/news', label: '常見問題', icon: Newspaper },
   { to: '/coupons', label: '兌換券', icon: Ticket },
   { to: '/member', label: '會員', icon: UserRound },
 ]
@@ -28,19 +27,6 @@ export function AppShell({ app, children }: AppShellProps) {
     : 'app-main'
   const checkingMemberAccess = app.memberAccessStatus === 'checking'
   const memberAccessFailed = app.memberAccessStatus === 'error'
-  const checkingOfficialAccountFriendship = Boolean(
-    app.member &&
-      app.memberProfileReady &&
-      !app.disabled &&
-      !app.officialAccountFriendshipReady,
-  )
-  const requiresOfficialAccountFriendship = Boolean(
-    app.member &&
-      app.memberProfileReady &&
-      !app.disabled &&
-      app.officialAccountFriendshipReady &&
-      !app.officialAccountFriend,
-  )
 
   return (
     <div className="app-shell">
@@ -72,13 +58,6 @@ export function AppShell({ app, children }: AppShellProps) {
               重新檢查
             </button>
           </section>
-        ) : checkingOfficialAccountFriendship ? (
-          <div className="loading-panel">
-            <span className="loading-dot" />
-            <span>正在確認官方帳號加入狀態</span>
-          </div>
-        ) : requiresOfficialAccountFriendship ? (
-          <OfficialAccountFriendGate app={app} />
         ) : (
           children
         )}
@@ -109,7 +88,7 @@ export function AppShell({ app, children }: AppShellProps) {
 
 function titleForPath(pathname: string, newsEnabled: boolean) {
   if (pathname.startsWith('/phone-verification')) return '電話驗證'
-  if (pathname.startsWith('/news') && newsEnabled) return '最新資訊'
+  if (pathname.startsWith('/news') && newsEnabled) return '常見問題'
   if (pathname.startsWith('/coupons')) return '兌換券'
   if (pathname.startsWith('/member') || pathname.startsWith('/r/')) return '會員中心'
   return '活動'

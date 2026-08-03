@@ -62,6 +62,21 @@ service cloud.firestore {
       allow delete: if true;
     }
 
+    match /lineConversations/{lineUserId} {
+      allow read: if true;
+      allow create: if request.resource.data.unreadCount == 0;
+      allow update: if
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['unreadCount', 'lastReadAt']) &&
+        request.resource.data.unreadCount == 0;
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if true;
+        allow write: if false;
+      }
+    }
+
     match /phoneVerificationRateLimits/{phoneHash} {
       allow read, create, update: if true;
       allow delete: if true;

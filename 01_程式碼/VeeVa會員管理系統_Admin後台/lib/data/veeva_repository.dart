@@ -100,6 +100,14 @@ abstract class VeevaRepository {
     required Map<String, Object?> messageSnapshot,
   });
 
+  Stream<List<VeevaLineChatMessage>> watchLineConversation(
+    String lineUserId,
+  );
+
+  Stream<List<VeevaLineConversationSummary>> watchLineConversationSummaries();
+
+  Future<void> markLineConversationRead(String lineUserId);
+
   Future<String> uploadImage({
     required String path,
     required Uint8List bytes,
@@ -139,6 +147,8 @@ class FirestoreVeevaRepository implements VeevaRepository {
       firestore.collection('memberNotifications');
   CollectionReference<Map<String, dynamic>> get _lineMessageTests =>
       firestore.collection('lineMessageTests');
+  CollectionReference<Map<String, dynamic>> get _lineConversations =>
+      firestore.collection('lineConversations');
   CollectionReference<Map<String, dynamic>> get _systemSettings =>
       firestore.collection('systemSettings');
   CollectionReference<Map<String, dynamic>> get _rewardVouchers =>
@@ -1388,6 +1398,57 @@ class FirestoreVeevaRepository implements VeevaRepository {
     throw StateError('LINE 測試訊息等待逾時，請稍後再試。');
   }
 
+  @override
+  Stream<List<VeevaLineChatMessage>> watchLineConversation(
+    String lineUserId,
+  ) {
+    final normalizedId = lineUserId.trim();
+    if (normalizedId.isEmpty) {
+      return Stream.value(const <VeevaLineChatMessage>[]);
+    }
+    return _lineConversations
+        .doc(normalizedId)
+        .collection('messages')
+        .orderBy('sentAt')
+        .limitToLast(10)
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs
+              .map(
+                (doc) => VeevaLineChatMessage.fromMap(doc.id, doc.data()),
+              )
+              .toList(growable: false),
+        );
+  }
+
+  @override
+  Stream<List<VeevaLineConversationSummary>> watchLineConversationSummaries() {
+    return _lineConversations
+        .orderBy('lastMessageAt', descending: true)
+        .limit(500)
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs
+              .map(
+                (doc) => VeevaLineConversationSummary.fromMap(
+                  doc.id,
+                  doc.data(),
+                ),
+              )
+              .toList(growable: false),
+        );
+  }
+
+  @override
+  Future<void> markLineConversationRead(String lineUserId) async {
+    final normalizedId = lineUserId.trim();
+    if (normalizedId.isEmpty) return;
+    await _lineConversations.doc(normalizedId).set({
+      'unreadCount': 0,
+      'lastReadAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
   Future<DocumentReference<Map<String, dynamic>>?> _findAvailableVoucherRef(
     String rewardId, {
     required bool requiresVerificationCode,
@@ -1650,6 +1711,21 @@ class DemoVeevaRepository implements VeevaRepository {
     required String messageType,
     required Map<String, Object?> messageSnapshot,
   }) async {}
+
+  @override
+  Stream<List<VeevaLineChatMessage>> watchLineConversation(
+    String lineUserId,
+  ) {
+    return Stream.value(const <VeevaLineChatMessage>[]);
+  }
+
+  @override
+  Stream<List<VeevaLineConversationSummary>> watchLineConversationSummaries() {
+    return Stream.value(const <VeevaLineConversationSummary>[]);
+  }
+
+  @override
+  Future<void> markLineConversationRead(String lineUserId) async {}
 
   @override
   Future<String> uploadImage({

@@ -57,9 +57,12 @@ function appState(
   } as VeevaAppState
 }
 
-function renderShell(app: VeevaAppState) {
+function renderShell(
+  app: VeevaAppState,
+  path = '/activities/survey-coffee/survey',
+) {
   render(
-    <MemoryRouter initialEntries={['/activities/survey-coffee/survey']}>
+    <MemoryRouter initialEntries={[path]}>
       <AppShell app={app}>
         <div data-testid="protected-content">問卷內容</div>
       </AppShell>
@@ -87,9 +90,29 @@ describe('AppShell member access gate', () => {
     expect(screen.queryByText('手機號碼驗證')).not.toBeInTheDocument()
   })
 
+  it('未加入官方帳號時不檢查也不攔截原頁面', () => {
+    renderShell(
+      appState({
+        officialAccountFriendshipReady: false,
+        officialAccountFriend: false,
+      }),
+    )
+
+    expect(screen.getByTestId('protected-content')).toBeInTheDocument()
+    expect(screen.queryByText('請先加入官方帳號')).not.toBeInTheDocument()
+    expect(screen.queryByText('正在確認官方帳號加入狀態')).not.toBeInTheDocument()
+  })
+
   it('完整會員資料確認後顯示原頁面', () => {
     renderShell(appState())
 
     expect(screen.getByTestId('protected-content')).toBeInTheDocument()
+  })
+
+  it('最新資訊入口與頁面標題顯示為常見問題', () => {
+    renderShell(appState(), '/news')
+
+    expect(screen.getAllByText('常見問題')).toHaveLength(2)
+    expect(screen.queryByText('最新資訊')).not.toBeInTheDocument()
   })
 })
