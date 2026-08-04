@@ -18110,40 +18110,87 @@ class _LineTemplateChatPreview extends StatelessWidget {
   Widget build(BuildContext context) {
     if (type == 'rich') {
       final message = backend.VeevaLineRichMessage.fromMap(snapshot);
-      return SizedBox(
+      final cardSize = _normalizeRichCardSize(message.cardSize);
+      final previewWidth = switch (cardSize) {
+        'kilo' => 240.0,
+        'giga' => 400.0,
+        _ => 320.0,
+      };
+      return Container(
         key: const ValueKey('line-rich-message-preview'),
-        width: 320,
+        width: previewWidth,
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: const Color(0xFFDCE3DE)),
+        ),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
             if (message.imageUrl.isNotEmpty)
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: AspectRatio(
-                  aspectRatio: 20 / 13,
-                  child: Image.network(
-                    message.imageUrl,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => const ColoredBox(
-                      color: Color(0xFFF1F2F3),
-                      child: Center(child: Icon(Icons.broken_image_outlined)),
+              AspectRatio(
+                aspectRatio: 1,
+                child: Image.network(
+                  message.imageUrl,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => const ColoredBox(
+                    color: Color(0xFFF1F2F3),
+                    child: Center(child: Icon(Icons.broken_image_outlined)),
+                  ),
+                ),
+              ),
+            Padding(
+              padding: EdgeInsets.all(cardSize == 'kilo' ? 10 : 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    message.title.isEmpty ? fallbackText : message.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: cardSize == 'kilo' ? 14 : 16,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  if (message.description.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      message.description,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF727577),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (message.targetUrl.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                child: Container(
+                  height: cardSize == 'kilo' ? 34 : 40,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFF9812),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    message.actionLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
                 ),
               ),
-            const SizedBox(height: 9),
-            Text(
-              message.title.isEmpty ? fallbackText : message.title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 3),
-            const Text(
-              '單頁圖文訊息',
-              style: TextStyle(color: Color(0xFF4E7159), fontSize: 12),
-            ),
           ],
         ),
       );
@@ -18492,6 +18539,16 @@ Future<void> _showLineMessageTestDialog(
   searchController.dispose();
 }
 
+const _lineRichCardSizeLabels = <String, String>{
+  'kilo': '小型',
+  'mega': '一般',
+  'giga': '大型',
+};
+
+String _normalizeRichCardSize(String? value) {
+  return _lineRichCardSizeLabels.containsKey(value) ? value! : 'mega';
+}
+
 class _LineRichMessageManagement extends StatelessWidget {
   const _LineRichMessageManagement({
     required this.messages,
@@ -18532,6 +18589,14 @@ class _LineRichMessageManagement extends StatelessWidget {
     final targetController =
         TextEditingController(text: message?.targetUrl ?? '');
     final altController = TextEditingController(text: message?.altText ?? '');
+    final descriptionController =
+        TextEditingController(text: message?.description ?? '');
+    final actionLabelController = TextEditingController(
+      text: message?.actionLabel.isNotEmpty == true
+          ? message!.actionLabel
+          : '立即查看',
+    );
+    var cardSize = _normalizeRichCardSize(message?.cardSize);
     String? error;
 
     final result = await showDialog<backend.VeevaLineRichMessage>(
@@ -18562,13 +18627,51 @@ class _LineRichMessageManagement extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 10),
+                  DropdownButtonFormField<String>(
+                    value: cardSize,
+                    decoration: const InputDecoration(
+                      labelText: '卡片大小 *',
+                      helperText: '調整顧客在 LINE 聊天室中看到的卡片寬度',
+                    ),
+                    items: _lineRichCardSizeLabels.entries
+                        .map(
+                          (item) => DropdownMenuItem(
+                            value: item.key,
+                            child: Text(item.value),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setDialogState(() => cardSize = value);
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: descriptionController,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: '內容說明 *',
+                      hintText: '顯示在圖片下方的卡片說明',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
                   TextField(
                     controller: targetController,
                     keyboardType: TextInputType.url,
                     decoration: const InputDecoration(
-                      labelText: '點擊連結（選填）',
-                      hintText: 'https:// 或 {{couponUrl}}；不需連結可留白',
-                      helperText: '留白時圖片不會執行點擊動作；{{couponUrl}} 會換成會員兌換券連結',
+                      labelText: '按鈕連結 *',
+                      hintText: 'https:// 或 {{couponUrl}}',
+                      helperText: '{{couponUrl}} 會換成會員兌換券連結',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: actionLabelController,
+                    maxLength: 40,
+                    decoration: const InputDecoration(
+                      labelText: '按鈕文字 *',
+                      hintText: '例如：立即查看',
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -18577,7 +18680,7 @@ class _LineRichMessageManagement extends StatelessWidget {
                     label: '圖文訊息圖片',
                     storageFolder: 'public/line-messages/$id',
                     onUpload: onUpload,
-                    helperText: '建議使用橫式圖片，點擊圖片後會開啟設定連結。',
+                    helperText: '建議使用 1:1 正方形圖片，圖片將顯示在卡片上方。',
                   ),
                   if (error != null) ...[
                     const SizedBox(height: 12),
@@ -18605,8 +18708,17 @@ class _LineRichMessageManagement extends StatelessWidget {
                     ? ''
                     : rawTargetUrl;
                 final altText = altController.text.trim();
-                if (title.isEmpty || imageUrl.isEmpty || altText.isEmpty) {
-                  setDialogState(() => error = '請完整填寫名稱、替代文字與圖片。');
+                final description = descriptionController.text.trim();
+                final actionLabel = actionLabelController.text.trim();
+                if (title.isEmpty ||
+                    imageUrl.isEmpty ||
+                    altText.isEmpty ||
+                    description.isEmpty ||
+                    actionLabel.isEmpty ||
+                    targetUrl.isEmpty) {
+                  setDialogState(
+                    () => error = '請完整填寫名稱、替代文字、說明、圖片與按鈕設定。',
+                  );
                   return;
                 }
                 if (targetUrl.isNotEmpty &&
@@ -18625,6 +18737,9 @@ class _LineRichMessageManagement extends StatelessWidget {
                     imageUrl: imageUrl,
                     targetUrl: targetUrl,
                     altText: altText,
+                    description: description,
+                    actionLabel: actionLabel,
+                    cardSize: cardSize,
                   ),
                 );
               },
@@ -18640,6 +18755,8 @@ class _LineRichMessageManagement extends StatelessWidget {
     imageController.dispose();
     targetController.dispose();
     altController.dispose();
+    descriptionController.dispose();
+    actionLabelController.dispose();
     if (result == null || !context.mounted) return;
     final next = [...messages];
     final index = next.indexWhere((item) => item.id == result.id);
@@ -18685,14 +18802,54 @@ class _LineRichMessageManagement extends StatelessWidget {
       'altText': message.altText,
       'contents': {
         'type': 'bubble',
+        'size': _normalizeRichCardSize(message.cardSize),
         'hero': {
           'type': 'image',
           'url': message.imageUrl,
           'size': 'full',
-          'aspectRatio': '20:13',
+          'aspectRatio': '1:1',
           'aspectMode': 'cover',
-          'action': {'type': 'uri', 'uri': message.targetUrl},
         },
+        'body': {
+          'type': 'box',
+          'layout': 'vertical',
+          'contents': [
+            {
+              'type': 'text',
+              'text': message.title,
+              'weight': 'bold',
+              'size': message.cardSize == 'kilo' ? 'md' : 'xl',
+              'wrap': true,
+            },
+            if (message.description.isNotEmpty)
+              {
+                'type': 'text',
+                'text': message.description,
+                'margin': 'md',
+                'size': message.cardSize == 'kilo' ? 'xs' : 'sm',
+                'color': '#727577',
+                'wrap': true,
+              },
+          ],
+        },
+        if (message.targetUrl.isNotEmpty)
+          'footer': {
+            'type': 'box',
+            'layout': 'vertical',
+            'contents': [
+              {
+                'type': 'button',
+                'style': 'primary',
+                'color': '#FF9812',
+                if (message.cardSize == 'kilo') 'height': 'sm',
+                'action': {
+                  'type': 'uri',
+                  'label': message.actionLabel,
+                  'uri': message.targetUrl,
+                },
+              },
+            ],
+          },
       },
     };
     await Clipboard.setData(ClipboardData(text: jsonEncode(payload)));
@@ -18713,7 +18870,7 @@ class _LineRichMessageManagement extends StatelessWidget {
             _LineMessagePageHeader(
               icon: Icons.image_outlined,
               title: '圖文訊息',
-              description: '建立單張圖片訊息，設定點擊後開啟的網頁或 LIFF 連結。',
+              description: '建立含圖片、說明與按鈕的 LINE 單頁卡片，並可調整卡片大小。',
               buttonLabel: '新增圖文訊息',
               onCreate: () => _openEditor(context),
             ),
@@ -18788,7 +18945,7 @@ class _LineRichMessageCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           AspectRatio(
-            aspectRatio: 20 / 13,
+            aspectRatio: 1,
             child: Image.network(
               message.imageUrl,
               fit: BoxFit.cover,
@@ -18814,10 +18971,31 @@ class _LineRichMessageCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  message.altText,
+                  message.description.isEmpty
+                      ? message.altText
+                      : message.description,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(color: Color(0xFF727577)),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    Chip(
+                      visualDensity: VisualDensity.compact,
+                      label: Text(
+                        '${_lineRichCardSizeLabels[_normalizeRichCardSize(message.cardSize)]} 卡片',
+                      ),
+                    ),
+                    if (message.targetUrl.isNotEmpty)
+                      Chip(
+                        visualDensity: VisualDensity.compact,
+                        avatar: const Icon(Icons.touch_app_outlined, size: 16),
+                        label: Text(message.actionLabel),
+                      ),
+                  ],
                 ),
                 const SizedBox(height: 14),
                 Row(

@@ -434,7 +434,11 @@ function buildRichRewardIssuedFlexMessage(data, template) {
   const couponUrl = couponActionUrl(cleanString(data.memberRewardId));
   const imageUrl = usableImageUrl(cleanString(template.imageUrl));
   if (!imageUrl) return buildSystemRewardIssuedFlexMessage(data);
+  const title = cleanString(template.title) || rewardName;
+  const description = cleanString(template.description);
+  const actionLabel = cleanString(template.actionLabel) || '立即查看';
   const targetUrl = resolveTemplateUrl(template.targetUrl, couponUrl);
+  const cardSize = normalizeRichCardSize(template.cardSize);
 
   return {
     type: 'flex',
@@ -442,23 +446,68 @@ function buildRichRewardIssuedFlexMessage(data, template) {
       cleanString(template.altText) || `${rewardName} 已確認，可以正常使用`,
     contents: {
       type: 'bubble',
+      size: cardSize,
       hero: {
         type: 'image',
         url: imageUrl,
         size: 'full',
-        aspectRatio: '20:13',
+        aspectRatio: '1:1',
         aspectMode: 'cover',
-        ...(targetUrl
-          ? {
-              action: {
-                type: 'uri',
-                uri: targetUrl,
-              },
-            }
-          : {}),
       },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          {
+            type: 'text',
+            text: title,
+            weight: 'bold',
+            size: cardSize === 'kilo' ? 'md' : 'xl',
+            wrap: true,
+          },
+          ...(description
+            ? [
+                {
+                  type: 'text',
+                  text: description,
+                  margin: 'md',
+                  size: cardSize === 'kilo' ? 'xs' : 'sm',
+                  color: '#727577',
+                  wrap: true,
+                },
+              ]
+            : []),
+        ],
+      },
+      ...(targetUrl
+        ? {
+            footer: {
+              type: 'box',
+              layout: 'vertical',
+              contents: [
+                {
+                  type: 'button',
+                  style: 'primary',
+                  color: '#FF9812',
+                  ...(cardSize === 'kilo' ? { height: 'sm' } : {}),
+                  action: {
+                    type: 'uri',
+                    label: actionLabel,
+                    uri: targetUrl,
+                  },
+                },
+              ],
+            },
+          }
+        : {}),
     },
   };
+}
+
+function normalizeRichCardSize(value) {
+  const size = cleanString(value);
+  if (size === 'kilo' || size === 'giga') return size;
+  return 'mega';
 }
 
 function buildCarouselRewardIssuedFlexMessage(data, template) {

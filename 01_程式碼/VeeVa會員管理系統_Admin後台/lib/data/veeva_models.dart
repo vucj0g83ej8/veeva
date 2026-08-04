@@ -228,6 +228,9 @@ class VeevaLineRichMessage {
     required this.imageUrl,
     required this.targetUrl,
     required this.altText,
+    this.description = '',
+    this.actionLabel = '立即查看',
+    this.cardSize = 'mega',
   });
 
   factory VeevaLineRichMessage.fromMap(Map<String, Object?> data) {
@@ -237,6 +240,9 @@ class VeevaLineRichMessage {
       imageUrl: data['imageUrl']?.toString() ?? '',
       targetUrl: data['targetUrl']?.toString() ?? '',
       altText: data['altText']?.toString() ?? '',
+      description: data['description']?.toString() ?? '',
+      actionLabel: data['actionLabel']?.toString() ?? '立即查看',
+      cardSize: data['cardSize']?.toString() ?? 'mega',
     );
   }
 
@@ -245,6 +251,9 @@ class VeevaLineRichMessage {
   final String imageUrl;
   final String targetUrl;
   final String altText;
+  final String description;
+  final String actionLabel;
+  final String cardSize;
 
   Map<String, Object?> toMap() => {
         'id': id,
@@ -252,6 +261,9 @@ class VeevaLineRichMessage {
         'imageUrl': imageUrl,
         'targetUrl': targetUrl,
         'altText': altText,
+        'description': description,
+        'actionLabel': actionLabel,
+        'cardSize': cardSize,
       };
 }
 

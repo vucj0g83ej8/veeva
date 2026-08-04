@@ -520,6 +520,19 @@ void main() {
       find.byKey(const ValueKey('line-carousel-message-preview')),
       findsOneWidget,
     );
+    expect(find.text('立即領取'), findsOneWidget);
+    expect(
+      tester
+          .getSize(find.byKey(const ValueKey('line-rich-message-preview')))
+          .width,
+      400,
+    );
+    final richPreviewImage = find.descendant(
+      of: find.byKey(const ValueKey('line-rich-message-preview')),
+      matching: find.byType(AspectRatio),
+    );
+    expect(richPreviewImage, findsOneWidget);
+    expect(tester.widget<AspectRatio>(richPreviewImage).aspectRatio, 1);
     expect(find.text('第一頁內容'), findsOneWidget);
   });
 
@@ -602,6 +615,8 @@ void main() {
 
     expect(repository.sentMessageType, 'rich');
     expect(repository.sentSnapshot?['id'], 'rich-test');
+    expect(repository.sentSnapshot?['cardSize'], 'giga');
+    expect(repository.sentSnapshot?['actionLabel'], '立即領取');
     expect(find.text('發送成功'), findsOneWidget);
     await tester.tap(find.text('完成'));
     await tester.pumpAndSettle();
@@ -825,6 +840,9 @@ class _MessageCaptureRepository extends DemoVeevaRepository {
             imageUrl: 'https://example.com/rich.jpg',
             targetUrl: 'https://example.com/rich',
             altText: '測試單頁圖文訊息',
+            description: '完成活動後即可領取會員好禮',
+            actionLabel: '立即領取',
+            cardSize: 'giga',
           ),
         ],
         lineCarouselMessages: [
